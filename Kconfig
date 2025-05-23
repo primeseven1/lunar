@@ -1,0 +1,37 @@
+mainmenu "Crescent 0.01 Configuration"
+
+config LLVM
+	bool "Enable LLVM"
+	default y
+	help
+	  "Use LLVM tools (clang/lld) instead of GNU tools (gcc/ld)"
+
+menu "Build options"
+
+config DEBUG
+	bool "Add debug symbols"
+	default n
+	help
+	  "Add debug symbols in the kernel binary"
+
+config OPTIMIZATION
+	int "Set optimization level"
+	range 0 3
+	default 2
+	help
+	  "Set the optimization level for the compiler"
+	  "0: No optimization (good for debugging)"
+	  "1: Enables minimal optimizations"
+	  "2: Enables a good in between of optimizations (default)"
+	  "3: Enables aggresive optimizations"
+
+config KASLR
+	bool "Enable randomization of kernel addresses (KASLR)"
+	default y
+	help
+	  "Enables build options that allow the kernel to be ran at any memory address"
+
+endmenu
+
+source "kernel/Kconfig"
+source "drivers/Kconfig"

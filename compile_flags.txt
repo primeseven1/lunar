@@ -1,0 +1,22 @@
+-c
+-MMD
+-MP
+-std=c11
+-I./include
+-include ./include/generated/autoconf.h
+-ffreestanding
+-fno-stack-protector
+-fno-omit-frame-pointer
+-fwrapv
+-Wall
+-Wextra
+-Wshadow
+-Wpointer-arith
+-Winline
+-Wimplicit-fallthrough
+-Wvla
+-Walloca
+-Wstrict-prototypes
+-Wmissing-prototypes
+-mno-red-zone
+-mgeneral-regs-only
