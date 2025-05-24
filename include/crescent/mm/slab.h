@@ -53,13 +53,6 @@ struct slab_cache* slab_cache_create(size_t obj_size, size_t align,
 int slab_cache_destroy(struct slab_cache* cache);
 
 /**
- * @brief Create a new slab and add it into the cache
- * @param cache The cache to grow
- * @return 0 for success, -errno if an error happens
- */
-int slab_cache_grow(struct slab_cache* cache);
-
-/**
  * @brief Allocate memory from a slab cache
  *
  * This function will automatically try to grow the cache if all slabs are full. 

@@ -31,7 +31,7 @@ static int slab_init(struct slab_cache* cache, struct slab* slab) {
 	return 0;
 }
 
-int slab_cache_grow(struct slab_cache* cache) {
+static int slab_cache_grow(struct slab_cache* cache) {
 	struct slab* slab = kmap(MM_ZONE_NORMAL, sizeof(*slab), MMU_READ | MMU_WRITE);
 	if (!slab)
 		return -ENOMEM;
