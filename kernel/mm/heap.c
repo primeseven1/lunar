@@ -30,7 +30,7 @@ void* kmalloc(size_t size, mm_t mm_flags) {
 	size = ROUND_UP(size, 8); 
 	struct slab_cache* cache = get_slab_cache(size + alloc_info_size, mm_flags);
 
-	/* If there is no slab that can accomodate the size or the mm flags, it will just call kmmap directly */
+	/* If there is no slab that can accomodate the size or the mm flags, it will just call kmap directly */
 	size_t* alloc_info;
 	if (cache) {
 		alloc_info = slab_cache_alloc(cache);
@@ -68,7 +68,7 @@ void* krealloc(void* addr, size_t new_size, mm_t mm_flags) {
 
 	struct slab_cache* new_cache = get_slab_cache(new_size + alloc_info_size, mm_flags);
 
-	/* Like in kmalloc, try to allocate from a slab cache, But if that's not possible, use kmmap */
+	/* Like in kmalloc, try to allocate from a slab cache, But if that's not possible, use kmap */
 	size_t* new_alloc_info;
 	if (new_cache) {
 		new_alloc_info = slab_cache_alloc(new_cache);
@@ -92,7 +92,7 @@ void* krealloc(void* addr, size_t new_size, mm_t mm_flags) {
 	check_value = (size_t*)((u8*)ret + new_size);
 	*check_value = HEAP_CHK_VALUE;
 
-	/* If old_cache is NULL, then kmmap was used to allocate the block */
+	/* If old_cache is NULL, then kmap was used to allocate the block */
 	struct slab_cache* old_cache = get_slab_cache(old_size, old_mm_flags);
 	if (old_cache)
 		slab_cache_free(old_cache, old_alloc_info);
@@ -112,7 +112,7 @@ void kfree(void* addr) {
 	if (*check_value != HEAP_CHK_VALUE)
 		panic("Kernel heap corruption! Check value: %zu", *check_value);
 
-	/* If cache is NULL, kmmap was used to allocate the block */
+	/* If cache is NULL, kmap was used to allocate the block */
 	struct slab_cache* cache = get_slab_cache(alloc_size + alloc_info_size, alloc_mm_flags);
 	if (cache)
 		slab_cache_free(cache, alloc_info);
