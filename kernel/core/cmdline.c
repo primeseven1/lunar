@@ -37,7 +37,7 @@ int cmdline_parse(void) {
 		return -ENOMEM;
 
 	/* 
-	 * Don't want to modify the cmdline directly, so make a copy of it. Use kmmap over kmalloc
+	 * Don't want to modify the cmdline directly, so make a copy of it. Use kmap over kmalloc
 	 * since after we're done parsing, the memory becomes read only.
 	 */
 	char* cmdline_copy = kmap(MM_ZONE_NORMAL, cmdline_size, MMU_READ | MMU_WRITE);
