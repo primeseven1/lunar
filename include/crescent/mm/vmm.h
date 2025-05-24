@@ -1,5 +1,6 @@
 #pragma once
 
+#include <crescent/compiler.h>
 #include <crescent/asm/errno.h>
 #include <crescent/core/locking.h>
 #include <crescent/mm/mm.h>
@@ -22,6 +23,9 @@ typedef unsigned long pte_t;
 struct vmm_ctx {
 	pte_t* pagetable;
 };
+
+void __iomem* iomap(physaddr_t physical, size_t size, unsigned long mmu_flags);
+int iounmap(void __iomem* virtual, size_t size);
 
 void* kmap(mm_t mm_flags, size_t size, unsigned long mmu_flags);
 int kprotect(void* virtual, size_t size, unsigned long mmu_flags);
