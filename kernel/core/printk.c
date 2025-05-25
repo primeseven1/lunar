@@ -72,7 +72,7 @@ int vprintk(const char* fmt, va_list va) {
 	if (buf[0] == '\001') {
 		level = buf[1];
 		if (level == '\0')
-			return len;
+			goto out;
 		buf += 2;
 	}
 
@@ -87,6 +87,7 @@ int vprintk(const char* fmt, va_list va) {
 			printk_hooks[i](&msg);
 	}
 
+out:
 	spinlock_unlock_irq_restore(&printk_lock, &flags);
 	return len;
 }
