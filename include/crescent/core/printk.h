@@ -25,7 +25,7 @@ struct printk_msg {
 
 int printk_set_hook(void (*hook)(const struct printk_msg*));
 int printk_remove_hook(void (*hook)(const struct printk_msg*));
-void printk_set_level(unsigned int level);
+int printk_set_level(unsigned int level);
 
 /**
  * @brief Print a formatted string to the kernel log

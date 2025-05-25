@@ -52,13 +52,16 @@ int printk_remove_hook(void (*hook)(const struct printk_msg*)) {
 	return ret;
 }
 
-void printk_set_level(unsigned int level) {
+int printk_set_level(unsigned int level) {
+	if (level > PRINTK_DBG_N)
+		return -EINVAL;
+
 	unsigned long flags;
 	spinlock_lock_irq_save(&printk_lock, &flags);
-	if (level > PRINTK_DBG_N)
-		level = PRINTK_DBG_N;
 	printk_level = level;
 	spinlock_unlock_irq_restore(&printk_lock, &flags);
+
+	return 0;
 }
 
 int vprintk(const char* fmt, va_list va) {

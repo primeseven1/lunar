@@ -34,6 +34,16 @@ _Noreturn __asmlinkage void kernel_main(void) {
 	if (err)
 		printk("init: Failed to parse cmdline! err: %i\n", err);
 
+	const char* loglevel = cmdline_get("loglevel");
+	if (loglevel) {
+		unsigned int level = *loglevel - '0';
+		err = printk_set_level(level);
+		if (err == -EINVAL)
+			printk(PRINTK_WARN "init: Failed to set cmdline loglevel, invalid level: %u", level);
+		else if (err)
+			printk(PRINTK_WARN "init: Failed to set cmdline loglevel, err: %i", err);
+	}
+
 	printk(PRINTK_CRIT "kernel_main ended!\n");
 die:
 	while (1)
