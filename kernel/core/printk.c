@@ -62,29 +62,29 @@ void printk_set_level(unsigned int level) {
 }
 
 int vprintk(const char* fmt, va_list va) {
-	unsigned int level = PRINTK_INFO_N;
-	if (fmt[0] == '\001') {
-		level = fmt[1];
-		fmt += 2;
-	}
-
 	unsigned long flags;
 	spinlock_lock_irq_save(&printk_lock, &flags);
 
-	int len = vsnprintf(printk_buf, sizeof(printk_buf), fmt, va);
-	if (len >= 0) {
-		/* clang-format off */
-		struct printk_msg msg = {
-			.msg = printk_buf,
-			.msg_level = level,
-			.global_level = printk_level,
-			.len = strlen(printk_buf) 
-		};
-		/* clang-format on */
-		for (size_t i = 0; i < ARRAY_SIZE(printk_hooks); i++) {
-			if (printk_hooks[i])
-				printk_hooks[i](&msg);
-		}
+	char* buf = printk_buf;
+	int len = vsnprintf(buf, sizeof(printk_buf), fmt, va);
+
+	unsigned int level = PRINTK_INFO_N;
+	if (buf[0] == '\001') {
+		level = buf[1];
+		if (level == '\0')
+			return len;
+		buf += 2;
+	}
+
+	/* clang-format off */
+	struct printk_msg msg = {
+		.msg = buf, .msg_level = level, .global_level = printk_level, .len = strlen(buf)
+	};
+
+	/* clang-format on */
+	for (size_t i = 0; i < ARRAY_SIZE(printk_hooks); i++) {
+		if (printk_hooks[i])
+			printk_hooks[i](&msg);
 	}
 
 	spinlock_unlock_irq_restore(&printk_lock, &flags);
