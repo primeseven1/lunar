@@ -35,8 +35,8 @@ def parse_cmdline_args(iso_file: str) -> str:
     if args.debug:
         qemu_args += " -S -s"
     if args.efi:
-        ovmf_code = os.path.join(args.ovmf_path, "OVMF_CODE.fd")
-        ovmf_vars = os.path.join(args.ovmf_path, "OVMF_VARS.fd")
+        ovmf_code = os.path.join(args.ovmf_path, "OVMF_CODE.4m.fd")
+        ovmf_vars = os.path.join(args.ovmf_path, "OVMF_VARS.4m.fd")
         qemu_args += f" -drive if=pflash,unit=0,file={ovmf_code},readonly=on"
         qemu_args += f" -drive if=pflash,unit=1,file={ovmf_vars},readonly=on"
     qemu_args += f" -m {args.memory}"
