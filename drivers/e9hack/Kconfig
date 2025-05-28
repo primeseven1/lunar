@@ -1,0 +1,5 @@
+config DRIVER_E9HACK
+	bool "Enable port E9 hack"
+	default y
+	help
+	  "This driver allows writing printk messages to port e9 for hypervisors"

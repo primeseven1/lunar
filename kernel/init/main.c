@@ -19,6 +19,7 @@ _Noreturn __asmlinkage void kernel_main(void) {
 	bsp_cpu_init();
 
 	module_load("liminefb");
+	module_load("e9hack");
 
 	int err = tracing_init();
 	if (err)
