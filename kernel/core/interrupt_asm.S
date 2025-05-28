@@ -1,5 +1,3 @@
-#include <crescent/asm/msr.h>
-
 .code64
 
 .text
@@ -22,9 +20,9 @@ asm_idt_load:
 .size asm_idt_load, . - asm_idt_load
 
 .macro swapgs_if_needed
-    cmpq $0x08, 24(%rsp) /* swapgs if interrupt happened in user mode */
-    je 1f
-    swapgs
+	cmpq $0x08, 24(%rsp) /* swapgs if interrupt happened in user mode */
+	je 1f
+	swapgs
 1:
 .endm
 
@@ -38,43 +36,43 @@ asm_idt_load:
 
 .macro isr_no_err n
 .text
-.type isr_\n, @function
+.type asm_isr_\n, @function
 .align 0x10
-isr_\n:
+asm_isr_\n:
 	pushq $0
 	pushq $\n
 	swapgs_if_needed
 	cld
-	call isr_common
+	call asm_isr_common
 	cli /* make sure no interrupts can happen when handling swapgs */
 	swapgs_if_needed
 	addq $16, %rsp
 	iretq
-.size isr_\n, . - isr_\n
+.size asm_isr_\n, . - asm_isr_\n
 .previous
 .endm
 
 .macro isr_err n
 .text
-.type isr_\n, @function
+.type asm_isr_\n, @function
 .align 0x10
-isr_\n:
+asm_isr_\n:
 	pushq $\n
 	swapgs_if_needed
 	cld
-	call isr_common
+	call asm_isr_common
 	cli /* make sure no interrupts can happen when handling swapgs */
 	swapgs_if_needed
 	addq $16, %rsp /* skip the error code */
 	iretq
-.size isr_\n, . - isr_\n
+.size asm_isr_\n, . - asm_isr_\n
 .previous
 .endm
 
 .text
 .type isr_common, @function
 .align 0x10
-isr_common:
+asm_isr_common:
 	pushq %r15
 	pushq %r14
 	pushq %r13
@@ -123,7 +121,7 @@ isr_common:
 	popq %r15
 
 	ret
-.size isr_common, . - isr_common
+.size asm_isr_common, . - asm_isr_common
 
 /* Now just set up all ISR stubs */
 .altmacro
@@ -141,10 +139,12 @@ isr_common:
 	.set i, i+1
 .endr
 
+/* No, I could not just inline this without the assembler bitching */
 .macro isr_table_define n
-.quad isr_\n
+.quad asm_isr_\n
 .endm
 
+/* With KASLR, there can't be relocations in .rodata */
 #ifdef CONFIG_KASLR
 .data
 #else
