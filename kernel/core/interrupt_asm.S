@@ -1,3 +1,5 @@
+#include <crescent/asm/segment.h>
+
 .code64
 
 .text
@@ -11,6 +13,13 @@ asm_idt_load:
 	jz 1f
 	subw $1, %si
 1:
+	/* Setup the IDT struct as:
+	 * 
+	 * struct {
+	 *	u16 limit;
+	 *	void* idtp;
+	 * } __attribute__((packed));
+	 */
 	movw %si, (%rsp)
 	movq %rdi, 2(%rsp)
 	lidt (%rsp)
@@ -20,9 +29,9 @@ asm_idt_load:
 .size asm_idt_load, . - asm_idt_load
 
 .macro swapgs_if_needed
-	cmpq $0x08, 24(%rsp) /* swapgs if interrupt happened in user mode */
+	cmpq $SEGMENT_KERNEL_CODE, 24(%rsp) /* Check to see if the interrupt happened in kernel mode */
 	je 1f
-	swapgs
+	swapgs /* Only gets executed if the interrupt happened in user mode */
 1:
 .endm
 
@@ -91,7 +100,7 @@ asm_isr_common:
 	movq %cr2, %rax
 	pushq %rax
 
-	/* Parameter for _do_isr */
+	/* Parameter for __isr_entry */
 	movq %rsp, %rdi
 
 	movq %rsp, %rbx
