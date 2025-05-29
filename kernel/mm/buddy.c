@@ -577,7 +577,7 @@ void buddy_init(void) {
 	if (unlikely(err == -ELOOP)) {
 		dma32_zone = &dma_zone;
 		normal_zone = &dma_zone;
-		printk(PRINTK_DBG "Linking dma32 and normal to dma\n");
+		printk(PRINTK_DBG "mm: Linking dma32 and normal to dma\n");
 		return;
 	} else if (err) {
 		panic("Failed to initialize DMA32 zone");
@@ -588,7 +588,7 @@ void buddy_init(void) {
 			0x100000000, PHYSADDR_MAX, MM_ZONE_DMA32);
 	if (err == -ELOOP) {
 		normal_zone = dma32_zone;
-		printk(PRINTK_DBG "Linking normal to dma32\n");
+		printk(PRINTK_DBG "mm: Linking normal to dma32\n");
 		return;
 	} else if (err) {
 		panic("Failed to initialize normal zone");
