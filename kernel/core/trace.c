@@ -21,7 +21,11 @@ static const char* trace_kernel_symbol_name(const u8* addr) {
 		return NULL;
 
 	size_t kernel_offset = (uintptr_t)&_ld_kernel_start - KERNEL_MIN_VIRTUAL;
+#ifdef CONFIG_KASLR
+	addr = addr - kernel_offset - KERNEL_MIN_VIRTUAL;
+#else
 	addr = addr - kernel_offset;
+#endif
 
 	for (u32 i = 0; i < kernel_sym_count; i++) {
 		u64 st_value = kernel_symtab[i].st_value;
@@ -40,7 +44,11 @@ static ssize_t trace_kernel_symbol_offset(const u8* addr) {
 		return -1;
 
 	size_t kernel_offset = (uintptr_t)&_ld_kernel_start - KERNEL_MIN_VIRTUAL;
+#ifdef CONFIG_KASLR
+	addr = addr - kernel_offset - KERNEL_MIN_VIRTUAL;
+#else
 	addr = addr - kernel_offset;
+#endif
 
 	for (u32 i = 0; i < kernel_sym_count; i++) {
 		u64 st_value = kernel_symtab[i].st_value;
@@ -68,7 +76,7 @@ void dump_stack(void) {
 		if (name) {
 			ssize_t offset = trace_kernel_symbol_offset(ret);
 			if (likely(offset != -1))
-				printk(PRINTK_CRIT "%p <%s+%#zx>\n", ret, name, (size_t)offset);
+				printk(PRINTK_CRIT " %p <%s+%#zx>\n", ret, name, (size_t)offset);
 			else
 				printk(PRINTK_EMERG " %p <%s+?>\n", ret, name);
 		} else {

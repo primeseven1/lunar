@@ -9,7 +9,7 @@ PHDRS {
 }
 
 SECTIONS {
-	. = 0xffffffff80000000;
+	. = 0;
 
 	INCLUDE "kernel/sections.ld"
 }

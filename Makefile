@@ -38,7 +38,11 @@ LDFLAGS += -no-pie
 endif
 
 OUTPUT := ./crescent
+ifeq ($(CONFIG_KASLR), y)
+LDSCRIPT := ./kernel/linker_x86_64_kaslr.ld
+else
 LDSCRIPT := ./kernel/linker_x86_64.ld
+endif
 
 .PHONY: all menuconfig clean iso
 
