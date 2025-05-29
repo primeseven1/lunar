@@ -61,7 +61,7 @@ void segments_init(void) {
 	if (!tss)
 		panic("Failed to allocate TSS!");
 
-	memset(tss, 1, tss_size);
+	memset(tss, INT_MAX, tss_size);
 	size_t ist_stack_size = 0x4000;
 	u8* rsp0 = kmap(MM_ZONE_NORMAL, ist_stack_size, MMU_READ | MMU_WRITE);
 	u8* ist1 = kmap(MM_ZONE_NORMAL, ist_stack_size, MMU_READ | MMU_WRITE);
