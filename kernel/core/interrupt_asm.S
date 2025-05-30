@@ -1,33 +1,5 @@
 #include <crescent/asm/segment.h>
 
-.code64
-
-.text
-.globl asm_idt_load
-.type asm_idt_load, @function
-asm_idt_load:
-	subq $16, %rsp
-
-	/* Like with the GDT, the size must be subtracted by 1 */
-	testw %si, %si
-	jz 1f
-	subw $1, %si
-1:
-	/* Setup the IDT struct as:
-	 * 
-	 * struct {
-	 *	u16 limit;
-	 *	void* idtp;
-	 * } __attribute__((packed));
-	 */
-	movw %si, (%rsp)
-	movq %rdi, 2(%rsp)
-	lidt (%rsp)
-
-	addq $16, %rsp
-	ret
-.size asm_idt_load, . - asm_idt_load
-
 .macro swapgs_if_needed
 	cmpq $SEGMENT_KERNEL_CODE, 24(%rsp) /* Check to see if the interrupt happened in kernel mode */
 	je 1f
@@ -41,8 +13,7 @@ asm_idt_load:
  * happens.
  */
 
-/* n is the interrupt number, and msr determines whether or not to do the MSR way of doing swapgs */
-
+/* ISR handler with no error code */
 .macro isr_no_err n
 .text
 .type asm_isr_\n, @function
@@ -53,7 +24,7 @@ asm_isr_\n:
 	swapgs_if_needed
 	cld
 	call asm_isr_common
-	cli /* make sure no interrupts can happen when handling swapgs */
+	cli /* make sure no interrupts can happen when handling swapgs, iretq will restore this */
 	swapgs_if_needed
 	addq $16, %rsp
 	iretq
@@ -61,6 +32,7 @@ asm_isr_\n:
 .previous
 .endm
 
+/* ISR handler with an error code */
 .macro isr_err n
 .text
 .type asm_isr_\n, @function
@@ -70,7 +42,7 @@ asm_isr_\n:
 	swapgs_if_needed
 	cld
 	call asm_isr_common
-	cli /* make sure no interrupts can happen when handling swapgs */
+	cli /* make sure no interrupts can happen when handling swapgs, iretq will restore this */
 	swapgs_if_needed
 	addq $16, %rsp /* skip the error code */
 	iretq
@@ -78,6 +50,7 @@ asm_isr_\n:
 .previous
 .endm
 
+.code64
 .text
 .type isr_common, @function
 .align 0x10
@@ -136,11 +109,7 @@ asm_isr_common:
 .altmacro
 .set i, 0
 .rept 256
-.if ((i >= 10 && i <= 14) || i == 17 || i == 21 || i == 29 || i == 30)
-	isr_err %i
-.elseif (i == 2 || i == 18)
-	isr_no_err %i
-.elseif (i == 8)
+.if ((i >= 10 && i <= 14) || i == 17 || i == 21 || i == 29 || i == 30 || i == 8)
 	isr_err %i
 .else
 	isr_no_err %i

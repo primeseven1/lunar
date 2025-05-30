@@ -1,6 +1,6 @@
 #pragma once
 
-struct ctx {
+struct context {
 	void* cr2;
 	long rax, rbx, rcx, rdx, rsi, rdi;
 	void* rbp;
@@ -12,5 +12,7 @@ struct ctx {
 	void* rsp;
 	long ss;
 } __attribute__((packed));
+
+#define INTERRUPT_COUNT 256
 
 void interrupts_init(void);
