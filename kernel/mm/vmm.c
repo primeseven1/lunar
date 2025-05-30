@@ -60,6 +60,7 @@ static int __iomap(void __iomem* virtual, physaddr_t physical,
 			return err;
 		}
 
+		tlb_flush_single((void*)virtual);
 		pages_mapped++;
 		virtual = (u8*)virtual + PAGE_SIZE;
 		physical += PAGE_SIZE;
@@ -81,6 +82,9 @@ static int __iounmap(void __iomem* virtual, unsigned long page_count) {
 			}
 			return err;
 		}
+
+		tlb_flush_single((void*)virtual);
+		virtual = (u8*)virtual + PAGE_SIZE;
 	}
 
 	return 0;
