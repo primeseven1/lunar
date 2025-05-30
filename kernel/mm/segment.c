@@ -7,6 +7,37 @@
 #include <crescent/lib/string.h>
 #include <crescent/mm/vmm.h>
 
+struct segment_descriptor {
+	u16 limit_low;
+	u16 base_low;
+	u8 base_middle;
+	u8 access;
+	u8 flags;
+	u8 base_high;
+} __attribute__((packed));
+
+struct tss_segment_descriptor {
+	struct segment_descriptor desc;
+	u32 base_top;
+	u32 __reserved;
+} __attribute__((packed));
+
+struct tss_descriptor {
+	u32 __reserved0;
+	void* rsp[3];
+	u64 __reserved1;
+	void* ist[7];
+	u32 __reserved2;
+	u32 __reserved3;
+	u16 __reserved4;
+	u16 iopb;
+} __attribute__((packed));
+
+struct kernel_segments {
+	struct segment_descriptor segments[6];
+	struct tss_segment_descriptor tss;
+} __attribute__((packed));
+
 /*
  * Segment 0: NULL
  * Segment 1: Kernel code, 64 bit
@@ -42,11 +73,24 @@ static const struct segment_descriptor base[6] = {
 	}
 };
 
-/*
- * This function takes a size since the assembly doesn't know the size of the GDT, 
- * and this also prevents problems if the size changes for some reason 
- */
-__asmlinkage void asm_gdt_load(struct kernel_segments* segments, size_t size);
+/* This function was fun to write... */
+static __noinline void reload_segment_registers(void) {
+	__asm__ volatile("swapgs\n\t"
+			"movw %0, %%gs\n\t"
+			"movw %0, %%fs\n\t"
+			"swapgs\n\t"
+			"movw %1, %%ds\n\t"
+			"movw %1, %%es\n\t"
+			"movw %1, %%ss\n\t"
+			"pushq %2\n\t"
+			"pushq %3\n\t"
+			"lretq"
+			:
+			: "r"((u16)0), "r"((u16)SEGMENT_KERNEL_DATA), "r"((u64)SEGMENT_KERNEL_CODE), "r"(&&reload)
+			: "memory");
+reload:
+	__asm__ volatile("ltr %0" : : "r"((u16)SEGMENT_TASK_STATE) : "memory");
+}
 
 void segments_init(void) {
 	struct kernel_segments* segments = kmap(MM_ZONE_NORMAL, sizeof(*segments), MMU_READ | MMU_WRITE);
@@ -87,5 +131,14 @@ void segments_init(void) {
 	segments->tss.base_top = (uintptr_t)tss >> 32;
 	segments->tss.__reserved = 0;
 
-	asm_gdt_load(segments, sizeof(*segments));
+	struct {
+		u16 limit;
+		struct kernel_segments* pointer;
+	} __attribute__((packed)) gdtr = {
+		.limit = sizeof(*segments) - 1,
+		.pointer = segments
+	};
+	__asm__ volatile("lgdt %0" : : "m"(gdtr) : "memory");
+
+	reload_segment_registers();
 }
