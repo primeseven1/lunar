@@ -1,5 +1,5 @@
-#include <crescent/asm/flags.h>
 #include <crescent/core/panic.h>
+#include <crescent/core/interrupt.h>
 #include <crescent/core/printk.h>
 #include <crescent/core/trace.h>
 #include <crescent/lib/format.h>

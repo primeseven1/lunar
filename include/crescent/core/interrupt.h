@@ -1,5 +1,6 @@
 #pragma once
 
+#include <crescent/asm/flags.h>
 #include <crescent/core/locking.h>
 
 struct context {
@@ -26,3 +27,28 @@ struct isr {
 
 const struct isr* interrupt_register(void (*handler)(const struct isr*, const struct context*));
 void interrupts_init(void);
+
+/**
+ * @brief Enable interrupts on the current processor
+ */
+static inline void local_irq_enable(void) {
+	__asm__ volatile("sti" : : : "memory");
+}
+
+/**
+ * @brief Disable interrupts on the current processor
+ */
+static inline void local_irq_disable(void) {
+	__asm__ volatile("cli" : : : "memory");
+}
+
+static inline unsigned long local_irq_save(void) {
+	unsigned long flags = read_cpu_flags();
+	local_irq_disable();
+	return flags;
+}
+
+static inline void local_irq_restore(unsigned long flags) {
+	if (flags & CPU_FLAG_INTERRUPT)
+		local_irq_enable();
+}

@@ -37,29 +37,4 @@ static inline unsigned long read_cpu_flags(void) {
 	return flags;
 }
 
-/**
- * @brief Enable interrupts on the current processor
- */
-static inline void local_irq_enable(void) {
-	__asm__ volatile("sti" : : : "memory");
-}
-
-/**
- * @brief Disable interrupts on the current processor
- */
-static inline void local_irq_disable(void) {
-	__asm__ volatile("cli" : : : "memory");
-}
-
-static inline unsigned long local_irq_save(void) {
-	unsigned long flags = read_cpu_flags();
-	local_irq_disable();
-	return flags;
-}
-
-static inline void local_irq_restore(unsigned long flags) {
-	if (flags & CPU_FLAG_INTERRUPT)
-		local_irq_enable();
-}
-
 #endif /* __ASSEMBLER__ */
