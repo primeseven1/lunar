@@ -51,4 +51,15 @@ static inline void local_irq_disable(void) {
 	__asm__ volatile("cli" : : : "memory");
 }
 
+static inline unsigned long local_irq_save(void) {
+	unsigned long flags = read_cpu_flags();
+	local_irq_disable();
+	return flags;
+}
+
+static inline void local_irq_restore(unsigned long flags) {
+	if (flags & CPU_FLAG_INTERRUPT)
+		local_irq_enable();
+}
+
 #endif /* __ASSEMBLER__ */
