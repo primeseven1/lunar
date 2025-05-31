@@ -434,22 +434,16 @@ int vsnprintf(char* dest, size_t dsize, const char* fmt, va_list va) {
 		struct fmt spec;
 		union arg arg;
 
-		/* For getting the argument, use the add variable as an error variable */
 		parse_fmt(&fmt, va, &spec);
-		add = get_arg(&spec, va, *fmt++, &arg);
-		if (add)
+		if (get_arg(&spec, va, *fmt++, &arg))
 			return -1;
 
 		/* Now for writing to output, if the value is negative it's an error */
 		add = do_output(&spec, &dest, &dsize, &arg);
 		if (add < 0)
 			return -1;
-
-		/* Now check to make sure the value getting returned won't be an overflow */
-		unsigned long long overflow_check = char_count + add;
-		if (unlikely(overflow_check > INT_MAX))
+		if (__builtin_add_overflow(char_count, add, &char_count))
 			return -1;
-		char_count += add;
 	}
 
 	/* dsize being zero can only happen if zero is passed in */
