@@ -11,6 +11,7 @@
 struct mempool {
 	struct slab_cache* cache;
 	struct mempool* prev, *next;
+	unsigned long refcount; /* Atomic */
 };
 
 /* The cache for other mempools, initialized by heap_init */
@@ -26,6 +27,7 @@ static struct mempool* walk_mempools(size_t size, mm_t mm_flags) {
 	struct mempool* pool = mempool_head;
 	while (1) {
 		if (pool->cache->obj_size >= size && pool->cache->mm_flags == mm_flags) {
+			__atomic_add_fetch(&pool->refcount, 1, __ATOMIC_SEQ_CST);
 			spinlock_unlock_irq_restore(&mempool_spinlock, &lock_flags);
 			return pool;
 		}
@@ -50,6 +52,7 @@ static struct mempool* walk_mempools(size_t size, mm_t mm_flags) {
 
 	new_pool->prev = pool;
 	new_pool->next = NULL;
+	new_pool->refcount = 1; /* No need for an atomic operation here */
 	pool->next = new_pool;
 leave:
 	spinlock_unlock_irq_restore(&mempool_spinlock, &lock_flags);
@@ -66,9 +69,12 @@ static void attempt_delete_mempool(struct mempool* pool) {
 	unsigned long lock_flags;
 	spinlock_lock_irq_save(&mempool_spinlock, &lock_flags);
 
+	if (__atomic_load_n(&pool->refcount, __ATOMIC_SEQ_CST))
+		goto leave;
+
 	size_t obj_size = pool->cache->obj_size;
 	int err = slab_cache_destroy(pool->cache);
-	if (err)
+	if (unlikely(err))
 		goto leave;
 
 	if (pool->next)
@@ -125,7 +131,10 @@ void kfree(void* ptr) {
 				*check_value, HEAP_CHK_VALUE);
 	}
 
-	slab_cache_free(alloc_info->pool->cache, alloc_info);
+	struct mempool* pool = alloc_info->pool;
+	slab_cache_free(pool->cache, alloc_info);
+	__atomic_sub_fetch(&pool->refcount, 1, __ATOMIC_SEQ_CST);
+
 	attempt_delete_mempool(alloc_info->pool);
 }
 
@@ -165,4 +174,5 @@ void heap_init(void) {
 
 	mempool_head->next = NULL;
 	mempool_head->prev = NULL;
+	mempool_head->refcount = 1;
 }
