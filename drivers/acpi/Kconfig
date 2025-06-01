@@ -1,0 +1,5 @@
+config DRIVER_ACPI
+	bool "Enable support for ACPI (uses uACPI)"
+	default n
+	help
+	  "Enable ACPI table parsing support"

@@ -20,3 +20,8 @@
 -Wmissing-prototypes
 -mno-red-zone
 -mgeneral-regs-only
+
+-I./drivers/acpi/include
+-I./drivers/acpi/uacpi/include
+-DUACPI_BAREBONES_MODE
+-DUACPI_OVERRIDE_TYPES
