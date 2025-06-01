@@ -108,7 +108,7 @@ void* krealloc(void* addr, size_t new_size, mm_t mm_flags) {
 		slab_cache_free(old_cache, old_alloc_info);
 	} else {
 		size_t old_total_size = old_size + sizeof(struct alloc_info) + sizeof(size_t);
-		kunmap(old_alloc_info, old_size + old_total_size);
+		kunmap(old_alloc_info, old_total_size);
 	}
 
 	return ret;
