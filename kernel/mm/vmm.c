@@ -1,5 +1,6 @@
 #include <crescent/common.h>
 #include <crescent/compiler.h>
+#include <crescent/asm/ctl.h>
 #include <crescent/core/cpu.h>
 #include <crescent/core/locking.h>
 #include <crescent/core/limine.h>
@@ -12,9 +13,6 @@
 #include <crescent/lib/string.h>
 #include "hhdm.h"
 #include "pagetable.h"
-
-#define PML4_MAX_4K_PAGES 0x8000000ul
-#define PTE_COUNT 512
 
 static struct vma* kvma;
 static struct vma* iovma;
@@ -299,10 +297,10 @@ int kunmap(void* virtual, size_t size) {
 }
 
 void vmm_init(void) {
-	physaddr_t _cr3;
-	__asm__("movq %%cr3, %0" : "=r"(_cr3));
-	pte_t* cr3 = hhdm_virtual(_cr3);
+	pagetable_init();
 
+	/* No need to check the pointer, the system would triple fault if an invalid page table was in cr3 */
+	pte_t* cr3 = hhdm_virtual(ctl3_read());
 	current_cpu()->vmm_ctx.pagetable = cr3;
 
 	void* kvma_start = NULL;
@@ -310,13 +308,13 @@ void vmm_init(void) {
 	void* iovma_start = NULL;
 	void* iovma_end = NULL;
 
-	for (unsigned long entry = 256; entry < PTE_COUNT; entry++) {
+	for (unsigned int entry = 256; entry < PTE_COUNT; entry++) {
 		if (cr3[entry] & PT_PRESENT)
 			continue;
 
 		/* The end of the VMA is subtracted by a page size to force room for a page fault */
-		void* start = (void*)((entry << 39) | 0xFFFF000000000000);
-		void* end = (u8*)start + (PML4_MAX_4K_PAGES * PAGE_SIZE) - PAGE_SIZE;
+		void* start = pagetable_get_base_address_from_top_index(entry);
+		void* end = (u8*)pagetable_get_end_address_from_top_index(entry) - PAGE_SIZE;
 	
 		if (!kvma_start) {
 			kvma_start = start;

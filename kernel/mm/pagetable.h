@@ -2,6 +2,8 @@
 
 #include <crescent/mm/vmm.h>
 
+#define PTE_COUNT 512
+
 enum pt_flags {
 	PT_PRESENT = (1 << 0),
 	PT_READ_WRITE = (1 << 1),
@@ -21,3 +23,7 @@ int pagetable_map(pte_t* pagetable, void* virtual, physaddr_t physical, unsigned
 int pagetable_update(pte_t* pagetable, void* virtual, physaddr_t physical, unsigned long pt_flags);
 int pagetable_unmap(pte_t* pagetable, void* virtual);
 physaddr_t pagetable_get_physical(pte_t* pagetable, const void* virtual);
+
+void* pagetable_get_base_address_from_top_index(unsigned int index);
+void* pagetable_get_end_address_from_top_index(unsigned int index);
+void pagetable_init(void);

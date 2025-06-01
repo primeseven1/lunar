@@ -1,8 +1,10 @@
 #include <crescent/common.h>
+#include <crescent/asm/ctl.h>
 #include <crescent/compiler.h>
 #include <crescent/core/cpu.h>
 #include <crescent/core/panic.h>
 #include <crescent/core/printk.h>
+#include <crescent/core/limine.h>
 #include <crescent/mm/buddy.h>
 #include <crescent/lib/string.h>
 #include "pagetable.h"
@@ -201,4 +203,39 @@ physaddr_t pagetable_get_physical(pte_t* pagetable, const void* virtual) {
 		return 0;
 
 	return (*pte & ~(0xFFF | PT_NX)) + ((uintptr_t)virtual & (page_size - 1));
+}
+
+static struct limine_paging_mode_request __limine_request paging_mode = {
+	.request.id = LIMINE_PAGING_MODE_REQUEST,
+	.request.revision = 1,
+	.min_mode = LIMINE_PAGING_MODE_X86_64_4LVL,
+	.max_mode = LIMINE_PAGING_MODE_X86_64_4LVL,
+	.mode = LIMINE_PAGING_MODE_X86_64_4LVL,
+	.response = NULL
+};
+
+#define PML4_MAX_4K_PAGES 0x8000000ul
+
+void* pagetable_get_base_address_from_top_index(unsigned int index) {
+	if (index >= 512)
+		return NULL;
+
+	if (index >= 256)
+		return (void*)(((u64)index << 39) | 0xFFFF000000000000);
+	return (void*)((u64)index << 39);
+}
+
+void* pagetable_get_end_address_from_top_index(unsigned int index) {
+	return (u8*)pagetable_get_base_address_from_top_index(index) + PML4_MAX_4K_PAGES * PAGE_SIZE;
+}
+
+void pagetable_init(void) {
+	struct limine_paging_mode_response* response = paging_mode.response;
+	if (unlikely(!response)) {
+		unsigned long cr4 = ctl4_read();
+		if (cr4 & CTL4_LA57)
+			panic("Wrong paging mode selected by the loader!");
+	} else if (response->mode != LIMINE_PAGING_MODE_X86_64_4LVL) {
+		panic("Wrong paging mode selected by the loader!");
+	}
 }
