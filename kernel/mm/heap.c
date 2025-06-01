@@ -6,51 +6,105 @@
 #include <crescent/mm/slab.h>
 #include <crescent/lib/string.h>
 
-#define HEAP_CHK_VALUE 0xdecafc0ffee
-#define HEAP_CACHE_COUNT 12
+#define HEAP_CHK_VALUE 0xdecafc0ffeeUL
 
-/* Use 64 bit integers to keep 8 byte alignment */
-struct alloc_info {
-	u64 size, mm_flags;
+struct mempool {
+	struct slab_cache* cache;
+	struct mempool* prev, *next;
 };
 
-static const size_t heap_cache_sizes[HEAP_CACHE_COUNT] = { 
-	256, 256, 256, 512, 512, 512, 1024, 1024, 1024, 2048, 2048, 2048 
-};
-static struct slab_cache* heap_caches[HEAP_CACHE_COUNT] = { NULL };
+/* The cache for other mempools, initialized by heap_init */
+static struct mempool* mempool_head = NULL;
+static spinlock_t mempool_spinlock = SPINLOCK_INITIALIZER;
 
-static struct slab_cache* get_slab_cache(size_t size, mm_t mm_flags) {
-	struct slab_cache* cache = NULL;
-	for (size_t i = 0; i < ARRAY_SIZE(heap_caches); i++) {
-		if (size <= heap_caches[i]->obj_size && heap_caches[i]->mm_flags == mm_flags) {
-			cache = heap_caches[i];
-			break;
+static struct mempool* walk_mempools(size_t size, mm_t mm_flags) {
+	size = ROUND_UP(size, 16);
+
+	unsigned long lock_flags;
+	spinlock_lock_irq_save(&mempool_spinlock, &lock_flags);
+
+	struct mempool* pool = mempool_head;
+	while (1) {
+		if (pool->cache->obj_size >= size && pool->cache->mm_flags == mm_flags) {
+			spinlock_unlock_irq_restore(&mempool_spinlock, &lock_flags);
+			return pool;
 		}
+
+		if (!pool->next)
+			break;
+		pool = pool->next;
 	}
-	return cache;
+
+	/* Not enough space, so create a new pool */
+	struct mempool* new_pool = slab_cache_alloc(mempool_head->cache);
+	if (!new_pool)
+		goto leave;
+
+	/* Create a new slab cache for the new pool */
+	new_pool->cache = slab_cache_create(size, 16, mm_flags, NULL, NULL);
+	if (!new_pool->cache) {
+		slab_cache_free(mempool_head->cache, new_pool);
+		new_pool = NULL;
+		goto leave;
+	}
+
+	new_pool->prev = pool;
+	new_pool->next = NULL;
+	pool->next = new_pool;
+leave:
+	spinlock_unlock_irq_restore(&mempool_spinlock, &lock_flags);
+	if (new_pool)
+		printk(PRINTK_DBG "mm: Successfully created new heap pool with a size of %zu\n", size);
+
+	return new_pool;
 }
 
+static void attempt_delete_mempool(struct mempool* pool) {
+	if (pool == mempool_head)
+		return;
+
+	unsigned long lock_flags;
+	spinlock_lock_irq_save(&mempool_spinlock, &lock_flags);
+
+	size_t obj_size = pool->cache->obj_size;
+	int err = slab_cache_destroy(pool->cache);
+	if (err)
+		goto leave;
+
+	if (pool->next)
+		pool->next->prev = NULL;
+	if (pool->prev)
+		pool->prev->next = pool->next;
+
+	slab_cache_free(mempool_head->cache, pool);
+	pool = NULL;
+leave:
+	if (!pool)
+		printk(PRINTK_DBG "mm: Successfully destroyed heap pool with a size of %zu\n", obj_size);
+	spinlock_unlock_irq_restore(&mempool_spinlock, &lock_flags);
+}
+
+struct alloc_info {
+	struct mempool* pool;
+	u64 size;
+};
+
 void* kmalloc(size_t size, mm_t mm_flags) {
-	size = ROUND_UP(size, sizeof(u64));
+	size = ROUND_UP(size, 16);
 
-	const size_t total_size = size + sizeof(struct alloc_info) + sizeof(size_t);
-	struct slab_cache* cache = get_slab_cache(total_size, mm_flags);
+	size_t total_size;
+	if (__builtin_add_overflow(size, sizeof(struct alloc_info) + sizeof(size_t), &total_size))
+		return NULL;
 
-	/* If there is no slab that can accomodate the size or the mm flags, it will just call kmap directly */
-	struct alloc_info* alloc_info;
-	if (cache) {
-		alloc_info = slab_cache_alloc(cache);
-		if (!alloc_info)
-			return NULL;
-	} else {
-		alloc_info = kmap(mm_flags, total_size, MMU_READ | MMU_WRITE);
-		if (!alloc_info)
-			return NULL;
-	}
+	struct mempool* pool = walk_mempools(total_size, mm_flags);
+	if (!pool)
+		return NULL;
+	struct alloc_info* alloc_info = slab_cache_alloc(pool->cache);
+	if (!alloc_info)
+		return NULL;
 
-	/* Now store the allocation info */
+	alloc_info->pool = pool;
 	alloc_info->size = size;
-	alloc_info->mm_flags = mm_flags;
 
 	u8* ret = (u8*)(alloc_info + 1);
 	memset(ret, 0, size);
@@ -61,91 +115,54 @@ void* kmalloc(size_t size, mm_t mm_flags) {
 	return ret;
 }
 
-void* krealloc(void* addr, size_t new_size, mm_t mm_flags) {
-	new_size = ROUND_UP(new_size, sizeof(u64));
-	struct alloc_info* old_alloc_info = (struct alloc_info*)addr - 1;
+void kfree(void* ptr) {
+	struct alloc_info* alloc_info = (struct alloc_info*)ptr - 1;
 
-	size_t old_size = old_alloc_info->size;
-	mm_t old_mm_flags = old_alloc_info->mm_flags;
-
-	size_t* check_value = (size_t*)((u8*)addr + old_size);
-	if (*check_value != HEAP_CHK_VALUE)
-		panic("Kernel heap corruption! Check value: %zu", *check_value);
-
-	const size_t new_total_size = new_size + sizeof(struct alloc_info) + sizeof(size_t);
-	struct slab_cache* new_cache = get_slab_cache(new_total_size, mm_flags);
-
-	/* Like in kmalloc, try to allocate from a slab cache, But if that's not possible, use kmap */
-	struct alloc_info* new_alloc_info;
-	if (new_cache) {
-		new_alloc_info = slab_cache_alloc(new_cache);
-		if (!new_alloc_info)
-			return NULL;
-	} else {
-		new_alloc_info = kmap(mm_flags, new_total_size, MMU_READ | MMU_WRITE);
-		if (!new_alloc_info)
-			return NULL;
+	/* Check for possible heap corruption */
+	size_t* check_value = (size_t*)((u8*)ptr + alloc_info->size);
+	if (*check_value != HEAP_CHK_VALUE) {
+		panic("Kernel heap corruption! check_value: %lu expected: %lu", 
+				*check_value, HEAP_CHK_VALUE);
 	}
 
-	new_alloc_info->size = new_size;
-	new_alloc_info->mm_flags = mm_flags;
-
-	/* Now copy over memory from the old location */
-	u8* ret = (u8*)(new_alloc_info + 1);
-	if (new_size > old_size) {
-		memset(ret, 0, new_size);
-		memcpy(ret, addr, old_size);
-	} else {
-		memcpy(ret, addr, new_size);
-	}
-
-	check_value = (size_t*)((u8*)ret + new_size);
-	*check_value = HEAP_CHK_VALUE;
-
-	/* If old_cache is NULL, then kmap was used to allocate the block */
-	struct slab_cache* old_cache = get_slab_cache(old_size, old_mm_flags);
-	if (old_cache) {
-		slab_cache_free(old_cache, old_alloc_info);
-	} else {
-		size_t old_total_size = old_size + sizeof(struct alloc_info) + sizeof(size_t);
-		kunmap(old_alloc_info, old_total_size);
-	}
-
-	return ret;
+	slab_cache_free(alloc_info->pool->cache, alloc_info);
+	attempt_delete_mempool(alloc_info->pool);
 }
 
-void kfree(void* addr) {
-	struct alloc_info* alloc_info = (struct alloc_info*)addr - 1;
+void* krealloc(void* old, size_t new_size, mm_t mm_flags) {
+	new_size = ROUND_UP(new_size, 16);
 
-	size_t alloc_size = alloc_info->size;
-	mm_t alloc_mm_flags = alloc_info->mm_flags;
+	struct alloc_info* old_alloc_info = (struct alloc_info*)old - 1;
+	size_t old_size = old_alloc_info->size;
+	if (old_size == new_size)
+		return old;
 
-	size_t* check_value = (size_t*)((u8*)addr + alloc_size);
-	if (*check_value != HEAP_CHK_VALUE)
-		panic("Kernel heap corruption! Check value: %zu", *check_value);
+	void* new = kmalloc(new_size, mm_flags);
+	if (!new)
+		return NULL;
 
-	/* If cache is NULL, kmap was used to allocate the block */
-	const size_t total_size = alloc_size + sizeof(struct alloc_info) + sizeof(size_t);
-	struct slab_cache* cache = get_slab_cache(total_size, alloc_mm_flags);
-	if (cache)
-		slab_cache_free(cache, alloc_info);
-	else
-		kunmap(alloc_info, total_size);
+	if (new_size > old_size) {
+		memset(new, 0, new_size);
+		memcpy(new, old, old_size);
+	} else {
+		memcpy(new, old, new_size);
+	}
+
+	kfree(old);
+	return new;
 }
 
 void heap_init(void) {
-	for (size_t i = 0; i < ARRAY_SIZE(heap_caches); i++) {
-		mm_t zone;
-		if (i % 3 == 0)
-			zone = MM_ZONE_NORMAL;
-		else if (i % 3 == 1)
-			zone = MM_ZONE_DMA32;
-		else
-			zone = MM_ZONE_DMA;
+	/* First map a single page for the mempool */
+	mempool_head = kmap(MM_ZONE_NORMAL, sizeof(*mempool_head), MMU_READ | MMU_WRITE);
+	if (!mempool_head)
+		panic("Failed to initialize initial heap pool!");
 
-		struct slab_cache* cache = slab_cache_create(heap_cache_sizes[i], 8, zone, NULL, NULL);
-		if (!cache)
-			panic("Failed to allocate slab caches for heap!");
-		heap_caches[i] = cache;
-	}
+	/* Create a cache for creating mempools */
+	mempool_head->cache = slab_cache_create(sizeof(struct mempool), 16, MM_ZONE_NORMAL, NULL, NULL);
+	if (!mempool_head->cache)
+		panic("Failed to create mempool cache!");
+
+	mempool_head->next = NULL;
+	mempool_head->prev = NULL;
 }
