@@ -73,7 +73,7 @@ void* krealloc(void* addr, size_t new_size, mm_t mm_flags) {
 		panic("Kernel heap corruption! Check value: %zu", *check_value);
 
 	const size_t new_total_size = new_size + sizeof(struct alloc_info) + sizeof(size_t);
-	struct slab_cache* new_cache = get_slab_cache(new_size + new_total_size, mm_flags);
+	struct slab_cache* new_cache = get_slab_cache(new_total_size, mm_flags);
 
 	/* Like in kmalloc, try to allocate from a slab cache, But if that's not possible, use kmap */
 	struct alloc_info* new_alloc_info;
