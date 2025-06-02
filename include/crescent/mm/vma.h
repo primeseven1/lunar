@@ -3,9 +3,9 @@
 #include <crescent/core/locking.h>
 
 struct vma {
-	void* start, *end;
-	u8* map;
-	unsigned long page_count;
+	void* start, *end; /* Not modified after creation */
+	u8* free_list; /* Free list bitmap */
+	unsigned long page_count; /* The number of pages currectly allocated to the vma */
 	spinlock_t lock;
 };
 

@@ -11,24 +11,24 @@
 #include "hhdm.h"
 
 static int vma_realloc(struct vma* vma, unsigned long new_page_count) {
-	u8* old_map = vma->map;
-	size_t old_map_size = (vma->page_count >> 3) + 1;
+	u8* old_free_list = vma->free_list;
+	size_t old_free_list_size = (vma->page_count >> 3) + 1;
 
-	size_t new_map_size = (new_page_count >> 3) + 1;
-	physaddr_t _new_map = alloc_pages(MM_ZONE_NORMAL, get_order(new_map_size));
-	if (!_new_map)
+	size_t new_free_list_size = (new_page_count >> 3) + 1;
+	physaddr_t _new_free_list = alloc_pages(MM_ZONE_NORMAL, get_order(new_free_list_size));
+	if (!_new_free_list)
 		return -ENOMEM;
-	u8* new_map = hhdm_virtual(_new_map);
+	u8* new_free_list = hhdm_virtual(_new_free_list);
 
 	if (new_page_count > vma->page_count) {
-		memset(new_map, 0, new_map_size);
-		memcpy(new_map, old_map, old_map_size);
+		memset(new_free_list, 0, new_free_list_size);
+		memcpy(new_free_list, old_free_list, old_free_list_size);
 	} else {
-		memcpy(new_map, old_map, new_map_size);
+		memcpy(new_free_list, old_free_list, new_free_list_size);
 	}
 
-	free_pages(hhdm_physical(old_map), get_order(old_map_size));
-	vma->map = new_map;
+	free_pages(hhdm_physical(old_free_list), get_order(old_free_list_size));
+	vma->free_list = new_free_list;
 	vma->page_count = new_page_count;
 
 	return 0;
@@ -55,7 +55,7 @@ static bool are_last_n_pages_free(struct vma* vma, unsigned long n) {
 	for (unsigned long i = start_index; i < vma->page_count; i++) {
 		size_t byte_index = i >> 3;
 		unsigned int bit_index = i & 7;
-		if (vma->map[byte_index] & (1 << bit_index))
+		if (vma->free_list[byte_index] & (1 << bit_index))
 			return false;
 	}
 
@@ -87,7 +87,7 @@ static void* __vma_alloc_pages_aligned(struct vma* vma, unsigned long count, siz
 		size_t byte_index = i >> 3;
 		unsigned int bit_index = i & 7;
 
-		if (!(vma->map[byte_index] & (1 << bit_index))) {
+		if (!(vma->free_list[byte_index] & (1 << bit_index))) {
 			if (consecutive_free == 0)
 				start_index = i;
 
@@ -105,7 +105,7 @@ static void* __vma_alloc_pages_aligned(struct vma* vma, unsigned long count, siz
 		for (unsigned long i = 0; i < start_index + count; i++) {
 			size_t byte_index = i >> 3;
 			unsigned int bit_index = i & 7;
-			vma->map[byte_index] |= (1 << bit_index);
+			vma->free_list[byte_index] |= (1 << bit_index);
 		}
 
 		return (u8*)vma->start + start_index * PAGE_SIZE;
@@ -119,7 +119,7 @@ static void __vma_free_pages(struct vma* vma, void* addr, unsigned long count) {
 	for (unsigned long i = index; i < index + count; i++) {
 		size_t byte_index = i >> 3;
 		unsigned int bit_index = i & 7;
-		vma->map[byte_index] &= ~(1 << bit_index);
+		vma->free_list[byte_index] &= ~(1 << bit_index);
 	}
 
 	if (are_last_n_pages_free(vma, vma->page_count / 2 / 2))
@@ -174,19 +174,19 @@ struct vma* vma_create(void* start, void* end, unsigned long page_count) {
 		return NULL;
 	struct vma* vma = hhdm_virtual(_vma);
 
-	size_t map_size = (page_count >> 3) + 1;
+	size_t free_list_size = (page_count >> 3) + 1;
 
-	physaddr_t _map = alloc_pages(MM_ZONE_NORMAL, get_order(map_size));
-	if (!_map) {
+	physaddr_t _free_list = alloc_pages(MM_ZONE_NORMAL, get_order(free_list_size));
+	if (!_free_list) {
 		free_pages(_vma, get_order(sizeof(struct vma)));
 		return NULL;
 	}
-	u8* map = hhdm_virtual(_map);
-	memset(map, 0, map_size);
+	u8* free_list = hhdm_virtual(_free_list);
+	memset(free_list, 0, free_list_size);
 
 	vma->start = start;
 	vma->end = end;
-	vma->map = map;
+	vma->free_list = free_list;
 	vma->page_count = page_count;
 	vma->lock = SPINLOCK_INITIALIZER;
 
@@ -198,7 +198,7 @@ int vma_destroy(struct vma* vma) {
 	if (!are_last_n_pages_free(vma, vma->page_count))
 		return -EEXIST;
 
-	free_pages(hhdm_physical(vma->map), get_order(map_size));
+	free_pages(hhdm_physical(vma->free_list), get_order(map_size));
 	free_pages(hhdm_physical(vma), get_order(sizeof(struct vma)));
 	return 0;
 }
