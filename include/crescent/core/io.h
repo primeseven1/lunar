@@ -69,8 +69,8 @@ static inline u32 inl(u16 port) {
  * @param addr The address to write to
  * @param val The value to write
  */
-static inline void writeb(volatile u8 __iomem* addr, u8 val) {
-	*(volatile u8*)addr = val;
+static inline void writeb(u8 __iomem* ptr, u8 val) {
+	*(volatile u8*)ptr = val;
 }
 
 /**
@@ -78,8 +78,8 @@ static inline void writeb(volatile u8 __iomem* addr, u8 val) {
  * @param addr The address to write to
  * @param val The value to write
  */
-static inline void writew(volatile u16 __iomem* addr, u16 val) {
-	*(volatile u16*)addr = val;
+static inline void writew(u16 __iomem* ptr, u16 val) {
+	*(volatile u16*)ptr = val;
 }
 
 /**
@@ -87,8 +87,8 @@ static inline void writew(volatile u16 __iomem* addr, u16 val) {
  * @param addr The address to write to
  * @param val The value to write
  */
-static inline void writel(volatile u32 __iomem* addr, u32 val) {
-	*(volatile u32*)addr = val;
+static inline void writel(u32 __iomem* ptr, u32 val) {
+	*(volatile u32*)ptr = val;
 }
 
 /**
@@ -96,8 +96,8 @@ static inline void writel(volatile u32 __iomem* addr, u32 val) {
  * @param addr The address to write to
  * @param val The value to write
  */
-static inline void writeq(volatile u64 __iomem* addr, u64 val) {
-	*(volatile u64*)addr = val;
+static inline void writeq(u64 __iomem* ptr, u64 val) {
+	*(volatile u64*)ptr = val;
 }
 
 /**
@@ -105,8 +105,8 @@ static inline void writeq(volatile u64 __iomem* addr, u64 val) {
  * @param addr The address to read
  * @return The value read from the address
  */
-static inline u8 readb(const volatile u8 __iomem* addr) {
-	return *(volatile u8*)addr;
+static inline u8 readb(const u8 __iomem* ptr) {
+	return *(volatile u8*)ptr;
 }
 
 /**
@@ -114,8 +114,8 @@ static inline u8 readb(const volatile u8 __iomem* addr) {
  * @param addr The address to read
  * @return The value read from the address
  */
-static inline u16 readw(const volatile u16 __iomem* addr) {
-	return *(volatile u16*)addr;
+static inline u16 readw(const u16 __iomem* ptr) {
+	return *(volatile u16*)ptr;
 }
 
 /**
@@ -123,8 +123,8 @@ static inline u16 readw(const volatile u16 __iomem* addr) {
  * @param addr The address to read
  * @return The value read from the address
  */
-static inline u32 readl(const volatile u32 __iomem* addr) {
-	return *(volatile u32*)addr;
+static inline u32 readl(const u32 __iomem* ptr) {
+	return *(volatile u32*)ptr;
 }
 
 /**
@@ -132,8 +132,8 @@ static inline u32 readl(const volatile u32 __iomem* addr) {
  * @param addr The address to read
  * @return The value read from the address
  */
-static inline u64 readq(const volatile u64 __iomem* addr) {
-	return *(volatile u64*)addr;
+static inline u64 readq(const u64 __iomem* ptr) {
+	return *(volatile u64*)ptr;
 }
 
 /**

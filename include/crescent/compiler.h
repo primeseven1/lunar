@@ -1,9 +1,9 @@
 #pragma once
 
 #ifdef CONFIG_LLVM
-#define __iomem __attribute__((noderef))
+#define __iomem volatile __attribute__((noderef))
 #else
-#define __iomem
+#define __iomem volatile
 #endif /* CONFIG_LLVM */
 
 #define __asmlinkage __attribute__((sysv_abi))
