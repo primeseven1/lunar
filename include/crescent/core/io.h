@@ -66,74 +66,74 @@ static inline u32 inl(u16 port) {
 
 /**
  * @brief Write an 8 bit value to an I/O memory address
- * @param addr The address to write to
+ * @param ptr The address to write to
  * @param val The value to write
  */
 static inline void writeb(u8 __iomem* ptr, u8 val) {
-	*(volatile u8*)ptr = val;
+	*(u8 volatile*)ptr = val;
 }
 
 /**
  * @brief Write a 16 bit value to an I/O memory address
- * @param addr The address to write to
+ * @param ptr The address to write to
  * @param val The value to write
  */
 static inline void writew(u16 __iomem* ptr, u16 val) {
-	*(volatile u16*)ptr = val;
+	*(u16 volatile*)ptr = val;
 }
 
 /**
  * @brief Write a 32 bit value to an I/O memory address
- * @param addr The address to write to
+ * @param ptr The address to write to
  * @param val The value to write
  */
 static inline void writel(u32 __iomem* ptr, u32 val) {
-	*(volatile u32*)ptr = val;
+	*(u32 volatile*)ptr = val;
 }
 
 /**
  * @brief Write a 64 bit value to an I/O memory address
- * @param addr The address to write to
+ * @param ptr The address to write to
  * @param val The value to write
  */
 static inline void writeq(u64 __iomem* ptr, u64 val) {
-	*(volatile u64*)ptr = val;
+	*(u64 volatile*)ptr = val;
 }
 
 /**
  * @brief Read an 8 bit value from an I/O memory address
- * @param addr The address to read
+ * @param ptr The address to read
  * @return The value read from the address
  */
 static inline u8 readb(const u8 __iomem* ptr) {
-	return *(volatile u8*)ptr;
+	return *(u8 volatile*)ptr;
 }
 
 /**
  * @brief Read a 16 bit value from an I/O memory address
- * @param addr The address to read
+ * @param ptr The address to read
  * @return The value read from the address
  */
 static inline u16 readw(const u16 __iomem* ptr) {
-	return *(volatile u16*)ptr;
+	return *(u16 volatile*)ptr;
 }
 
 /**
  * @brief Read a 32 bit value from an I/O memory address
- * @param addr The address to read
+ * @param ptr The address to read
  * @return The value read from the address
  */
 static inline u32 readl(const u32 __iomem* ptr) {
-	return *(volatile u32*)ptr;
+	return *(u32 volatile*)ptr;
 }
 
 /**
  * @brief Read a 64 bit value from an I/O memory address
- * @param addr The address to read
+ * @param ptr The address to read
  * @return The value read from the address
  */
 static inline u64 readq(const u64 __iomem* ptr) {
-	return *(volatile u64*)ptr;
+	return *(u64 volatile*)ptr;
 }
 
 /**
