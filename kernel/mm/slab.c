@@ -245,7 +245,7 @@ struct slab_cache* slab_cache_create(size_t obj_size, size_t align,
 
 int slab_cache_destroy(struct slab_cache* cache) {
 	if (cache->partial || cache->full)
-		return -ECANCELED;
+		return -EEXIST;
 
 	struct slab* slab = cache->empty;
 	while (slab) {
