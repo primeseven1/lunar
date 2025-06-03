@@ -27,16 +27,17 @@ int module_load(const char* name) {
 	if (!mod)
 		return -ENOENT;
 
+	/* This shouldn't really happen unless there is some sort of programming error */
+	if (mod->init_status < init_status_get())
+		return -EAGAIN;
+
 	if (!mod->init) {
 		printk(PRINTK_ERR "core: %s module failed to load, no init function!\n", name);
 		return -EFAULT;
 	}
 
 	int err = mod->init();
-
-	if (err)
-		printk(PRINTK_ERR "core: %s module failed to load, err: %i\n", name, err);
-	else
+	if (!err)
 		printk(PRINTK_INFO "core: %s module loaded successfully\n", name);
 	return err;
 }

@@ -39,4 +39,4 @@ static int liminefb_init(void) {
 	return printk_set_hook(liminefb_printk_hook);
 }
 
-MODULE("liminefb", true, liminefb_init);
+MODULE("liminefb", INIT_STATUS_NOTHING, liminefb_init);

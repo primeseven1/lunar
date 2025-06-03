@@ -33,4 +33,4 @@ static int e9hack_init(void) {
 	return printk_set_hook(e9hack_printk_hook);
 }
 
-MODULE("e9hack", true, e9hack_init);
+MODULE("e9hack", INIT_STATUS_NOTHING, e9hack_init);

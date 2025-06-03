@@ -1,4 +1,5 @@
 #include <crescent/compiler.h>
+#include <crescent/init/status.h>
 #include <crescent/core/limine.h>
 #include <crescent/core/module.h>
 #include <crescent/core/trace.h>
@@ -10,6 +11,11 @@
 #include <crescent/mm/heap.h>
 #include <crescent/asm/segment.h>
 
+static int init_status = INIT_STATUS_NOTHING;
+int init_status_get(void) {
+	return init_status;
+}
+
 _Noreturn __asmlinkage void kernel_main(void); /* Make the compiler happy */
 _Noreturn __asmlinkage void kernel_main(void) {
 	int base_revision = limine_base_revision();
@@ -18,6 +24,7 @@ _Noreturn __asmlinkage void kernel_main(void) {
 
 	bsp_cpu_init();
 
+	/* Attempt to load early modules */
 	module_load("liminefb");
 	module_load("e9hack");
 
@@ -34,6 +41,10 @@ _Noreturn __asmlinkage void kernel_main(void) {
 	err = cmdline_parse();
 	if (err)
 		printk("init: Failed to parse cmdline! err: %i\n", err);
+
+	init_status = INIT_STATUS_BASIC;
+
+	module_load("acpi");
 
 	const char* loglevel = cmdline_get("loglevel");
 	if (loglevel) {
