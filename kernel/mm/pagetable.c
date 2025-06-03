@@ -28,8 +28,7 @@ static inline void pagetable_get_indexes(const void* virtual, unsigned int* inde
 	indexes[3] = (uintptr_t)virtual >> 12 & 0x01FF;
 }
 
-static int walk_pagetable(pte_t* pagetable, const void* virtual, 
-		bool create, size_t* page_size, pte_t** ret) {
+static int walk_pagetable(pte_t* pagetable, const void* virtual, bool create, size_t* page_size, pte_t** ret) {
 	*ret = NULL;
 
 	unsigned int indexes[4];
@@ -166,7 +165,6 @@ static void pagetable_cleanup(pte_t* pagetable, void* virtual) {
 		physaddr_t physical = tables[level - 1][indexes[level - 1]] & ~(0xFFF | PT_NX);
 		free_page(physical);
 		tables[level - 1][indexes[level - 1]] = 0;
-		printk(PRINTK_DBG "mm: freeing page table %#lx\n", physical);
 	}
 }
 

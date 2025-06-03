@@ -7,6 +7,8 @@
 #include <crescent/lib/string.h>
 #include <crescent/mm/vmm.h>
 
+#define SEGMENT_COUNT 5
+
 struct segment_descriptor {
 	u16 limit_low;
 	u16 base_low;
@@ -34,7 +36,7 @@ struct tss_descriptor {
 } __attribute__((packed));
 
 struct kernel_segments {
-	struct segment_descriptor segments[6];
+	struct segment_descriptor segments[SEGMENT_COUNT];
 	struct tss_segment_descriptor tss;
 } __attribute__((packed));
 
@@ -43,10 +45,9 @@ struct kernel_segments {
  * Segment 1: Kernel code, 64 bit
  * Segment 2: Kernel data, 32 bit (irrelevant)
  * Segment 3: User code, 64 bit
- * Segment 4: User code, 32 bit
- * Segment 5: User data, 32 bit (irrelevant)
+ * Segment 4: User data, 32 bit (irrelevant)
  */
-static const struct segment_descriptor base[6] = {
+static const struct segment_descriptor base[SEGMENT_COUNT] = {
 	{ 
 		.limit_low = 0, .base_low = 0, .base_middle = 0, 
 		.access = 0, .flags = 0, .base_high = 0 
@@ -61,11 +62,7 @@ static const struct segment_descriptor base[6] = {
 	},
 	{
 		.limit_low = 0xFFFF, .base_low = 0, .base_middle = 0,
-		.access = 0xFA, .flags = 0xAF, .base_high = 0
-	},
-	{
-		.limit_low = 0xFFFF, .base_low = 0, .base_middle = 0,
-		.access = 0xFA, .flags = 0xCF, .base_high = 0
+		.access = 0xFB, .flags = 0xAF, .base_high = 0
 	},
 	{
 		.limit_low = 0xFFFF, .base_low = 0, .base_middle = 0,
@@ -104,21 +101,22 @@ void segments_init(void) {
 	struct tss_descriptor* tss = kmap(MM_ZONE_NORMAL, tss_size, MMU_READ | MMU_WRITE);
 	if (!tss)
 		panic("Failed to allocate TSS!");
-
 	memset(tss, INT_MAX, tss_size);
-	size_t ist_stack_size = 0x4000;
-	u8* rsp0 = kmap(MM_ZONE_NORMAL, ist_stack_size, MMU_READ | MMU_WRITE);
-	u8* ist1 = kmap(MM_ZONE_NORMAL, ist_stack_size, MMU_READ | MMU_WRITE);
-	u8* ist2 = kmap(MM_ZONE_NORMAL, ist_stack_size, MMU_READ | MMU_WRITE);
-	u8* ist3 = kmap(MM_ZONE_NORMAL, ist_stack_size, MMU_READ | MMU_WRITE);
-	if (!rsp0 || !ist1 || !ist2 || !ist3)
-		panic("Failed to allocate TSS stacks");
 
-	/* Now get the virtual addresses of the stacks, and add the size since the stack grows down */
-	tss->rsp[0] = rsp0 + ist_stack_size;
-	tss->ist[0] = ist1 + ist_stack_size;
-	tss->ist[1] = ist2 + ist_stack_size;
-	tss->ist[2] = ist3 + ist_stack_size;
+	size_t ist_stack_size = 0x4000;
+	tss->rsp[0] = kmap(MM_ZONE_NORMAL, ist_stack_size, MMU_READ | MMU_WRITE);
+	if (!tss->rsp[0])
+		panic("Failed to allocate RSP0 stack!");
+	tss->rsp[0] = (u8*)tss->rsp[0] + ist_stack_size;
+
+	for (int i = 0; i < 3; i++) {
+		u8* stack = kmap(MM_ZONE_NORMAL, ist_stack_size, MMU_READ | MMU_WRITE);
+		if (!stack)
+			panic("Failed to alloc TSS stack #%i", i + 1);
+		stack += ist_stack_size;
+		tss->ist[i] = stack;
+	}
+
 	tss->iopb = sizeof(*tss);
 
 	/* Now set up the TSS descriptor */
