@@ -7,6 +7,7 @@
 #include <crescent/lib/string.h>
 
 #define HEAP_CHK_VALUE 0xdecafc0ffeeUL
+#define HEAP_ALIGN 16
 
 struct mempool {
 	struct slab_cache* cache;
@@ -16,10 +17,13 @@ struct mempool {
 
 /* The cache for other mempools, initialized by heap_init */
 static struct mempool* mempool_head = NULL;
+
+/* Protects the linked list, not the mempools */
 static spinlock_t mempool_spinlock = SPINLOCK_INITIALIZER;
 
+/* Find a suitable mempool for an allocation, increases the refcount */
 static struct mempool* walk_mempools(size_t size, mm_t mm_flags) {
-	size = ROUND_UP(size, 16);
+	size = ROUND_UP(size, HEAP_ALIGN);
 
 	unsigned long lock_flags;
 	spinlock_lock_irq_save(&mempool_spinlock, &lock_flags);
@@ -37,13 +41,13 @@ static struct mempool* walk_mempools(size_t size, mm_t mm_flags) {
 		pool = pool->next;
 	}
 
-	/* Not enough space, so create a new pool */
+	/* Either there is not enough space in the current pools, or no pool matches mm_flags */
 	struct mempool* new_pool = slab_cache_alloc(mempool_head->cache);
 	if (!new_pool)
 		goto leave;
 
 	/* Create a new slab cache for the new pool */
-	new_pool->cache = slab_cache_create(size, 16, mm_flags, NULL, NULL);
+	new_pool->cache = slab_cache_create(size, HEAP_ALIGN, mm_flags, NULL, NULL);
 	if (!new_pool->cache) {
 		slab_cache_free(mempool_head->cache, new_pool);
 		new_pool = NULL;
@@ -52,7 +56,8 @@ static struct mempool* walk_mempools(size_t size, mm_t mm_flags) {
 
 	new_pool->prev = pool;
 	new_pool->next = NULL;
-	new_pool->refcount = 1; /* No need for an atomic operation here */
+	new_pool->refcount = 1; /* Nobody knows about this mempool until the lock gets released, so no atomic op */
+
 	pool->next = new_pool;
 leave:
 	spinlock_unlock_irq_restore(&mempool_spinlock, &lock_flags);
@@ -63,9 +68,6 @@ leave:
 }
 
 static void attempt_delete_mempool(struct mempool* pool) {
-	if (pool == mempool_head)
-		return;
-
 	unsigned long lock_flags;
 	spinlock_lock_irq_save(&mempool_spinlock, &lock_flags);
 
@@ -78,9 +80,13 @@ static void attempt_delete_mempool(struct mempool* pool) {
 		goto leave;
 
 	if (pool->next)
-		pool->next->prev = NULL;
-	if (pool->prev)
-		pool->prev->next = pool->next;
+		pool->next->prev = pool->prev;
+
+	/* 
+	 * We know this isn't the head because the refcount on the head is never zero, 
+	 * so no need to check the prev pointer in this context.
+	 */
+	pool->prev->next = pool->next;
 
 	slab_cache_free(mempool_head->cache, pool);
 	pool = NULL;
@@ -96,7 +102,7 @@ struct alloc_info {
 };
 
 void* kmalloc(size_t size, mm_t mm_flags) {
-	size = ROUND_UP(size, 16);
+	size = ROUND_UP(size, HEAP_ALIGN);
 
 	size_t total_size;
 	if (__builtin_add_overflow(size, sizeof(struct alloc_info) + sizeof(size_t), &total_size))
@@ -139,7 +145,7 @@ void kfree(void* ptr) {
 }
 
 void* krealloc(void* old, size_t new_size, mm_t mm_flags) {
-	new_size = ROUND_UP(new_size, 16);
+	new_size = ROUND_UP(new_size, HEAP_ALIGN);
 
 	struct alloc_info* old_alloc_info = (struct alloc_info*)old - 1;
 	size_t old_size = old_alloc_info->size;
@@ -150,12 +156,8 @@ void* krealloc(void* old, size_t new_size, mm_t mm_flags) {
 	if (!new)
 		return NULL;
 
-	if (new_size > old_size) {
-		memset(new, 0, new_size);
-		memcpy(new, old, old_size);
-	} else {
-		memcpy(new, old, new_size);
-	}
+	size_t copy_size = old_size < new_size ? old_size : new_size;
+	memcpy(new, old, copy_size);
 
 	kfree(old);
 	return new;
@@ -168,7 +170,7 @@ void heap_init(void) {
 		panic("Failed to initialize initial heap pool!");
 
 	/* Create a cache for creating mempools */
-	mempool_head->cache = slab_cache_create(sizeof(struct mempool), 16, MM_ZONE_NORMAL, NULL, NULL);
+	mempool_head->cache = slab_cache_create(sizeof(struct mempool), HEAP_ALIGN, MM_ZONE_NORMAL, NULL, NULL);
 	if (!mempool_head->cache)
 		panic("Failed to create mempool cache!");
 
