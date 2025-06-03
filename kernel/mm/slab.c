@@ -11,8 +11,8 @@
 #define SLAB_AFTER_CUTOFF_OBJ_COUNT 16
 
 static int slab_init(struct slab_cache* cache, struct slab* slab) {
-	size_t size = cache->obj_size * cache->obj_count;
-	size_t map_size = size / 8 + 1;
+	size_t map_size = (cache->obj_count + 7) / 8;
+	size_t slab_size = cache->obj_size * cache->obj_count;
 
 	/* Allocate free list bitmap */
 	slab->free = kmap(MM_ZONE_NORMAL, map_size, MMU_READ | MMU_WRITE);
@@ -21,7 +21,7 @@ static int slab_init(struct slab_cache* cache, struct slab* slab) {
 	memset(slab->free, 0, map_size);
 
 	/* Allocate a virtual address for the slab base */
-	slab->base = kmap(cache->mm_flags, size, MMU_READ | MMU_WRITE);
+	slab->base = kmap(cache->mm_flags, slab_size, MMU_READ | MMU_WRITE);
 	if (!slab->base) {
 		kunmap(slab->free, map_size);
 		return -ENOMEM;
@@ -254,6 +254,7 @@ int slab_cache_destroy(struct slab_cache* cache) {
 			next->prev = NULL;
 
 		kunmap(slab->base, cache->obj_size * cache->obj_count);
+		kunmap(slab->free, (cache->obj_count + 7) / 8);
 		kunmap(slab, sizeof(*slab));
 
 		slab = next;
