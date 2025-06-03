@@ -76,12 +76,25 @@ asm_isr_common:
 	/* Parameter for __isr_entry */
 	movq %rsp, %rdi
 
+	/* Align the stack by 16 */
 	movq %rsp, %rbx
 	andq $15, %rbx
 	subq %rbx, %rsp
 
+	/* 
+	 * Push the return address of the interrupt to the stack, this needs to be done 
+	 * otherwise a stack trace won't show the symbol the fault happened on 
+	 */
+	pushq 152(%rsp,%rbx)
+	pushq %rbp
+	movq %rsp, %rbp
+
 	call __isr_entry
 
+	popq %rax
+	popq %rax
+
+	/* If there was an alignment of the stack, we now need to restore it back to the way it was */
 	addq %rsp, %rbx
 
 	popq %rax

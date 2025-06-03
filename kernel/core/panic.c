@@ -13,9 +13,8 @@ _Noreturn void panic(const char* fmt, ...) {
 	va_start(va, fmt);
 
 	vsnprintf(panic_msg, sizeof(panic_msg), fmt, va);
-	printk(PRINTK_EMERG "Kernel panic - %s\n", panic_msg);
 	dump_stack();
-	printk(PRINTK_EMERG "End kernel panic - %s", panic_msg);
+	printk(PRINTK_EMERG "Kernel panic - %s\n", panic_msg);
 
 	va_end(va);
 	while (1)
