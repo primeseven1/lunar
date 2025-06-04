@@ -68,7 +68,8 @@ struct mem_area {
 	physaddr_t base;
 	u64 size; /* rounded to a power of two */
 	size_t real_size;
-	unsigned long used_4k_blocks, total_4k_blocks; /* used_4k_blocks is atomic */
+	volatile unsigned long used_4k_blocks; /* Atomic */
+	unsigned long total_4k_blocks; /* Never changes after an area is created */
 	unsigned int layer_count;
 	unsigned long* free_list;
 	spinlock_t lock; /* For the free list */
@@ -242,13 +243,34 @@ struct zone {
 	struct mem_area* areas;
 };
 
-static struct mem_area* select_mem_area(struct zone* zone, unsigned long block_count) {
-	for (unsigned long i = 0; i < zone->area_count; i++) {
-		unsigned long used_4k_blocks = __atomic_load_n(&zone->areas[i].used_4k_blocks, 
-				__ATOMIC_SEQ_CST);
-		unsigned long free_4k_blocks = zone->areas[i].total_4k_blocks - used_4k_blocks;
-		if (free_4k_blocks > block_count)
-			return &zone->areas[i];
+/*
+ * LOCKING:
+ *	Aquires  area->lock, IRQ's must be disabled before calling this function.
+ */
+static struct mem_area* select_mem_area(struct zone* zone, unsigned int order, unsigned int* layer, unsigned long* block) {
+	struct mem_area* best = &zone->areas[0];
+
+	unsigned long i = 1;
+	unsigned long block_count = (PAGE_SIZE << order) >> PAGE_SHIFT;
+
+	unsigned long timeout = 20;
+	while (timeout--) {
+		for (; i < zone->area_count; i++) {
+			struct mem_area* a = &zone->areas[i];
+			unsigned long used_4k = __atomic_load_n(&a->used_4k_blocks, __ATOMIC_SEQ_CST);
+			unsigned long free = a->total_4k_blocks - used_4k;
+			if (free >= block_count && used_4k < __atomic_load_n(&best->used_4k_blocks, __ATOMIC_SEQ_CST))
+				best = a;
+		}
+
+		spinlock_lock(&best->lock);
+		*layer = best->layer_count - order - 1u;
+		*block = find_first_free(best->free_list, *layer);
+		if (*block == ULONG_MAX) {
+			spinlock_unlock(&best->lock);
+			continue;
+		}
+		return best;
 	}
 
 	return NULL;
@@ -269,22 +291,34 @@ static struct mem_area* get_mem_area(struct zone* zone, physaddr_t addr) {
 static physaddr_t __alloc_pages(struct zone* zone, unsigned int order) {
 	size_t alloc_size = PAGE_SIZE << order;
 	unsigned long block4k_count = alloc_size >> PAGE_SHIFT;
-	struct mem_area* area = select_mem_area(zone, block4k_count);
+
+	unsigned long irq_flags = local_irq_save();
+	physaddr_t ret = 0;
+
+	unsigned int layer;
+	unsigned long block;
+	struct mem_area* area = select_mem_area(zone, order, &layer, &block);
 	if (!area)
-		return 0;
+		goto out;
 
-	unsigned int layer = area->layer_count - order - 1;
-
-	physaddr_t ret;
-	unsigned long block, lock_flags;
 	int err;
-
-	spinlock_lock_irq_save(&area->lock, &lock_flags);
 retry:
 	ret = 0;
-	block = find_first_free(area->free_list, layer);
-	if (block == ULONG_MAX)
-		goto out;
+
+	/* 
+	 * On the first attempt, select_mem_area will select a block for us. If we need a retry, 
+	 * block is set to ULONG_MAX so that way we know to actually retry.
+	 */
+	if (block == ULONG_MAX) {
+		block = find_first_free(area->free_list, layer);
+		if (block == ULONG_MAX) {
+			spinlock_unlock(&area->lock);
+			area = select_mem_area(zone, order, &layer, &block);
+			if (!area)
+				goto out;
+		}
+	}
+
 	err = _alloc_block(area, layer, block);
 	if (err)
 		goto out;
@@ -301,6 +335,7 @@ retry:
 
 	/* Now make sure this region is actually marked usable in the memory map */
 	if (!mmap_region_check(ret, alloc_size)) {
+		/* Go through each page, and see what usable pages there are, and free those blocks */
 		for (size_t i = 0; i < alloc_size; i += PAGE_SIZE) {
 			if (mmap_region_check(ret + i, PAGE_SIZE)) {
 				block = ((ret + i) - area->base) >> PAGE_SHIFT;
@@ -308,10 +343,14 @@ retry:
 				__atomic_sub_fetch(&area->used_4k_blocks, 1, __ATOMIC_SEQ_CST);
 			}
 		}
+
+		block = ULONG_MAX;
 		goto retry;
 	}
 out:
-	spinlock_unlock_irq_restore(&area->lock, &lock_flags);
+	if (area)
+		spinlock_unlock(&area->lock);
+	local_irq_restore(irq_flags);
 	return ret;
 }
 
