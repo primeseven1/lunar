@@ -68,7 +68,7 @@ struct mem_area {
 	physaddr_t base;
 	u64 size; /* rounded to a power of two */
 	size_t real_size;
-	volatile unsigned long used_4k_blocks; /* Atomic */
+	unsigned long used_4k_blocks; /* Atomic */
 	unsigned long total_4k_blocks; /* Never changes after an area is created */
 	unsigned int layer_count;
 	unsigned long* free_list;
@@ -244,6 +244,12 @@ struct zone {
 };
 
 /*
+ * Selects a memory area based on which area has the least amount of allocated blocks.
+ *
+ * This function will also try to allocate the requested size to see if the area
+ * has enough contiguous blocks. It will also return the layer and the block it finds,
+ * since there is no reason not to do that.
+ *
  * LOCKING:
  *	Aquires  area->lock, IRQ's must be disabled before calling this function.
  */
@@ -255,6 +261,8 @@ static struct mem_area* select_mem_area(struct zone* zone, unsigned int order, u
 
 	unsigned long timeout = 20;
 	while (timeout--) {
+		if (i == zone->area_count - 1)
+			i = 0;
 		for (; i < zone->area_count; i++) {
 			struct mem_area* a = &zone->areas[i];
 			unsigned long used_4k = __atomic_load_n(&a->used_4k_blocks, __ATOMIC_SEQ_CST);
@@ -266,16 +274,20 @@ static struct mem_area* select_mem_area(struct zone* zone, unsigned int order, u
 		spinlock_lock(&best->lock);
 		*layer = best->layer_count - order - 1u;
 		*block = find_first_free(best->free_list, *layer);
-		if (*block == ULONG_MAX) {
-			spinlock_unlock(&best->lock);
-			continue;
-		}
-		return best;
+		if (*block != ULONG_MAX)
+			return best;
+
+		/*
+		 * Reaching here means that either there was no contiguous block,
+		 * or somebody got to this area before we did
+		 */
+		spinlock_unlock(&best->lock);
 	}
 
 	return NULL;
 }
 
+/* Get a memory area based on an address. This function performs no locking, unlike select_mem_area. */
 static struct mem_area* get_mem_area(struct zone* zone, physaddr_t addr) {
 	struct mem_area* areas = zone->areas;
 	for (unsigned long i = 0; i < zone->area_count; i++) {
