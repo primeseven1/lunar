@@ -3,8 +3,8 @@ ifeq ($(CONFIG_DRIVER_ACPI), y)
 C_SOURCE_FILES += $(shell find ./drivers/acpi/uacpi/source -type f -name '*.c')
 C_SOURCE_FILES += ./drivers/acpi/main.c ./drivers/acpi/glue.c
 
-UACPI_CFLAGS := -DUACPI_BAREBONES_MODE -DUACPI_OVERRIDE_TYPES -I./drivers/acpi/include \
-		-I./drivers/acpi/uacpi/include
+UACPI_CFLAGS := -DUACPI_BAREBONES_MODE -DUACPI_OVERRIDE_TYPES \
+		-I./drivers/acpi/include -I./drivers/acpi/uacpi/include
 
 # Override the default target in the root makefile
 ./drivers/acpi/%.o: ./drivers/acpi/%.c

@@ -9,9 +9,9 @@ void uacpi_kernel_log(uacpi_log_level level, const uacpi_char* str) {
 	const char* _level = NULL;
 	switch (level) {
 	case UACPI_LOG_DEBUG:
-	case UACPI_LOG_TRACE:
 		_level = PRINTK_DBG;
 		break;
+	case UACPI_LOG_TRACE:
 	case UACPI_LOG_INFO:
 		_level = PRINTK_INFO;
 		break;
