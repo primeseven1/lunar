@@ -165,7 +165,7 @@ void* krealloc(void* old, size_t new_size, mm_t mm_flags) {
 
 void heap_init(void) {
 	/* First map a single page for the mempool */
-	mempool_head = kmap(MM_ZONE_NORMAL, sizeof(*mempool_head), MMU_READ | MMU_WRITE);
+	mempool_head = vmap(NULL, sizeof(*mempool_head), VMAP_ALLOC, MMU_READ | MMU_WRITE, NULL);
 	if (!mempool_head)
 		panic("Failed to initialize initial heap pool!");
 

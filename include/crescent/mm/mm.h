@@ -17,6 +17,4 @@ typedef enum {
 	MM_ZONE_DMA = (1 << 0),
 	MM_ZONE_DMA32 = (1 << 1),
 	MM_ZONE_NORMAL = (1 << 2),
-
-	MM_VAREA_KERNEL = (1 << 3)
 } mm_t;

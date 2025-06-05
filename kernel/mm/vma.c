@@ -12,9 +12,9 @@
 
 static int vma_realloc(struct vma* vma, unsigned long new_page_count) {
 	u8* old_free_list = vma->free_list;
-	size_t old_free_list_size = (vma->page_count >> 3) + 1;
+	size_t old_free_list_size = (vma->page_count + 7) / 8;
 
-	size_t new_free_list_size = (new_page_count >> 3) + 1;
+	size_t new_free_list_size = (new_page_count + 7) / 8;
 	physaddr_t _new_free_list = alloc_pages(MM_ZONE_NORMAL, get_order(new_free_list_size));
 	if (!_new_free_list)
 		return -ENOMEM;
@@ -27,7 +27,8 @@ static int vma_realloc(struct vma* vma, unsigned long new_page_count) {
 		memcpy(new_free_list, old_free_list, new_free_list_size);
 	}
 
-	free_pages(hhdm_physical(old_free_list), get_order(old_free_list_size));
+	if (old_free_list)
+		free_pages(hhdm_physical(old_free_list), get_order(old_free_list_size));
 	vma->free_list = new_free_list;
 	vma->page_count = new_page_count;
 
@@ -80,12 +81,11 @@ static void* __vma_alloc_pages_aligned(struct vma* vma, unsigned long count, siz
 	bool found = false;
 
 	for (unsigned long i = 0; i < vma->page_count; i++) {
-		if (align && consecutive_free == 0 && 
-				((uintptr_t)vma->start + i * PAGE_SIZE) & (align - 1))
+		if (align && consecutive_free == 0 && ((uintptr_t)vma->start + i * PAGE_SIZE) & (align - 1))
 			continue;
 
-		size_t byte_index = i >> 3;
-		unsigned int bit_index = i & 7;
+		size_t byte_index = i / 8;
+		unsigned int bit_index = i % 8;
 
 		if (!(vma->free_list[byte_index] & (1 << bit_index))) {
 			if (consecutive_free == 0)
@@ -103,8 +103,8 @@ static void* __vma_alloc_pages_aligned(struct vma* vma, unsigned long count, siz
 
 	if (found) {
 		for (unsigned long i = 0; i < start_index + count; i++) {
-			size_t byte_index = i >> 3;
-			unsigned int bit_index = i & 7;
+			size_t byte_index = i / 8;
+			unsigned int bit_index = i % 8;
 			vma->free_list[byte_index] |= (1 << bit_index);
 		}
 
@@ -117,8 +117,8 @@ static void* __vma_alloc_pages_aligned(struct vma* vma, unsigned long count, siz
 static void __vma_free_pages(struct vma* vma, void* addr, unsigned long count) {
 	unsigned long index = ((u8*)addr - (u8*)vma->start) >> PAGE_SHIFT;
 	for (unsigned long i = index; i < index + count; i++) {
-		size_t byte_index = i >> 3;
-		unsigned int bit_index = i & 7;
+		size_t byte_index = i / 8;
+		unsigned int bit_index = i % 8;
 		vma->free_list[byte_index] &= ~(1 << bit_index);
 	}
 
@@ -156,33 +156,40 @@ void* vma_alloc_pages(struct vma* vma, unsigned long page_count, size_t align) {
 void vma_free_pages(struct vma* vma, void* addr, unsigned long page_count) {
 	size_t size = PAGE_SIZE * page_count;
 
+	unsigned long flags;
+	spinlock_lock_irq_save(&vma->lock, &flags);
+
 	if (addr < vma->start || (u8*)addr + size >= (u8*)vma->end) {
 		printk(PRINTK_ERR "mm: Failed to free virtual address, address out of range of zone\n");
 		dump_stack();
-		return;
+		goto out;
 	}
 
-	unsigned long flags;
-	spinlock_lock_irq_save(&vma->lock, &flags);
 	__vma_free_pages(vma, addr, page_count);
+out:
 	spinlock_unlock_irq_restore(&vma->lock, &flags);
 }
 
 struct vma* vma_create(void* start, void* end, unsigned long page_count) {
+	if (start >= end)
+		return NULL;
 	physaddr_t _vma = alloc_pages(MM_ZONE_NORMAL, get_order(sizeof(struct vma)));
 	if (!_vma)
 		return NULL;
 	struct vma* vma = hhdm_virtual(_vma);
 
-	size_t free_list_size = (page_count >> 3) + 1;
+	u8* free_list = NULL;
+	if (page_count != 0) {
+		size_t free_list_size = (page_count + 7) / 8;
+		physaddr_t _free_list = alloc_pages(MM_ZONE_NORMAL, get_order(free_list_size));
+		if (!_free_list) {
+			free_pages(_vma, get_order(sizeof(struct vma)));
+			return NULL;
+		}
 
-	physaddr_t _free_list = alloc_pages(MM_ZONE_NORMAL, get_order(free_list_size));
-	if (!_free_list) {
-		free_pages(_vma, get_order(sizeof(struct vma)));
-		return NULL;
+		free_list = hhdm_virtual(_free_list);
+		memset(free_list, 0, free_list_size);
 	}
-	u8* free_list = hhdm_virtual(_free_list);
-	memset(free_list, 0, free_list_size);
 
 	vma->start = start;
 	vma->end = end;
@@ -193,12 +200,69 @@ struct vma* vma_create(void* start, void* end, unsigned long page_count) {
 	return vma;
 }
 
+int vma_split(struct vma* vma, void* split_point, struct vma** ret) {
+	if ((uintptr_t)split_point & (PAGE_SIZE - 1))
+		return -EINVAL;
+
+	int err;
+	unsigned long lock_flags;
+	spinlock_lock_irq_save(&vma->lock, &lock_flags);
+
+	if (split_point <= vma->start || split_point >= vma->end) {
+		err = -EINVAL;
+		goto out;
+	}
+
+	void* real_end = (u8*)vma->start + vma->page_count * PAGE_SIZE;
+	if (split_point < real_end) {
+		err = -EEXIST;
+		goto out;
+	}
+
+	struct vma* new_vma = vma_create(split_point, vma->end, 0);
+	if (!new_vma) {
+		err = -ENOMEM;
+		goto out;
+	}
+
+	vma->end = split_point;
+	*ret = new_vma;
+	err = 0;
+out:
+	spinlock_unlock_irq_restore(&vma->lock, &lock_flags);
+	return err;
+}
+
+int vma_merge(struct vma* dvma, struct vma* svma) {
+	unsigned long irq_flags = local_irq_save();
+	spinlock_lock(&dvma->lock);
+	spinlock_lock(&svma->lock);
+
+	int err;
+	if (dvma->end != svma->start) {
+		err = -EINVAL;
+		goto out;
+	}
+	void* svma_end = svma->end;
+	err = vma_destroy(svma);
+	if (err)
+		goto out;
+
+	dvma->end = svma_end;
+out:
+	spinlock_unlock(&dvma->lock);
+	spinlock_unlock(&svma->lock);
+	local_irq_restore(irq_flags);
+	return err;
+}
+
 int vma_destroy(struct vma* vma) {
-	size_t map_size = (vma->page_count >> 3) + 1;
+	size_t free_list_size = (vma->page_count + 7) / 8;
 	if (!are_last_n_pages_free(vma, vma->page_count))
 		return -EEXIST;
 
-	free_pages(hhdm_physical(vma->free_list), get_order(map_size));
+	free_pages(hhdm_physical(vma->free_list), get_order(free_list_size));
 	free_pages(hhdm_physical(vma), get_order(sizeof(struct vma)));
+
 	return 0;
 }

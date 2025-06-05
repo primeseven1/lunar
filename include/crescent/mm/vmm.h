@@ -5,13 +5,21 @@
 #include <crescent/core/locking.h>
 #include <crescent/mm/mm.h>
 
-enum mmu_flags {
+typedef enum {
 	MMU_READ = (1 << 0),
 	MMU_WRITE = (1 << 1),
 	MMU_USER = (1 << 2),
 	MMU_WRITETHROUGH = (1 << 3),
 	MMU_CACHE_DISABLE = (1 << 4),
 	MMU_EXEC = (1 << 6)
+} mmuflags_t;
+
+enum vmap_flags {
+	VMAP_ALLOC = (1 << 0),
+	VMAP_FREE = (1 << 1),
+	VMAP_PHYSICAL = (1 << 2),
+	VMAP_HUGEPAGE = (1 << 3),
+	VMAP_IOMEM = (1 << 4)
 };
 
 static inline void tlb_flush_single(void* virtual) {
@@ -25,56 +33,62 @@ struct vmm_ctx {
 };
 
 /**
- * @brief Map I/O memory to the virtual address space
+ * @brief Map some memory to the kernel address space
  *
- * @param physical The physical address to map
+ * If VMAP_ALLOC is used, this function will allocate non-contiguous physical pages
+ * to map the memory. This function takes an optional argument that can be NULL, if it's not
+ * NULL, it will assume the memory pointed to it will be a type of mm_t.
+ *
+ * If VMAP_PHYSICAL is used, this function will map the virtual address to a physical address,
+ * optional must not be NULL, otherwise this function will return NULL. The optional argument
+ * will be assumed to be pointing to a type of physaddr_t.
+ *
+ * If VMAP_HUGEPAGE is used, this function will use 2MiB hugepages instead of 4K pages.
+ *
+ * If VMAP_IOMEM is used, this function will use the I/O memory VMA. When this flag is used,
+ * VMAP_PHYSICAL is implied. Don't use this flag directly, use iomap/iounmap instead.
+ *
+ * @param hint Ignored for now
  * @param size The size of the mapping
- * @param mmu_flags The protection flags
+ * @param flags The vmap flags to use
+ * @param mmu_flags The MMU flags to use for the pages
+ * @param optional Optional argument depending on the flags
  *
- * @return NULL on failure, otherwise you get an address in the iomem vma
+ * @return The pointer to the block
  */
-void __iomem* iomap(physaddr_t physical, size_t size, unsigned long mmu_flags);
+void* vmap(void* hint, size_t size, unsigned int flags, mmuflags_t mmu_flags, void* optional);
 
 /**
- * @brief Unmap I/O memory
+ * @brief Change the MMU flags for a virtual address
  *
- * @param virtual The virtual address to unmap
- * @param size The size of the mapping
+ * Use the VMAP_HUGEPAGE flag if the pages are hugepages (obviously). Not doing
+ * so will cause this function to return -EFAULT.
  *
- * @return 0 on success, -errno on failure
+ * @param virtual The virtual address to change
+ * @param size The size of the mapping you want to change
+ * @param flags The vmap flags to use
+ * @param mmu_flags The new MMU flags to use
+ *
+ * @return -errno on failure
  */
-int iounmap(void __iomem* virtual, size_t size);
+int vprotect(void* virtual, size_t size, unsigned int flags, mmuflags_t mmu_flags);
 
 /**
- * @brief Map some memory into the virtual address space
+ * @brief Unmap a block allocated with vmap
  *
- * @param mm_flags The MM flags for the memory allocations
- * @param size The size of the mapping
- * @param mmu_flags The protection flags to use for the mapping
+ * Use VMAP_FREE if you want to free the physical pages associated with this mapping.
  *
- * @return NULL on failure, otherwise you get an address in the kernel vma
- */
-void* kmap(mm_t mm_flags, size_t size, unsigned long mmu_flags);
-
-/**
- * @brief Change the MMU flags of a page(s)
+ * Use VMAP_HUGEPAGE If the pages to unmap are hugepages.
  *
  * @param virtual The virtual address
- * @param size The size of the mapping
- * @param mmu_flags The new MMU flags
+ * @param size The original size of the mapping
+ * @param flags The vmap flags to use
  *
- * @return 0 on success, -errno on failure
+ * @return -errno on failure
  */
-int kprotect(void* virtual, size_t size, unsigned long mmu_flags);
+int vunmap(void* virtual, size_t size, unsigned int flags);
 
-/**
- * @brief Unmap virtual memory pages
- *
- * @param virtual The virtual address to unmap
- * @param size The size of the mapping
- *
- * @return 0 on success, -errno on failure
- */
-int kunmap(void* virtual, size_t size);
+void __iomem* iomap(physaddr_t physical, size_t size, mmuflags_t mmu_flags);
+int iounmap(void __iomem* virtual, size_t size);
 
 void vmm_init(void);

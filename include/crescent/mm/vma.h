@@ -53,6 +53,9 @@ void vma_free_pages(struct vma* vma, void* addr, unsigned long page_count);
  */
 struct vma* vma_create(void* start, void* end, unsigned long page_count);
 
+int vma_split(struct vma* vma, void* split_point, struct vma** ret);
+int vma_merge(struct vma* dvma, struct vma* svma);
+
 /**
  * @brief Destroy a VMA
  * @param vma The VMA to destroy

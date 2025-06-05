@@ -14,11 +14,17 @@
 #include "hhdm.h"
 #include "pagetable.h"
 
+#define GUARD_4KPAGE_COUNT 1
+
 static struct vma* kvma;
 static struct vma* iovma;
+
+/* Lock for all kernel space page tables, since all kernel mappings are shared */
 static spinlock_t kernel_pt_lock = SPINLOCK_INITIALIZER;
 
-static unsigned long mmu_to_pt(unsigned long mmu_flags) {
+const struct vma* hhdmvma;
+
+static unsigned long mmu_to_pt(mmuflags_t mmu_flags) {
 	if (mmu_flags & MMU_CACHE_DISABLE && mmu_flags & MMU_WRITETHROUGH)
 		return 0;
 
@@ -41,259 +47,252 @@ static unsigned long mmu_to_pt(unsigned long mmu_flags) {
 	return pt_flags;
 }
 
-static int __iomap(void __iomem* virtual, physaddr_t physical,
-		unsigned long pt_flags, unsigned long page_count) {
-	struct vmm_ctx* vmm_ctx = &current_cpu()->vmm_ctx;
-
-	unsigned long pages_mapped = 0;
-	while (page_count--) {
-		int err = pagetable_map(vmm_ctx->pagetable, (void*)virtual, physical, pt_flags);
-		if (err) {
-			while (pages_mapped--) {
-				virtual = (u8*)virtual - PAGE_SIZE;
-				pagetable_unmap(vmm_ctx->pagetable, (void*)virtual);
-				tlb_flush_single((void*)virtual);
-			}
-
-			return err;
-		}
-
-		tlb_flush_single((void*)virtual);
-		pages_mapped++;
-		virtual = (u8*)virtual + PAGE_SIZE;
-		physical += PAGE_SIZE;
-	}
-
-	return 0;
-}
-
-static int __iounmap(void __iomem* virtual, unsigned long page_count) {
-	struct vmm_ctx* vmm_ctx = &current_cpu()->vmm_ctx;
-
-	unsigned long pages_unmapped = 0;
-	while (page_count--) {
-		int err = pagetable_unmap(vmm_ctx->pagetable, (void*)virtual);
-		if (err) {
-			if (pages_unmapped != 0) {
-				printk(PRINTK_CRIT "mm: failed to unmap all pages\n");
-				dump_stack(); /* Could be the result of a programming error */
-			}
-			return err;
-		}
-
-		tlb_flush_single((void*)virtual);
-		virtual = (u8*)virtual + PAGE_SIZE;
-	}
-
-	return 0;
-}
-
-static int __kmap(void* virtual, mm_t mm_flags, unsigned long pt_flags, unsigned long page_count) {
-	struct vmm_ctx* vmm_ctx = &current_cpu()->vmm_ctx;
-
-	unsigned long pages_mapped = 0;
-	while (page_count--) {
-		physaddr_t mem = alloc_page(mm_flags);
-		if (!mem)
-			break;
-		int err = pagetable_map(vmm_ctx->pagetable, virtual, mem, pt_flags);
-		if (err) {
-			while (pages_mapped--) {
-				virtual = (u8*)virtual - PAGE_SIZE;
-				physaddr_t physical = pagetable_get_physical(vmm_ctx->pagetable, virtual);
-				free_page(physical);
-				pagetable_unmap(vmm_ctx->pagetable, virtual);
-				tlb_flush_single(virtual);
-			}
-		}
-
-		tlb_flush_single(virtual);
-
-		pages_mapped++;
-		virtual = (u8*)virtual + PAGE_SIZE;
-	}
-
-	return 0;
-}
-
-static int __kprotect(void* virtual, unsigned long pt_flags, unsigned long page_count) {
-	struct vmm_ctx* vmm_ctx = &current_cpu()->vmm_ctx;
-
-	unsigned long pages_remapped = 0;
-	while (page_count) {
-		physaddr_t mem = pagetable_get_physical(vmm_ctx->pagetable, virtual);
-		int err = pagetable_update(vmm_ctx->pagetable, virtual, mem, pt_flags);
-		if (err) {
-			if (pages_remapped == 0)
-				return err;
-
-			printk(PRINTK_CRIT "mm: Failed to remap all pages, entries are unreliable!\n");
-			dump_stack();
-			return err;
-		}
-
-		tlb_flush_single(virtual);
-
-		page_count--;
-		pages_remapped++;
-
-		virtual = (u8*)virtual + PAGE_SIZE;
-	}
-
-	return 0;
-}
-
-static int __kunmap(void* virtual, unsigned long page_count) {
-	struct vmm_ctx* vmm_ctx = &current_cpu()->vmm_ctx;
-
-	while (page_count--) {
-		physaddr_t mem = pagetable_get_physical(vmm_ctx->pagetable, virtual);
-		if (mem)
-			free_page(mem);
-		else
-			printk(PRINTK_CRIT "mm: Virtual address not mapped to anything!\n");
-
-		int err = pagetable_unmap(vmm_ctx->pagetable, virtual);
-		if (err) {
-			printk(PRINTK_CRIT "mm: Failed to unmap kernel page, err: %i\n", err);
-			return err;
-		}
-
-		tlb_flush_single(virtual);
-		virtual = (u8*)virtual + PAGE_SIZE;
-	}
-
-	return 0;
-}
-
-static inline int in_vma(struct vma* vma, const void* virtual, size_t size) {
+static inline bool in_vma(struct vma* vma, const void* virtual, size_t size) {
 	uintptr_t virtual_top;
 	if (__builtin_add_overflow((uintptr_t)virtual, size, &virtual_top))
-		return -ERANGE;
+		return false;
 	else if (virtual < vma->start || virtual_top > (uintptr_t)vma->end)
-		return -EADDRNOTAVAIL;
+		return false;
 	
-	return 0;
+	return true;
 }
 
-void __iomem* iomap(physaddr_t physical, size_t size, unsigned long mmu_flags) {
+static inline bool vmap_validate_flags(unsigned int flags) {
+	if (flags & VMAP_FREE)
+		return false;
+	if (flags & VMAP_IOMEM && flags & VMAP_ALLOC)
+		return false;
+	if (flags & VMAP_PHYSICAL && flags & VMAP_ALLOC)
+		return false;
+
+	return true;
+}
+
+static inline bool vprotect_validate_flags(unsigned int flags) {
+	flags &= ~VMAP_HUGEPAGE;
+	return flags == 0;
+}
+
+static inline bool vunmap_validate_flags(unsigned int flags) {
+	if (flags & VMAP_ALLOC || flags & VMAP_PHYSICAL)
+		return false;
+
+	return true;
+}
+
+void* vmap(void* hint, size_t size, unsigned int flags, mmuflags_t mmu_flags, void* optional) {
+	if (hint)
+		printk(PRINTK_WARN "mm: vmap hint ignored!\n");
+
+	/* Check for any conflicting flags */
+	if (mmu_flags & MMU_USER || !vmap_validate_flags(flags))
+		return NULL;
 	unsigned long pt_flags = mmu_to_pt(mmu_flags);
-	if (pt_flags == 0)
+	if (!pt_flags)
 		return NULL;
 
-	unsigned long page_count = (size + PAGE_SIZE - 1) >> PAGE_SHIFT;
+	/* Get the page count and then save the number of pages to allocate in the VMA in case of failure */
+	unsigned long page_count = (size + PAGE_SIZE - 1) / PAGE_SIZE;
+	if (page_count == 0)
+		return NULL;
 
-	/* TODO: Do not map IO memory to the same VMA as the kernel VMA */
-	void __iomem* virtual = vma_alloc_pages(iovma, page_count, PAGE_SIZE);
+	unsigned long alloc_page_count = page_count + GUARD_4KPAGE_COUNT;
+	size_t page_size = PAGE_SIZE;
+	if (flags & VMAP_HUGEPAGE) {
+		page_count = ROUND_UP(page_count, PTE_COUNT);
+		page_size = HUGEPAGE_SIZE;
+		pt_flags |= PT_HUGEPAGE;
+		alloc_page_count = page_count + GUARD_4KPAGE_COUNT;
+		page_count /= PTE_COUNT;
+	}
+	const unsigned int page_size_order = get_order(page_size);
+
+	struct vma* vma = kvma;
+	if (flags & VMAP_IOMEM) {
+		flags |= VMAP_PHYSICAL;
+		vma = iovma;
+	}
+
+	u8* virtual = vma_alloc_pages(vma, alloc_page_count, page_size);
 	if (!virtual)
 		return NULL;
+	u8* ret = virtual;
+	pte_t* pagetable = current_cpu()->vmm_ctx.pagetable;
 
 	unsigned long lock_flags;
 	spinlock_lock_irq_save(&kernel_pt_lock, &lock_flags);
-	int err = __iomap(virtual, physical, pt_flags, page_count);
-	spinlock_unlock_irq_restore(&kernel_pt_lock, &lock_flags);
-	if (err) {
-		vma_free_pages(iovma, (void*)virtual, page_count);
-		return NULL;
+
+	unsigned long pages_mapped = 0;
+	if (flags & VMAP_PHYSICAL) {
+		if (!optional) {
+			ret = NULL;
+			goto cleanup;
+		}
+		physaddr_t physical = *(physaddr_t*)optional;
+		while (page_count--) {
+			if (pagetable_map(pagetable, virtual, physical, pt_flags)) {
+				ret = NULL;
+				goto cleanup;
+			}
+
+			tlb_flush_single(virtual);
+			pages_mapped++;
+			virtual += page_size;
+			physical += page_size;
+		}
+	} else if (flags & VMAP_ALLOC) {
+		mm_t mm_flags = MM_ZONE_NORMAL;
+		if (optional)
+			mm_flags = *(mm_t*)optional;
+
+		while (page_count--) {
+			physaddr_t physical = alloc_pages(mm_flags, page_size_order);
+			if (!physical) {
+				ret = NULL;
+				goto cleanup;
+			}
+			if (pagetable_map(pagetable, virtual, physical, pt_flags)) {
+				ret = NULL;
+				goto cleanup;
+			}
+		
+			tlb_flush_single(virtual);
+			pages_mapped++;
+			virtual += page_size;
+		}
+	} else {
+		ret = NULL;
 	}
 
-	return virtual;
-}
-
-int iounmap(void __iomem* virtual, size_t size) {
-	int err = in_vma(iovma, (void*)virtual, size);
-	if (err) {
-		if (err == -ERANGE)
-			printk(PRINTK_ERR "mm: virtual + size overflows!\n");
-		else if (err == -EADDRNOTAVAIL)
-			printk(PRINTK_ERR "mm: virtual not in kernel VMA!\n");
-		dump_stack();
-		return err;
+cleanup:
+	if (!ret) {
+		while (pages_mapped--) {
+			virtual -= page_size;
+			if (flags & VMAP_ALLOC) {
+				physaddr_t physical = pagetable_get_physical(pagetable, virtual);
+				free_pages(physical, page_size_order);
+			}
+			pagetable_unmap(pagetable, virtual);
+			tlb_flush_single(virtual);
+		}
+		vma_free_pages(vma, virtual, alloc_page_count);
 	}
 
-	unsigned long page_count = (size + PAGE_SIZE - 1) >> PAGE_SHIFT;
-	unsigned long lock_flags;
-
-	spinlock_lock_irq_save(&kernel_pt_lock, &lock_flags);
-	err = __iounmap(virtual, page_count);
 	spinlock_unlock_irq_restore(&kernel_pt_lock, &lock_flags);
-	if (err)
-		return err;
-
-	vma_free_pages(iovma, (void*)virtual, page_count);
-	return 0;
+	return ret;
 }
 
-void* kmap(mm_t mm_flags, size_t size, unsigned long mmu_flags) {
+int vprotect(void* virtual, size_t size, unsigned int flags, mmuflags_t mmu_flags) {
+	if (!vprotect_validate_flags(flags))
+		return -EINVAL;
+	unsigned long page_count = (size + PAGE_SIZE - 1) / PAGE_SIZE;
+	if (page_count == 0)
+		return -EINVAL;
 	unsigned long pt_flags = mmu_to_pt(mmu_flags);
-	if (pt_flags == 0)
-		return NULL;
-
-	unsigned long page_count = (size + PAGE_SIZE - 1) >> PAGE_SHIFT;
-
-	void* virtual = vma_alloc_pages(kvma, page_count, PAGE_SIZE);
-	if (!virtual)
-		return NULL;
-
-	unsigned long lock_flags;
-
-	spinlock_lock_irq_save(&kernel_pt_lock, &lock_flags);
-	int err = __kmap(virtual, mm_flags, pt_flags, page_count);
-	spinlock_unlock_irq_restore(&kernel_pt_lock, &lock_flags);
-	if (err) {
-		vma_free_pages(kvma, virtual, page_count);
-		return NULL;
-	}
-
-	return virtual;
-}
-
-int kprotect(void* virtual, size_t size, unsigned long mmu_flags) {
-	int err = in_vma(kvma, virtual, size);
-	if (err) {
-		if (err == -ERANGE)
-			printk(PRINTK_ERR "mm: virtual + size overflows!\n");
-		else if (err == -EADDRNOTAVAIL)
-			printk(PRINTK_ERR "mm: virtual not in kernel VMA!\n");
-		dump_stack();
-		return err;
-	}
-
-	unsigned long pt_flags = mmu_to_pt(mmu_flags);
-	if (pt_flags == 0)
+	if (!pt_flags)
 		return -EINVAL;
 
-	unsigned long page_count = (size + PAGE_SIZE - 1) >> PAGE_SHIFT;
+	size_t page_size = PAGE_SIZE;
+	if (flags & VMAP_HUGEPAGE) {
+		page_size = HUGEPAGE_SIZE;
+		page_count = (page_count + PTE_COUNT - 1) / PTE_COUNT;
+		pt_flags |= PT_HUGEPAGE;
+	}
+
+	pte_t* pagetable = current_cpu()->vmm_ctx.pagetable;
+	int err;
 
 	unsigned long lock_flags;
 	spinlock_lock_irq_save(&kernel_pt_lock, &lock_flags);
-	err = __kprotect(virtual, pt_flags, page_count);
+
+	unsigned long pages_remapped = 0;
+	while (page_count--) {
+		physaddr_t mem = pagetable_get_physical(pagetable, virtual);
+		err = pagetable_update(pagetable, virtual, mem, pt_flags);
+		if (err) {
+			if (pages_remapped != 0) {
+				printk(PRINTK_CRIT "mm: Failed to remap all pages, PTE's are unreliable!\n");
+				dump_stack();
+			}
+
+			goto cleanup;
+		}
+
+		virtual = (u8*)virtual + page_size;
+	}
+
+cleanup:
 	spinlock_unlock_irq_restore(&kernel_pt_lock, &lock_flags);
 	return err;
 }
 
-int kunmap(void* virtual, size_t size) {
-	int err = in_vma(kvma, virtual, size);
-	if (err) {
-		if (err == -ERANGE)
-			printk(PRINTK_ERR "mm: virtual + size overflows!\n");
-		else if (err == -EADDRNOTAVAIL)
-			printk(PRINTK_ERR "mm: virtual not in kernel VMA!\n");
-		dump_stack();
-		return err;
+int vunmap(void* virtual, size_t size, unsigned int flags) {
+	unsigned long page_count = (size + PAGE_SIZE - 1) / PAGE_SIZE;
+	if (page_count == 0 || !vunmap_validate_flags(flags))
+		return -EINVAL;
+
+	struct vma* vma;
+	if (in_vma(kvma, virtual, size))
+		vma = kvma;
+	else if (in_vma(iovma, virtual, size))
+		vma = iovma;
+	else
+		return -EFAULT;
+
+	unsigned long alloc_page_count = page_count + GUARD_4KPAGE_COUNT;
+	size_t page_size = PAGE_SIZE;
+	if (flags & VMAP_HUGEPAGE) {
+		page_size = HUGEPAGE_SIZE;
+		page_count = ROUND_UP(page_count, PTE_COUNT);
+		alloc_page_count = page_count + GUARD_4KPAGE_COUNT;
+		page_count /= PTE_COUNT;
+	}
+	const unsigned int page_size_order = get_order(page_size);
+
+	pte_t* pagetable = current_cpu()->vmm_ctx.pagetable;
+	int err;
+
+	void* saved_virtual = virtual;
+
+	unsigned long lock_flags;
+	spinlock_lock_irq_save(&kernel_pt_lock, &lock_flags);
+	while (page_count--) {
+		if (flags & VMAP_FREE) {
+			physaddr_t mem = pagetable_get_physical(pagetable, virtual);
+			free_pages(mem, page_size_order);
+		}
+		err = pagetable_unmap(pagetable, virtual);
+		if (err) {
+			printk(PRINTK_CRIT "Failed to unmap kernel page, err: %i", err);
+			goto err;
+		}
+
+		tlb_flush_single(virtual);
+		virtual = (u8*)virtual + page_size;
 	}
 
-	unsigned long page_count = (size + PAGE_SIZE - 1) >> PAGE_SHIFT;
-	unsigned long lock_flags;
-
-	spinlock_lock_irq_save(&kernel_pt_lock, &lock_flags);
-	err = __kunmap(virtual, page_count);
+	vma_free_pages(vma, saved_virtual, alloc_page_count);
+err:
 	spinlock_unlock_irq_restore(&kernel_pt_lock, &lock_flags);
-	if (err)
-		return err;
+	return err;
+}
 
-	vma_free_pages(kvma, virtual, page_count);
-	return 0;
+void __iomem* iomap(physaddr_t physical, size_t size, mmuflags_t mmu_flags) {
+	if (!(mmu_flags & MMU_WRITETHROUGH))
+		mmu_flags |= MMU_CACHE_DISABLE;
+
+	size_t page_offset = physical % PAGE_SIZE;
+	physaddr_t _physical = physical - page_offset;
+	u8 __iomem* ret = vmap(NULL, size + page_offset, VMAP_IOMEM, MMU_READ | MMU_WRITE, &_physical);
+	if (!ret)
+		return NULL;
+	return ret + page_offset;
+}
+
+int iounmap(void __iomem* virtual, size_t size) {
+	size_t page_offset = (uintptr_t)virtual % PAGE_SIZE;
+	void* _virtual = (u8*)virtual - page_offset;
+	return vunmap(_virtual, size + page_offset, 0);
 }
 
 void vmm_init(void) {
@@ -303,35 +302,37 @@ void vmm_init(void) {
 	pte_t* cr3 = hhdm_virtual(ctl3_read());
 	current_cpu()->vmm_ctx.pagetable = cr3;
 
-	void* kvma_start = NULL;
-	void* kvma_end = NULL;
-	void* iovma_start = NULL;
-	void* iovma_end = NULL;
-
-	for (unsigned int entry = 256; entry < PTE_COUNT; entry++) {
-		if (cr3[entry] & PT_PRESENT)
-			continue;
-
-		/* The end of the VMA is subtracted by a page size to force room for a page fault */
-		void* start = pagetable_get_base_address_from_top_index(entry);
-		void* end = (u8*)pagetable_get_end_address_from_top_index(entry) - PAGE_SIZE;
-	
-		if (!kvma_start) {
-			kvma_start = start;
-			kvma_end = end;
-		} else if (!iovma_start) {
-			iovma_start = start;
-			iovma_end = end;
-		} else {
+	void* hhdm_start = hhdm_virtual(0);
+	unsigned int pte_index = (uintptr_t)hhdm_start >> 39 & 0x01FF;
+	hhdm_start = pagetable_get_base_address_from_top_index(pte_index);
+	void* hhdm_end = NULL;
+	for (unsigned int i = pte_index; i < PTE_COUNT; i++) {
+		if (!(cr3[i] & PT_PRESENT)) {
+			hhdm_end = pagetable_get_base_address_from_top_index(i);
 			break;
 		}
 	}
+	hhdmvma = vma_create(hhdm_start, hhdm_end, 0);
+	if (!hhdmvma)
+		panic("Failed to create hhdm vma");
 
-	if (unlikely(!kvma_start || !iovma_end))
-		panic("No PT entry for kvma or iovma!");
+	for (unsigned int i = 256; i < PTE_COUNT; i++) {
+		if (!(cr3[i] & PT_PRESENT)) {
+			void* start = pagetable_get_base_address_from_top_index(i);
+			void* end = pagetable_get_end_address_from_top_index(i);
+			struct vma* vma = vma_create(start, end, 0);
+			if (!vma)
+				panic("Failed to create kernel VMAs\n");
 
-	kvma = vma_create(kvma_start, kvma_end, 10);
-	iovma = vma_create(iovma_start, iovma_end, 10);
-	if (!kvma || !iovma)
-		panic("Failed to create kvma or iovma structure!");
+			if (!kvma)
+				kvma = vma_create(start, end, 0);
+			else if (!iovma)
+				iovma = vma_create(start, end, 0);
+			else
+				break;
+		}
+	}
+
+	if (unlikely(!kvma || !iovma))
+		panic("Failed to allocate kvma or iovma ???\n");
 }

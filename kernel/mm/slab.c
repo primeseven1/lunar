@@ -15,15 +15,15 @@ static int slab_init(struct slab_cache* cache, struct slab* slab) {
 	size_t slab_size = cache->obj_size * cache->obj_count;
 
 	/* Allocate free list bitmap */
-	slab->free = kmap(MM_ZONE_NORMAL, map_size, MMU_READ | MMU_WRITE);
+	slab->free = vmap(NULL, map_size, VMAP_ALLOC, MMU_READ | MMU_WRITE, NULL);
 	if (!slab->free)
 		return -ENOMEM;
 	memset(slab->free, 0, map_size);
 
 	/* Allocate a virtual address for the slab base */
-	slab->base = kmap(cache->mm_flags, slab_size, MMU_READ | MMU_WRITE);
+	slab->base = vmap(NULL, slab_size, VMAP_ALLOC, MMU_READ | MMU_WRITE, &cache->mm_flags);
 	if (!slab->base) {
-		kunmap(slab->free, map_size);
+		vunmap(slab->free, map_size, VMAP_FREE);
 		return -ENOMEM;
 	}
 
@@ -32,13 +32,13 @@ static int slab_init(struct slab_cache* cache, struct slab* slab) {
 }
 
 static int slab_cache_grow(struct slab_cache* cache) {
-	struct slab* slab = kmap(MM_ZONE_NORMAL, sizeof(*slab), MMU_READ | MMU_WRITE);
+	struct slab* slab = vmap(NULL, sizeof(*slab), VMAP_ALLOC, MMU_READ | MMU_WRITE, NULL);
 	if (!slab)
 		return -ENOMEM;
 
 	int err = slab_init(cache, slab);
 	if (err) {
-		kunmap(slab, sizeof(*slab));
+		vunmap(slab, sizeof(*slab), VMAP_FREE);
 		return err;
 	}
 
@@ -225,7 +225,7 @@ struct slab_cache* slab_cache_create(size_t obj_size, size_t align,
 	else if (align & (align - 1))
 		return NULL;
 
-	struct slab_cache* cache = kmap(MM_ZONE_NORMAL, sizeof(*cache), MMU_READ | MMU_WRITE);
+	struct slab_cache* cache = vmap(NULL, sizeof(*cache), VMAP_ALLOC, MMU_READ | MMU_WRITE, NULL);
 	if (!cache)
 		return NULL;
 
@@ -253,13 +253,13 @@ int slab_cache_destroy(struct slab_cache* cache) {
 		if (next)
 			next->prev = NULL;
 
-		kunmap(slab->base, cache->obj_size * cache->obj_count);
-		kunmap(slab->free, (cache->obj_count + 7) / 8);
-		kunmap(slab, sizeof(*slab));
+		vunmap(slab->base, cache->obj_size * cache->obj_count, VMAP_FREE);
+		vunmap(slab->free, (cache->obj_count + 7) / 8, VMAP_FREE);
+		vunmap(slab, sizeof(*slab), VMAP_FREE);
 
 		slab = next;
 	}
 
-	kunmap(cache, sizeof(*cache));
+	vunmap(cache, sizeof(*cache), VMAP_FREE);
 	return 0;
 }

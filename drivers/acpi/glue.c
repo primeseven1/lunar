@@ -26,17 +26,18 @@ void uacpi_kernel_log(uacpi_log_level level, const uacpi_char* str) {
 }
 
 void* uacpi_kernel_map(uacpi_phys_addr physical, size_t size) {
-	size_t page_offset = (uintptr_t)physical & (PAGE_SIZE - 1);
-	void* virtual = (void*)iomap(physical, ROUND_UP(size + page_offset, PAGE_SIZE), MMU_READ | MMU_WRITE);
+	size_t page_offset = physical % PAGE_SIZE;
+	physaddr_t _physical = physical - page_offset;
+	void* virtual = vmap(NULL, size + page_offset, VMAP_PHYSICAL, MMU_READ | MMU_WRITE, &_physical);
 	if (!virtual)
 		return NULL;
 	return (u8*)virtual + page_offset;
 }
 
 void uacpi_kernel_unmap(void* virtual, size_t size) {
-	size_t page_offset = (uintptr_t)virtual & (PAGE_SIZE - 1);
-	uintptr_t _virtual = (uintptr_t)virtual;
-	iounmap((void*)ROUND_DOWN(_virtual, PAGE_SIZE), ROUND_UP(size + page_offset, PAGE_SIZE));
+	size_t page_offset = (uintptr_t)virtual % PAGE_SIZE;
+	void* _virtual = (u8*)virtual - page_offset;
+	vunmap(_virtual, size + page_offset, 0);
 }
 
 static struct limine_rsdp_request __limine_request rsdp_request = {

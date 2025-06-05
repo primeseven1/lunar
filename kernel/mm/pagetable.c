@@ -105,7 +105,7 @@ static int walk_pagetable(pte_t* pagetable, const void* virtual, bool create, si
 }
 
 int pagetable_map(pte_t* pagetable, void* virtual, physaddr_t physical, unsigned long pt_flags) {
-	if (!is_virtual_canonical(virtual))
+	if ((uintptr_t)virtual % PAGE_SIZE || physical % PAGE_SIZE || !is_virtual_canonical(virtual) || !physical)
 		return -EINVAL;
 
 	size_t page_size = pt_flags & PT_HUGEPAGE ? HUGEPAGE_SIZE : PAGE_SIZE;
@@ -117,15 +117,12 @@ int pagetable_map(pte_t* pagetable, void* virtual, physaddr_t physical, unsigned
 	if (*pte & PT_PRESENT)
 		return -EEXIST;
 
-	if (physical & (page_size - 1))
-		physical = ROUND_DOWN(physical, page_size);
-
 	*pte = physical | pt_flags;
 	return 0;
 }
 
 int pagetable_update(pte_t* pagetable, void* virtual, physaddr_t physical, unsigned long pt_flags) {
-	if (!is_virtual_canonical(virtual))
+	if ((uintptr_t)virtual % PAGE_SIZE || physical % PAGE_SIZE || !is_virtual_canonical(virtual) || !physical)
 		return -EINVAL;
 
 	size_t page_size = 0;
@@ -136,8 +133,8 @@ int pagetable_update(pte_t* pagetable, void* virtual, physaddr_t physical, unsig
 
 	if (pt_flags & PT_HUGEPAGE && page_size != HUGEPAGE_SIZE)
 		return -EFAULT;
-	if (physical & (page_size - 1))
-		physical = ROUND_DOWN(physical, page_size);
+	if (!(pt_flags & PT_PRESENT))
+		return -ENOENT;
 
 	*pte = physical | pt_flags;
 	return 0;
@@ -169,7 +166,7 @@ static void pagetable_cleanup(pte_t* pagetable, void* virtual) {
 }
 
 int pagetable_unmap(pte_t* pagetable, void* virtual) {
-	if (!is_virtual_canonical(virtual))
+	if ((uintptr_t)virtual % PAGE_SIZE || !is_virtual_canonical(virtual))
 		return -EINVAL;
 
 	size_t page_size = 0;

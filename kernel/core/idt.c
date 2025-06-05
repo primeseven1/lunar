@@ -35,11 +35,11 @@ static void __idt_init(void) {
 void idt_init(void) {
 	const size_t idt_size = sizeof(*idt) * INTERRUPT_COUNT;
 	if (!idt) {
-		idt = kmap(MM_ZONE_NORMAL, idt_size, MMU_READ | MMU_WRITE);
+		idt = vmap(NULL, idt_size, VMAP_ALLOC, MMU_READ | MMU_WRITE, NULL);
 		if (!idt)
 			panic("Failed to initialize IDT");
 		__idt_init();
-		kprotect(idt, idt_size, MMU_READ);
+		vprotect(idt, idt_size, 0, MMU_READ);
 	}
 
 	struct {
