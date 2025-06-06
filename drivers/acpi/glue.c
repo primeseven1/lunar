@@ -22,7 +22,7 @@ void uacpi_kernel_log(uacpi_log_level level, const uacpi_char* str) {
 		_level = PRINTK_ERR;
 		break;
 	}
-	printk("%s acpi: %s", _level, str);
+	printk("%sacpi: %s", _level, str);
 }
 
 void* uacpi_kernel_map(uacpi_phys_addr physical, size_t size) {
