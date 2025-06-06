@@ -39,8 +39,8 @@ static bool mmap_region_check(physaddr_t base, size_t size) {
 			continue;
 
 		/* 
-		 * The bootloader sanitizes the usable memory entries so no 
-		 * non-usable entries will not overlap usable entries, so we don't have
+		 * The bootloader sanitizes the usable memory entries so no
+		 * non-usable entries will overlap with usable entries, so we don't have
 		 * to deal with fucked up memory maps
 		 */
 		if (mmap_entry_check(entry, base, size))
@@ -140,7 +140,7 @@ static inline bool __is_block_free(unsigned long* free_list, unsigned long block
 /* Allocate blocks, but also manages the other blocks corresponding to the block on other layers */
 static int _alloc_block(struct mem_area* area, unsigned int layer, unsigned long block) {
 	if (layer >= area->layer_count)
-		return -ERANGE;
+		return -EINVAL;
 
 	unsigned long block_count = 1ul << layer;
 	if (block >= block_count)
@@ -179,7 +179,7 @@ static int _alloc_block(struct mem_area* area, unsigned int layer, unsigned long
 /* Frees blocks, but also manages the other blocks corresponding to the block on other layers */
 static int _free_block(struct mem_area* area, unsigned int layer, unsigned long block) {
 	if (layer >= area->layer_count)
-		return -ERANGE;
+		return -EINVAL;
 
 	unsigned long block_count = 1ul << layer;
 	if (block >= block_count)
@@ -200,7 +200,7 @@ static int _free_block(struct mem_area* area, unsigned int layer, unsigned long 
 
 		/* 
 		 * Now check the buddy, if it's free, then the two blocks can be merged,
-		 * otherwise this part of the free process is done 
+		 * otherwise this part of the free process is done
 		 */
 		unsigned long buddy = block & 1 ? block - 1 : block + 1;
 		if (!__is_block_free(area->free_list, block_count, buddy))
@@ -299,7 +299,10 @@ static struct mem_area* get_mem_area(struct zone* zone, physaddr_t addr) {
 	return NULL;
 }
 
-/* Allocate pages from a memory zone */
+/*
+ * Allocate pages from a memory zone, this function makes sure the memory
+ * region is actually system RAM before returning the address.
+ */
 static physaddr_t __alloc_pages(struct zone* zone, unsigned int order) {
 	size_t alloc_size = PAGE_SIZE << order;
 	unsigned long block4k_count = alloc_size >> PAGE_SHIFT;
@@ -336,6 +339,8 @@ retry:
 		goto out;
 
 	ret = area->base + (block * alloc_size);
+
+	/* Since the blocks that could be outside of the area are allocated, this should not happen */
 	if (unlikely(ret + alloc_size > area->base + area->real_size)) {
 		printk(PRINTK_ERR "mm: Tried allocating a block outside of area!\n");
 		_free_block(area, layer, block);
@@ -366,6 +371,7 @@ out:
 	return ret;
 }
 
+/* Free pages from a specific memory zone. */
 static int __free_pages(struct zone* zone, physaddr_t addr, unsigned int order) {
 	struct mem_area* area = get_mem_area(zone, addr);
 	if (!area)
@@ -387,7 +393,12 @@ static int __free_pages(struct zone* zone, physaddr_t addr, unsigned int order) 
 		goto out;
 	}
 
-	_free_block(area, layer, block);
+	ret = _free_block(area, layer, block);
+	if (unlikely(ret)) {
+		printk(PRINTK_CRIT "mm: %s failed to free pages, err: %i\n", __func__, ret);
+		goto out;
+	}
+
 	__atomic_sub_fetch(&area->used_4k_blocks, block4k_count, __ATOMIC_SEQ_CST);
 out:
 	spinlock_unlock_irq_restore(&area->lock, &lock_flags);
@@ -414,6 +425,10 @@ static struct zone __normal_zone;
 static struct zone* dma32_zone;
 static struct zone* normal_zone;
 
+/* 
+ * Get a memory zone from MM flags, this function will allocate
+ * select the most restrictive zone if multiple zones are set.
+ */
 static struct zone* get_zone_mm(mm_t mm_flags) {
 	if (mm_flags & MM_ZONE_DMA)
 		return &dma_zone;
@@ -424,6 +439,7 @@ static struct zone* get_zone_mm(mm_t mm_flags) {
 	return NULL;
 }
 
+/* Get a memory zone from a physical memory address */
 static struct zone* get_zone_addr(physaddr_t addr, size_t size) {
 	physaddr_t addr_top;
 	if (__builtin_add_overflow(addr, size, &addr_top))
@@ -459,10 +475,25 @@ physaddr_t alloc_pages(mm_t mm_flags, unsigned int order) {
 	}
 
 	unsigned int retries = 20;
-	while (retries--) {
+	while (retries) {
 		physaddr_t physical = __alloc_pages(zone, order);
 		if (physical)
 			return physical;
+
+		/* Clearly the current zone isn't working, so try other ones */
+		if (retries < 10) {
+			switch (zone->zone_type) {
+			case MM_ZONE_NORMAL:
+				zone = dma32_zone;
+				break;
+			case MM_ZONE_DMA32:
+				zone = &dma_zone;
+				break;
+			default:
+				break;
+			}
+		}
+		retries--;
 	}
 
 	return 0;
@@ -516,6 +547,7 @@ static unsigned int get_layer_count(size_t size) {
 	return layers;
 }
 
+/* Initializes the DMA zone, all structures for this zone are statically allocated */
 static void dma_zone_init(physaddr_t last_usable) {
 	dma_zone.zone_type = MM_ZONE_DMA;
 
@@ -534,12 +566,17 @@ static void dma_zone_init(physaddr_t last_usable) {
 	dma_area.total_4k_blocks = 1 << (dma_area.layer_count - 1);
 	memset(dma_area_free_list, 0, sizeof(dma_area_free_list));
 
-	/* Allocate the first page of memory */
-	_alloc_block(&dma_area, dma_area.layer_count - 1, 0);
+	/* Allocate the first page of memory, an error should never happen in this context */
+	int err = _alloc_block(&dma_area, dma_area.layer_count - 1, 0);
+	if (unlikely(err))
+		panic("Failed to allocate first physical page of memory? How did this happen?");
 }
 
-static int init_area(struct mem_area* area, mm_t free_list_zone, 
-		physaddr_t base, size_t real_size) {
+/* 
+ * Initialize a memory area, free_list_zone is the zone the free list should be allocated from,
+ * so this function can be used when not every zone is initialized yet.
+ */
+static int init_area(struct mem_area* area, mm_t free_list_zone, physaddr_t base, size_t real_size) {
 	u64 rounded_size = round_power2(PAGE_SIZE, real_size);
 	unsigned int layer_count = get_layer_count(rounded_size);
 	if (layer_count == 1)
@@ -564,16 +601,18 @@ static int init_area(struct mem_area* area, mm_t free_list_zone,
 	if (rounded_size != real_size) {
 		unsigned long start_block = real_size / PAGE_SIZE;
 		unsigned long end_block = rounded_size / PAGE_SIZE;
-		for (unsigned long block = start_block; block < end_block; block++)
-			_alloc_block(area, layer_count - 1, block);
+		for (unsigned long block = start_block; block < end_block; block++) {
+			int err = _alloc_block(area, layer_count - 1, block);
+			if (unlikely(err))
+				panic("Failed to allocate blocks outside of zone?");
+		}
 	}
 	return 0;
 }
 
 /* Initialize a memory zone, alloc_zone is the zone to allocate the memory structures from */
-static int zone_init(struct zone* zone, mm_t zone_type, 
-		physaddr_t last_usable, physaddr_t min_start, 
-		physaddr_t max_end, mm_t alloc_zone) {
+static int zone_init(struct zone* zone, mm_t zone_type, mm_t alloc_zone, 
+		physaddr_t last_usable, physaddr_t min_start, physaddr_t max_end) {
 	if (last_usable < min_start)
 		return -ELOOP;
 	if (last_usable < max_end)
@@ -623,8 +662,7 @@ void buddy_init(void) {
 	dma_zone_init(last_usable);
 
 	/* Any other error the -ELOOP here typically means a problem with the allocator */
-	int err = zone_init(&__dma32_zone, MM_ZONE_DMA32, last_usable,
-			0x1000000, 0x100000000, MM_ZONE_DMA);
+	int err = zone_init(&__dma32_zone, MM_ZONE_DMA32, MM_ZONE_DMA, last_usable, 0x1000000, 0x100000000);
 	if (unlikely(err == -ELOOP)) {
 		dma32_zone = &dma_zone;
 		normal_zone = &dma_zone;
@@ -635,8 +673,7 @@ void buddy_init(void) {
 	}
 	dma32_zone = &__dma32_zone;
 
-	err = zone_init(&__normal_zone, MM_ZONE_NORMAL, last_usable, 
-			0x100000000, PHYSADDR_MAX, MM_ZONE_DMA32);
+	err = zone_init(&__normal_zone, MM_ZONE_NORMAL, MM_ZONE_DMA32, last_usable, 0x100000000, PHYSADDR_MAX);
 	if (err == -ELOOP) {
 		normal_zone = dma32_zone;
 		printk(PRINTK_DBG "mm: Linking normal zone to the dma32 zone\n");
