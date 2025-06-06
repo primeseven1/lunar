@@ -235,7 +235,7 @@ struct slab_cache* slab_cache_create(size_t obj_size, size_t align,
 	cache->partial = NULL;
 	cache->empty = NULL;
 	cache->obj_size = ROUND_UP(obj_size, align);
-	cache->obj_count = cache->obj_size < SLAB_SIZE_CUTOFF ? 0x2000 / cache->obj_size : SLAB_AFTER_CUTOFF_OBJ_COUNT;
+	cache->obj_count = cache->obj_size < SLAB_SIZE_CUTOFF ? (PAGE_SIZE * 2) / cache->obj_size : SLAB_AFTER_CUTOFF_OBJ_COUNT;
 	cache->align = align;
 	cache->mm_flags = mm_flags;
 	cache->lock = SPINLOCK_INITIALIZER;
