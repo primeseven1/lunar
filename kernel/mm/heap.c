@@ -89,10 +89,8 @@ static void attempt_delete_mempool(struct mempool* pool) {
 	pool->prev->next = pool->next;
 
 	slab_cache_free(mempool_head->cache, pool);
-	pool = NULL;
+	printk(PRINTK_DBG "mm: Successfully destroyed heap pool with a size of %zu\n", obj_size);
 leave:
-	if (!pool)
-		printk(PRINTK_DBG "mm: Successfully destroyed heap pool with a size of %zu\n", obj_size);
 	spinlock_unlock_irq_restore(&mempool_spinlock, &lock_flags);
 }
 
