@@ -72,19 +72,24 @@ static const struct segment_descriptor base[SEGMENT_COUNT] = {
 
 /* This function was fun to write... */
 static __noinline void reload_segment_registers(void) {
-	__asm__ goto volatile("swapgs\n\t"
+	__asm__ volatile goto("swapgs\n\t"
 			"movw %0, %%gs\n\t"
 			"movw %0, %%fs\n\t"
 			"swapgs\n\t"
 			"movw %1, %%ds\n\t"
 			"movw %1, %%es\n\t"
 			"movw %1, %%ss\n\t"
+#ifdef CONFIG_KASLR
+			"leaq %l[reload](%%rip), %%rax\n\t"
+#else
+			"leaq %l[reload], %%rax\n\t"
+#endif /* CONFIG_KASLR */
 			"pushq %2\n\t"
-			"pushq %3\n\t"
+			"pushq %%rax\n\t"
 			"lretq"
 			:
-			: "r"((u16)0), "r"((u16)SEGMENT_KERNEL_DATA), "r"((u64)SEGMENT_KERNEL_CODE), "r"(&&reload)
-			: "memory"
+			: "r"((u16)0), "r"((u16)SEGMENT_KERNEL_DATA), "r"((u64)SEGMENT_KERNEL_CODE)
+			: "rax", "memory"
 			: reload);
 reload:
 	__asm__ volatile("ltr %0" : : "r"((u16)SEGMENT_TASK_STATE) : "memory");
