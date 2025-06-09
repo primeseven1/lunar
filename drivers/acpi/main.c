@@ -1,6 +1,7 @@
 #include <crescent/compiler.h>
 #include <crescent/asm/errno.h>
 #include <crescent/core/module.h>
+#include <crescent/core/printk.h>
 #include <crescent/mm/heap.h>
 #include <acpi/madt.h>
 #include <uacpi/uacpi.h>
@@ -21,7 +22,7 @@ static int acpi_init(void) {
 
 	err = acpi_madt_init();
 	if (err != UACPI_STATUS_OK)
-		return -ENODATA;
+		printk("acpi: MADT initialization failed: %i\n", err);
 
 	return 0;
 }
