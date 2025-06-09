@@ -363,10 +363,18 @@ static long long do_int_output(struct fmt* spec, char** dest, size_t* dsize, uni
 		spec->field_width = 0;
 	}
 
-	/* Now either zeropad, or pad with spaces. The radix must be written first if zeropadding */
+	/* Now either zeropad, or pad with spaces. The radix and sign must be written first if zeropadding */
 	if (spec->flags & FMT_ZEROPAD) {
+		if (sign) {
+			write_one(dest, sign, dsize);
+			sign = 0; /* Set to zero so it's not written again */
+		}
+
+		/* No need to check the pointer here, since radix_len will be zero, so no null dereference */
 		write_many(dest, radix, radix_len, dsize);
-		radix = NULL; /* Set radix to NULL so that it isn't written again */
+		radix = NULL; /* Set to NULL so that it isn't written again */
+
+		/* Now do the actual zeropad */
 		while (spec->field_width) {
 			write_one(dest, '0', dsize);
 			spec->field_width--;
@@ -378,7 +386,7 @@ static long long do_int_output(struct fmt* spec, char** dest, size_t* dsize, uni
 		}
 	}
 
-	if (sign_len)
+	if (sign)
 		write_one(dest, sign, dsize);
 	if (radix)
 		write_many(dest, radix, radix_len, dsize);
