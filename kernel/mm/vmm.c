@@ -283,7 +283,7 @@ void __iomem* iomap(physaddr_t physical, size_t size, mmuflags_t mmu_flags) {
 
 	size_t page_offset = physical % PAGE_SIZE;
 	physaddr_t _physical = physical - page_offset;
-	u8 __iomem* ret = vmap(NULL, size + page_offset, VMAP_IOMEM, MMU_READ | MMU_WRITE, &_physical);
+	u8 __iomem* ret = vmap(NULL, size + page_offset, VMAP_IOMEM, mmu_flags, &_physical);
 	if (!ret)
 		return NULL;
 	return ret + page_offset;
