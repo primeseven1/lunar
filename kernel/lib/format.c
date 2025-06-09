@@ -301,6 +301,7 @@ static int do_int(char* dest, char qualifier, unsigned long long x, unsigned int
 	switch (qualifier) {
 	case -1:
 		x = (unsigned int)x;
+		break;
 	case 'h':
 		x = (unsigned short)x;
 		break;
