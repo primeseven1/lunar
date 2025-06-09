@@ -311,7 +311,6 @@ static long long do_int_output(struct fmt* spec, char** dest, size_t* dsize, uni
 
 	/* Now check the sign */
 	char sign = '\0';
-	int sign_len = 0;
 	if (spec->flags & FMT_INT_SIGNED) {
 		if (arg->ll < 0) {
 			sign = '-';
@@ -321,9 +320,8 @@ static long long do_int_output(struct fmt* spec, char** dest, size_t* dsize, uni
 		} else if (spec->flags & FMT_SPACE) {
 			sign = ' ';
 		}
-		if (sign)
-			sign_len = 1;
 	}
+	int sign_len = sign ? 1 : 0;
 
 	/* The special flag will control whether or not the radix is printed */
 	const char* radix = NULL;
@@ -438,7 +436,6 @@ int vsnprintf(char* dest, size_t dsize, const char* fmt, va_list va) {
 
 		fmt++;
 
-		long long add;
 		struct fmt spec;
 		union arg arg;
 
@@ -447,7 +444,7 @@ int vsnprintf(char* dest, size_t dsize, const char* fmt, va_list va) {
 			return -1;
 
 		/* Now for writing to output, if the value is negative it's an error */
-		add = do_output(&spec, &dest, &dsize, &arg);
+		long long add = do_output(&spec, &dest, &dsize, &arg);
 		if (add < 0)
 			return -1;
 		if (__builtin_add_overflow(char_count, add, &char_count))
