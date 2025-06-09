@@ -296,6 +296,29 @@ static long long do_str_output(struct fmt* spec, char** dest, size_t* dsize, uni
 	return len + spaces;
 }
 
+static int do_int(char* dest, char qualifier, unsigned long long x, unsigned int base, size_t dsize) {
+	/* This must be done, otherwise there will be errors when x > TYPE_WIDTH_SIGNED_MAX */
+	switch (qualifier) {
+	case -1:
+		x = (unsigned int)x;
+	case 'h':
+		x = (unsigned short)x;
+		break;
+	case 'H':
+		x = (unsigned char)x;
+		break;
+	case 'l':
+		x = (unsigned long)x;
+		break;
+	case 'L':
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	return kulltostr(dest, x, base, dsize);
+}
+
 /* Handle converting an outputting an integer to a string buffer */
 static long long do_int_output(struct fmt* spec, char** dest, size_t* dsize, union arg* arg) {
 	char conversion[sizeof(long long) * 8 + 1];
@@ -336,7 +359,7 @@ static long long do_int_output(struct fmt* spec, char** dest, size_t* dsize, uni
 	int radix_len = radix ? __builtin_strlen(radix) : 0;
 
 	/* Now convert the integer to a string */
-	int err = kulltostr(conversion, arg->ull, base, sizeof(conversion));
+	int err = do_int(conversion, spec->qualifier, arg->ull, base, sizeof(conversion));
 	if (unlikely(err))
 		return -1;
 	int conversion_len = strlen(conversion);
