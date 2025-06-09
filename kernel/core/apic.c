@@ -11,7 +11,7 @@ enum apic_base_flags {
 };
 
 enum lapic_regs {
-	LAPIC_REG_EOI = 0B0
+	LAPIC_REG_EOI = 0xB0
 };
 
 static const struct acpi_madt_ops* madt_ops = NULL;
