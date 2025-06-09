@@ -13,7 +13,7 @@
 
 static struct isr isr_handlers[INTERRUPT_COUNT];
 
-const struct isr* interrupt_register(void (*handler)(const struct isr*, const struct context*)) {
+const struct isr* interrupt_register(void (*handler)(const struct isr*, const struct context*), void (*eoi)(const struct isr*)) {
 	unsigned long irq = local_irq_save();
 
 	struct isr* ret = NULL;
@@ -21,6 +21,7 @@ const struct isr* interrupt_register(void (*handler)(const struct isr*, const st
 		if (!isr_handlers[i].handler) {
 			ret = &isr_handlers[i];
 			ret->handler = handler;
+			ret->eoi = eoi;
 			break;
 		}
 	}
@@ -51,33 +52,27 @@ __asmlinkage void __isr_entry(const struct context* ctx) {
 	current_cpu()->in_interrupt = false;
 }
 
-static void nothing(const struct isr* isr, const struct context* ctx) {
-	(void)isr;
-	(void)ctx;
-}
-
 static void nmi(const struct isr* isr, const struct context* ctx) {
 	(void)isr;
 	(void)ctx;
 	panic("NMI");
 }
 
+static void spurious(const struct isr* isr, const struct context* ctx) {
+	(void)isr;
+	(void)ctx;
+}
+
 void interrupts_init(void) {
 	for (int i = 0; i < INTERRUPT_COUNT; i++) {
 		isr_handlers[i].int_num = i;
 		isr_handlers[i].eoi = NULL;
-
-		if (i < 32) {
-			if (i == 2)
-				isr_handlers[i].handler = nmi;
-			else if (i < 22 && i != 15)
-				isr_handlers[i].handler = do_trap;
-			else
-				isr_handlers[i].handler = nothing;
-			continue;
-		}
-
-		isr_handlers[i].handler = NULL;
+		if (i == INTERRUPT_SPURIOUS_VECTOR)
+			isr_handlers[i].handler = spurious;
+		else if (i < INTERRUPT_EXCEPTION_COUNT)
+			isr_handlers[i].handler = i == INTERRUPT_EXCEPTION_NMI ? nmi : do_trap;
+		else
+			isr_handlers[i].handler = NULL;
 	}
 
 	idt_init();

@@ -1,5 +1,7 @@
 #include <crescent/common.h>
 #include <crescent/asm/msr.h>
+#include <crescent/core/cpu.h>
+#include <crescent/core/panic.h>
 #include <crescent/core/apic.h>
 #include <crescent/core/printk.h>
 #include <crescent/mm/buddy.h>
@@ -11,8 +13,19 @@ enum apic_base_flags {
 };
 
 enum lapic_regs {
-	LAPIC_REG_EOI = 0xB0
+	LAPIC_REG_ID = 0x20,
+	LAPIC_REG_EOI = 0xB0,
+	LAPIC_REG_SPURIOUS = 0xF0,
+	LAPIC_REG_LVT_TIMER = 0x320,
+	LAPIC_REG_LVT_LINT0 = 0x350,
+	LAPIC_REG_LVT_LINT1 = 0x360,
+	LAPIC_REG_TIMER_INITIAL = 0x380,
+	LAPIC_REG_TIMER_CURRENT = 0x390,
+	LAPIC_REG_TIMER_DIVIDE = 0x3E0
 };
+
+#define LVT_DELIVERY_NMI (0b100 << 8)
+#define LVT_MASK (1 << 16)
 
 static const struct acpi_madt_ops* madt_ops = NULL;
 static u32 __iomem* lapic_address;
@@ -106,5 +119,7 @@ int apic_bsp_init(void) {
 			ioapic_redtbl_write(ioapic->address, j - ioapic->base, 0xfe, 0, 0, 0, 0, 1, 0);
 	}
 
+	/* Setup spurious IRQ, the ISR is already set up */
+	lapic_write(LAPIC_REG_SPURIOUS, 0xFF | 0x100);
 	return 0;
 }

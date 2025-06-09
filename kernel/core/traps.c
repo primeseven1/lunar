@@ -13,13 +13,13 @@ static void do_page_fault(const struct context* ctx) {
 		panic("kernel page fault");
 	}
 
-	/* Prevent the compiler from making a jump instead of a call */
+	/* Make sure a valid return address is printed in a stack trace */
 	__asm__ volatile("ud2");
 }
 
 void do_trap(const struct isr* isr, const struct context* ctx) {
 	switch (isr->int_num) {
-	case 14:
+	case INTERRUPT_EXCEPTION_PAGE_FAULT:
 		do_page_fault(ctx);
 		break;
 	default:
