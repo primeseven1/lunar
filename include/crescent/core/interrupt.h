@@ -20,7 +20,6 @@ struct isr {
 	void (*handler)(const struct isr* self, const struct context* ctx);
 	void (*eoi)(const struct isr* self);
 	unsigned long int_num;
-	spinlock_t lock;
 };
 
 #define INTERRUPT_COUNT 256

@@ -18,12 +18,16 @@ void bsp_cpu_init(void) {
 
 	struct limine_mp_response* mp = mp_request.response;
 	if (mp) {
+		bsp_cpu.lapic_id = mp->bsp_lapic_id;
 		for (u64 i = 0; i < mp->cpu_count; i++) {
 			if (mp->cpus[i]->lapic_id == mp->bsp_lapic_id) {
 				bsp_cpu.processor_id = mp->cpus[i]->processor_id;
 				break;
 			}
 		}
+	} else {
+		bsp_cpu.processor_id = 0;
+		bsp_cpu.lapic_id = 0;
 	}
 
 	wrmsr(MSR_GS_BASE, (uintptr_t)&bsp_cpu);

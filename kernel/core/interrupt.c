@@ -5,6 +5,7 @@
 #include <crescent/core/panic.h>
 #include <crescent/core/locking.h>
 #include <crescent/core/printk.h>
+#include <crescent/core/cpu.h>
 #include <crescent/core/interrupt.h>
 #include <crescent/lib/string.h>
 #include "idt.h"
@@ -30,6 +31,8 @@ const struct isr* interrupt_register(void (*handler)(const struct isr*, const st
 
 __asmlinkage void __isr_entry(const struct context* ctx);
 __asmlinkage void __isr_entry(const struct context* ctx) {
+	current_cpu()->in_interrupt = true;
+
 	/* This should never happen */
 	if (unlikely(ctx->int_num >= INTERRUPT_COUNT))
 		panic("Cannot handle interrupt: ctx->int_num == %lu", ctx->int_num);
@@ -44,6 +47,8 @@ __asmlinkage void __isr_entry(const struct context* ctx) {
 
 	if (isr->eoi)
 		isr->eoi(isr);
+
+	current_cpu()->in_interrupt = false;
 }
 
 static void nothing(const struct isr* isr, const struct context* ctx) {

@@ -5,7 +5,7 @@
 
 struct cpu {
 	struct cpu* self;
-	u32 processor_id;
+	u32 processor_id, lapic_id;
 	bool in_interrupt;
 	struct vmm_ctx vmm_ctx;
 };
