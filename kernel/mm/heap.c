@@ -100,6 +100,8 @@ struct alloc_info {
 };
 
 void* kmalloc(size_t size, mm_t mm_flags) {
+	if (!size)
+		return NULL;
 	size = ROUND_UP(size, HEAP_ALIGN);
 
 	size_t total_size;
@@ -143,6 +145,13 @@ void kfree(void* ptr) {
 }
 
 void* krealloc(void* old, size_t new_size, mm_t mm_flags) {
+	if (!old)
+		return kmalloc(new_size, mm_flags);
+	if (!new_size) {
+		kfree(old);
+		return NULL;
+	}
+
 	new_size = ROUND_UP(new_size, HEAP_ALIGN);
 
 	struct alloc_info* old_alloc_info = (struct alloc_info*)old - 1;
