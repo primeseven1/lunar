@@ -9,6 +9,7 @@
 #include <crescent/core/cmdline.h>
 #include <crescent/core/interrupt.h>
 #include <crescent/core/apic.h>
+#include <crescent/core/i8259.h>
 #include <crescent/mm/buddy.h>
 #include <crescent/mm/heap.h>
 #include <crescent/asm/segment.h>
@@ -55,6 +56,7 @@ _Noreturn __asmlinkage void kernel_main(void) {
 	err = apic_bsp_init();
 	if (err)
 		panic("Failed to initialize APIC, err: %i", err);
+	i8259_init();
 
 	const char* loglevel = cmdline_get("loglevel");
 	if (loglevel) {

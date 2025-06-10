@@ -6,6 +6,7 @@
 #include <crescent/core/locking.h>
 #include <crescent/core/printk.h>
 #include <crescent/core/cpu.h>
+#include <crescent/core/i8259.h>
 #include <crescent/core/interrupt.h>
 #include <crescent/lib/string.h>
 #include "idt.h"
@@ -67,12 +68,16 @@ void interrupts_init(void) {
 	for (int i = 0; i < INTERRUPT_COUNT; i++) {
 		isr_handlers[i].int_num = i;
 		isr_handlers[i].eoi = NULL;
-		if (i == INTERRUPT_SPURIOUS_VECTOR)
-			isr_handlers[i].handler = spurious;
-		else if (i < INTERRUPT_EXCEPTION_COUNT)
+		if (i < INTERRUPT_EXCEPTION_COUNT) {
 			isr_handlers[i].handler = i == INTERRUPT_EXCEPTION_NMI ? nmi : do_trap;
-		else
+		} else if (i >= I8259_VECTOR_OFFSET && i < I8259_VECTOR_OFFSET + I8259_VECTOR_COUNT) {
+			isr_handlers[i].handler = spurious;
+			isr_handlers[i].eoi = i8259_spurious_eoi;
+		} else if (i == INTERRUPT_SPURIOUS_VECTOR) {
+			isr_handlers[i].handler = spurious;
+		} else {
 			isr_handlers[i].handler = NULL;
+		}
 	}
 
 	idt_init();
