@@ -29,7 +29,6 @@ enum lapic_regs {
 
 static const struct acpi_madt_ops* madt_ops = NULL;
 static u32 __iomem* lapic_address;
-static physaddr_t lapic_physical;
 
 void apic_set_madt_ops(const struct acpi_madt_ops* ops) {
 	madt_ops = ops;
@@ -59,7 +58,7 @@ static void ioapic_redtbl_write(u32 __iomem* ioapic, u8 entry, u8 vector,
 	ioapic_write(ioapic, 0x11 + entry * 2, (u32)dest << 24);
 }
 
-void apic_eoi(struct isr* isr) {
+void apic_eoi(const struct isr* isr) {
 	(void)isr;
 	lapic_write(LAPIC_REG_EOI, 0);
 }
@@ -95,18 +94,7 @@ int apic_bsp_init(void) {
 	if (!madt_ops)
 		return -ENOSYS;
 
-	/* By remapping the LAPIC, it guaruntees there is no MMIO address mapped to it */
-	lapic_physical = alloc_page(MM_ZONE_DMA);
-
-	/* Use the default if this somehow happens */
-	if (unlikely(!lapic_physical)) {
-		printk(PRINTK_ERR "core: Failed to remap LAPIC!\n");
-		lapic_physical = ROUND_DOWN(rdmsr(MSR_APIC_BASE), PAGE_SIZE);
-	} else {
-		wrmsr(MSR_APIC_BASE, lapic_physical | APIC_BASE_BSP | APIC_BASE_ENABLE);
-	}
-
-	/* If the previous if condition was somehow true, this will likely fail */
+	physaddr_t lapic_physical = ROUND_DOWN(rdmsr(MSR_APIC_BASE), PAGE_SIZE);
 	lapic_address = iomap(lapic_physical, PAGE_SIZE, MMU_READ | MMU_WRITE);
 	if (unlikely(!lapic_address))
 		return -ENOMEM;

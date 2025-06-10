@@ -91,4 +91,4 @@ static inline void ioapic_write(u32 __iomem* ioapic, u8 reg, u32 x) {
 
 int apic_set_irq(u8 irq, u8 vector, u8 processor, bool masked);
 int apic_bsp_init(void);
-void apic_eoi(struct isr* isr);
+void apic_eoi(const struct isr* isr);
