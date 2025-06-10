@@ -313,6 +313,9 @@ static int do_int(char* dest, char qualifier, unsigned long long x, unsigned int
 		break;
 	case 'L':
 		break;
+	case 'z':
+		x = (size_t)x;
+		break;
 	default:
 		return -EINVAL;
 	}
