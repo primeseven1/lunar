@@ -98,17 +98,17 @@ static int walk_pagetable(pte_t* pagetable, const void* virtual, bool create, si
 		pagetable = table_virtual(pagetable[indexes[i]]);
 	}
 
-	if (*page_size == 0)
-		*page_size = PAGE_SIZE;
+	*page_size = PAGE_SIZE;
 	*ret = &pagetable[indexes[3]];
 	return 0;
 }
 
 int pagetable_map(pte_t* pagetable, void* virtual, physaddr_t physical, unsigned long pt_flags) {
-	if ((uintptr_t)virtual % PAGE_SIZE || physical % PAGE_SIZE || !is_virtual_canonical(virtual) || !physical)
+	size_t page_size = pt_flags & PT_HUGEPAGE ? HUGEPAGE_SIZE : PAGE_SIZE;
+	if ((uintptr_t)virtual & (page_size - 1) || physical & (page_size - 1) || 
+			!is_virtual_canonical(virtual) || !physical)
 		return -EINVAL;
 
-	size_t page_size = pt_flags & PT_HUGEPAGE ? HUGEPAGE_SIZE : PAGE_SIZE;
 	pte_t* pte;
 	int err = walk_pagetable(pagetable, virtual, true, &page_size, &pte);
 	if (err)
@@ -122,17 +122,20 @@ int pagetable_map(pte_t* pagetable, void* virtual, physaddr_t physical, unsigned
 }
 
 int pagetable_update(pte_t* pagetable, void* virtual, physaddr_t physical, unsigned long pt_flags) {
-	if ((uintptr_t)virtual % PAGE_SIZE || physical % PAGE_SIZE || !is_virtual_canonical(virtual) || !physical)
+	if (!is_virtual_canonical(virtual) || !physical)
 		return -EINVAL;
 
-	size_t page_size = 0;
 	pte_t* pte;
+	size_t page_size = 0;
 	int err = walk_pagetable(pagetable, virtual, false, &page_size, &pte);
 	if (err)
 		return err;
 
 	if (pt_flags & PT_HUGEPAGE && page_size != HUGEPAGE_SIZE)
 		return -EFAULT;
+	if ((uintptr_t)virtual & (page_size - 1) || physical & (page_size - 1))
+		return -EINVAL;
+
 	if (!(pt_flags & PT_PRESENT))
 		return -ENOENT;
 
@@ -166,14 +169,16 @@ static void pagetable_cleanup(pte_t* pagetable, void* virtual) {
 }
 
 int pagetable_unmap(pte_t* pagetable, void* virtual) {
-	if ((uintptr_t)virtual % PAGE_SIZE || !is_virtual_canonical(virtual))
+	if (!is_virtual_canonical(virtual))
 		return -EINVAL;
 
-	size_t page_size = 0;
 	pte_t* pte;
+	size_t page_size = 0;
 	int err = walk_pagetable(pagetable, virtual, false, &page_size, &pte);
 	if (err)
 		return err;
+	if ((uintptr_t)virtual & (page_size - 1))
+		return -EINVAL;
 
 	if (!(*pte & PT_PRESENT))
 		return -ENOENT;
