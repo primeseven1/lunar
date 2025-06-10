@@ -136,6 +136,7 @@ static int get_arg(struct fmt* spec, va_list va, char c, union arg* arg) {
 		arg->p = va_arg(va, void*);
 		spec->flags |= FMT_SPECIAL | FMT_INT_B16;
 		spec->precision = sizeof(void*) * 2;
+		spec->qualifier = 'z'; /* Make sure do_int doesn't cast the pointer to a lower size */
 		break;
 	case 'd':
 	case 'i':
