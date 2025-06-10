@@ -38,7 +38,7 @@ struct context {
 	void* rbp;
 	long r8, r9, r10, r11, r12, r13, r14, r15;
 	const void* __asm_isr_common_ret;
-	unsigned long int_num, err_code;
+	unsigned long vector, err_code;
 	void* rip;
 	unsigned long cs, rflags;
 	void* rsp;
@@ -46,9 +46,9 @@ struct context {
 } __attribute__((packed));
 
 struct isr {
+	u8 vector;
 	void (*handler)(const struct isr* self, const struct context* ctx);
 	void (*eoi)(const struct isr* self);
-	unsigned long int_num;
 };
 
 #define INTERRUPT_COUNT 256

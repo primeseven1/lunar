@@ -10,7 +10,7 @@
 #define PIC_EOI 0x20
 
 void i8259_spurious_eoi(const struct isr* isr) {
-	u8 irq = isr->int_num - I8259_VECTOR_OFFSET;
+	u8 irq = isr->vector - I8259_VECTOR_OFFSET;
 	if (irq == 15)
 		outb(PIC1, PIC_EOI);
 }
