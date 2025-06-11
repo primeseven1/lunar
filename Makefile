@@ -37,6 +37,10 @@ CFLAGS += -mcmodel=kernel
 LDFLAGS += -no-pie
 endif
 
+ifeq ($(CONFIG_UBSAN), y)
+CFLAGS += -fsanitize=undefined
+endif
+
 OUTPUT := ./crescent
 ifeq ($(CONFIG_KASLR), y)
 LDSCRIPT := ./kernel/linker_x86_64_kaslr.ld

@@ -1,25 +1,24 @@
 #include <crescent/common.h>
+#include <crescent/compiler.h>
 #include <crescent/core/printk.h>
 #include <crescent/core/module.h>
 #include <crescent/lib/string.h>
 
-extern const struct module _ld_kernel_modules_start;
-extern const struct module _ld_kernel_modules_end;
+extern const struct module _ld_kernel_modules_start[];
+extern const struct module _ld_kernel_modules_end[];
 
 static const struct module* find_builtin_module(const char* name) {
-	const struct module* ret = NULL;
+	const struct module* const start = _ld_kernel_modules_start;
+	const struct module* const end = _ld_kernel_modules_end;
 
-	const struct module* mod = &_ld_kernel_modules_start;
-	while (mod < &_ld_kernel_modules_end) {
-		if (strcmp(name, mod->name) == 0) {
-			ret = mod;
-			break;
-		}
-
-		mod++;
+	unsigned long mod_count = ((uintptr_t)start - (uintptr_t)end) / sizeof(struct module);
+	for (unsigned long i = 0; i < mod_count; i++) {
+		const struct module* mod = &_ld_kernel_modules_start[i];
+		if (strcmp(name, mod->name) == 0)
+			return mod;
 	}
 
-	return ret;
+	return NULL;
 }
 
 int module_load(const char* name) {
@@ -28,7 +27,7 @@ int module_load(const char* name) {
 		return -ENOENT;
 
 	/* This shouldn't really happen unless there is some sort of programming error */
-	if (mod->init_status < init_status_get())
+	if (unlikely(mod->init_status < init_status_get()))
 		return -EAGAIN;
 
 	if (!mod->init) {

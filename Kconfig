@@ -25,6 +25,12 @@ config OPTIMIZATION
 	  "2: Enables a good in between of optimizations (default)"
 	  "3: Enables aggresive optimizations"
 
+config UBSAN
+	bool "Enable undefined behavior sanitizer"
+	default y
+	help
+	  "Enable runtime checks for undefined behavior"
+
 config KASLR
 	bool "Enable randomization of kernel addresses (KASLR)"
 	default y
