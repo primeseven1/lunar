@@ -34,9 +34,20 @@ const struct isr* interrupt_register(void (*handler)(const struct isr*, const st
 
 __asmlinkage void __isr_entry(const struct context* ctx);
 __asmlinkage void __isr_entry(const struct context* ctx) {
+	struct cpu* cpu = current_cpu();
+
+	/* This can happen if an NMI/MCE happens before swapgs is executed in an interrupt handler. */
+	bool bad_cpu = false;
+	if (unlikely(!cpu)) {
+		__asm__ volatile("swapgs" : : : "memory");
+		cpu = current_cpu();
+		bad_cpu = true;
+		printk(PRINTK_WARN "core: cpu is not valid!\n");
+	}
+
 	bool previous = current_cpu()->in_interrupt;
 	if (!previous)
-		current_cpu()->in_interrupt = true;
+		cpu->in_interrupt = true;
 
 	/* This should never happen */
 	if (unlikely(ctx->vector >= INTERRUPT_COUNT))
@@ -51,7 +62,9 @@ __asmlinkage void __isr_entry(const struct context* ctx) {
 	if (isr->eoi)
 		isr->eoi(isr);
 
-	current_cpu()->in_interrupt = previous;
+	cpu->in_interrupt = previous;
+	if (unlikely(bad_cpu))
+		__asm__ volatile("swapgs" : : : "memory");
 }
 
 static void nmi(const struct isr* isr, const struct context* ctx) {
@@ -61,8 +74,13 @@ static void nmi(const struct isr* isr, const struct context* ctx) {
 }
 
 static void spurious(const struct isr* isr, const struct context* ctx) {
-	(void)isr;
 	(void)ctx;
+	if (isr->vector == INTERRUPT_SPURIOUS_VECTOR) {
+		printk(PRINTK_WARN "core: spurious interrupt from lapic\n");
+	} else {
+		u8 irq = isr->vector - I8259_VECTOR_OFFSET;
+		printk(PRINTK_WARN "core: spurious interrupt from i8259 %hhu\n", irq);
+	}
 }
 
 void interrupts_init(void) {
