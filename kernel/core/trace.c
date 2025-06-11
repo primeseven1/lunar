@@ -24,16 +24,17 @@ static const char* trace_kernel_symbol_name(const u8* ptr) {
 		return NULL;
 
 	size_t kernel_offset = (uintptr_t)&_ld_kernel_start - KERNEL_MIN_VIRTUAL;
+	uintptr_t _ptr = (uintptr_t)ptr;
 #ifdef CONFIG_KASLR
-	ptr = ptr - kernel_offset - KERNEL_MIN_VIRTUAL;
+	_ptr -= kernel_offset + KERNEL_MIN_VIRTUAL;
 #else
-	ptr = ptr - kernel_offset;
+	_ptr -= kernel_offset;
 #endif
 
 	for (u32 i = 0; i < kernel_sym_count; i++) {
 		u64 st_value = kernel_symtab[i].st_value;
 		u64 st_size = kernel_symtab[i].st_size;
-		if ((uintptr_t)ptr >= st_value && (uintptr_t)ptr < st_value + st_size)
+		if (_ptr >= st_value && _ptr < st_value + st_size)
 			return kernel_syms_strtab + kernel_symtab[i].st_name;
 	}
 
@@ -47,17 +48,18 @@ static ssize_t trace_kernel_symbol_offset(const u8* ptr) {
 		return -1;
 
 	size_t kernel_offset = (uintptr_t)&_ld_kernel_start - KERNEL_MIN_VIRTUAL;
+	uintptr_t _ptr = (uintptr_t)ptr;
 #ifdef CONFIG_KASLR
-	ptr = ptr - kernel_offset - KERNEL_MIN_VIRTUAL;
+	_ptr -= kernel_offset + KERNEL_MIN_VIRTUAL;
 #else
-	ptr = ptr - kernel_offset;
+	_ptr -= kernel_offset;
 #endif
 
 	for (u32 i = 0; i < kernel_sym_count; i++) {
 		u64 st_value = kernel_symtab[i].st_value;
 		u64 st_size = kernel_symtab[i].st_size;
-		if ((uintptr_t)ptr >= st_value && (uintptr_t)ptr < st_value + st_size)
-			return (uintptr_t)ptr - kernel_symtab[i].st_value;
+		if (_ptr >= st_value && _ptr < st_value + st_size)
+			return _ptr - kernel_symtab[i].st_value;
 	}
 
 	return -1;
