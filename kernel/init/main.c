@@ -29,9 +29,11 @@ _Noreturn __asmlinkage void kernel_main(void) {
 
 	/* Attempt to load early modules */
 	module_load("liminefb");
-	module_load("e9hack");
+	int err = module_load("e9hack");
+	if (err && err != -ENOENT)
+		printk(PRINTK_WARN "init: e9hack module init failed (is this real hardware?) err %i\n", err);
 
-	int err = tracing_init();
+	err = tracing_init();
 	if (err)
 		printk(PRINTK_WARN "init: tracing_init failed with code %i\n", err);
 
@@ -68,7 +70,7 @@ _Noreturn __asmlinkage void kernel_main(void) {
 			printk(PRINTK_WARN "init: Failed to set cmdline loglevel, err: %i", err);
 	}
 
-	printk(PRINTK_CRIT "kernel_main ended!\n");
+	printk(PRINTK_CRIT "init: kernel_main ended!\n");
 die:
 	while (1)
 		__asm__ volatile("hlt");
