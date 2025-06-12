@@ -446,18 +446,18 @@ static struct zone* get_zone_addr(physaddr_t addr, size_t size) {
 		return NULL;
 
 	/* Only one area for the DMA zone */
-	if (addr > dma_area.base && addr_top < dma_area.base + dma_area.real_size)
+	if (addr >= dma_area.base && addr_top <= dma_area.base + dma_area.real_size)
 		return &dma_zone;
 
 	/* This code is not affected whether or not the first area is the same as the last area */
 	struct mem_area* first_area = &dma32_zone->areas[0];
 	struct mem_area* last_area = &dma32_zone->areas[dma32_zone->area_count - 1];
-	if (addr >= first_area->base && addr_top < last_area->base + last_area->real_size)
+	if (addr >= first_area->base && addr_top <= last_area->base + last_area->real_size)
 		return dma32_zone;
 
 	first_area = &normal_zone->areas[0];
 	last_area = &normal_zone->areas[normal_zone->area_count - 1];
-	if (addr >= first_area->base && addr_top < last_area->base + last_area->real_size)
+	if (addr >= first_area->base && addr_top <= last_area->base + last_area->real_size)
 		return normal_zone;
 
 	return NULL;
