@@ -208,6 +208,7 @@ static int _free_block(struct mem_area* area, unsigned int layer, unsigned long 
 
 		/* Now just move on to the next layer */
 		layer--;
+		block >>= 1;
 		block_count = 1ul << layer;
 	}
 

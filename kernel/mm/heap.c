@@ -30,7 +30,7 @@ static struct mempool* walk_mempools(size_t size, mm_t mm_flags) {
 
 	struct mempool* pool = mempool_head;
 	while (1) {
-		if (pool->cache->obj_size >= size && pool->cache->mm_flags == mm_flags) {
+		if (pool->cache->obj_size >= size && pool->cache->obj_size <= size + 128 && pool->cache->mm_flags == mm_flags) {
 			__atomic_add_fetch(&pool->refcount, 1, __ATOMIC_SEQ_CST);
 			spinlock_unlock_irq_restore(&mempool_spinlock, &lock_flags);
 			return pool;
@@ -112,8 +112,14 @@ void* kmalloc(size_t size, mm_t mm_flags) {
 	if (!pool)
 		return NULL;
 	struct alloc_info* alloc_info = slab_cache_alloc(pool->cache);
-	if (!alloc_info)
+	if (!alloc_info) {
+		/* This can happen if a pool of a huge size gets created, this will clean that up if that happens */
+		if (__atomic_load_n(&pool->refcount, __ATOMIC_SEQ_CST) == 1) {
+			__atomic_sub_fetch(&pool->refcount, 1, __ATOMIC_SEQ_CST);
+			attempt_delete_mempool(pool);
+		}
 		return NULL;
+	}
 
 	alloc_info->pool = pool;
 	alloc_info->size = size;
