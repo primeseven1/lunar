@@ -113,11 +113,8 @@ void* kmalloc(size_t size, mm_t mm_flags) {
 		return NULL;
 	struct alloc_info* alloc_info = slab_cache_alloc(pool->cache);
 	if (!alloc_info) {
-		/* This can happen if a pool of a huge size gets created, this will clean that up if that happens */
-		if (__atomic_load_n(&pool->refcount, __ATOMIC_SEQ_CST) == 1) {
-			__atomic_sub_fetch(&pool->refcount, 1, __ATOMIC_SEQ_CST);
-			attempt_delete_mempool(pool);
-		}
+		__atomic_sub_fetch(&pool->refcount, 1, __ATOMIC_SEQ_CST);
+		attempt_delete_mempool(pool);
 		return NULL;
 	}
 
