@@ -65,14 +65,16 @@ static physaddr_t mmap_get_last_usable(void) {
 }
 
 struct mem_area {
-	physaddr_t base;
-	u64 size; /* rounded to a power of two */
-	size_t real_size;
-	unsigned long used_4k_blocks; /* Atomic */
-	unsigned long total_4k_blocks; /* Never changes after an area is created */
-	unsigned int layer_count;
-	unsigned long* free_list;
-	spinlock_t lock; /* For the free list */
+	physaddr_t base; /* Start of the memory area */
+	u64 size; /* The size of the area rounded to a power of two */
+	size_t real_size; /* The actual size of the area, usually the same as size */
+	unsigned long used_4k_blocks; /* The current amount of used blocks, atomic */
+	unsigned long total_4k_blocks; /* 1 << MAX_ORDER */
+	unsigned int layer_count; /* MAX_ORDER + 1 */
+	struct {
+		unsigned long* free_list;
+		spinlock_t lock;
+	} pages; /* For managing the actual memory in the list */
 };
 
 static unsigned long find_first_free(unsigned long* free_list, unsigned int layer) {
@@ -144,11 +146,11 @@ static int _alloc_block(struct mem_area* area, unsigned int layer, unsigned long
 
 	unsigned long block_count = 1ul << layer;
 	if (block >= block_count)
-		return -EADDRNOTAVAIL;
-	if (!__is_block_free(area->free_list, block_count, block))
-		return -EADDRINUSE;
+		return -EFAULT;
+	if (!__is_block_free(area->pages.free_list, block_count, block))
+		return -EALREADY;
 
-	__alloc_block(area->free_list, block_count, block);
+	__alloc_block(area->pages.free_list, block_count, block);
 
 	unsigned long tmp = block;
 	unsigned int tmp2 = layer;
@@ -157,7 +159,7 @@ static int _alloc_block(struct mem_area* area, unsigned int layer, unsigned long
 	while (layer--) {
 		block_count = 1ul << layer;
 		block >>= 1;
-		__alloc_block(area->free_list, block_count, block);
+		__alloc_block(area->pages.free_list, block_count, block);
 	}
 
 	block = tmp;
@@ -169,7 +171,7 @@ static int _alloc_block(struct mem_area* area, unsigned int layer, unsigned long
 		block_count = 1ul << layer;
 		block <<= 1;
 		for (unsigned long i = 0; i < times; i++)
-			__alloc_block(area->free_list, block_count, block + i);
+			__alloc_block(area->pages.free_list, block_count, block + i);
 		times <<= 1;
 	}
 
@@ -183,16 +185,16 @@ static int _free_block(struct mem_area* area, unsigned int layer, unsigned long 
 
 	unsigned long block_count = 1ul << layer;
 	if (block >= block_count)
-		return -EADDRNOTAVAIL;
-	if (__is_block_free(area->free_list, block_count, block))
 		return -EFAULT;
+	if (__is_block_free(area->pages.free_list, block_count, block))
+		return -EALREADY;
 
 	unsigned long tmp = block;
 	unsigned int tmp2 = layer;
 
 	while (1) {
 		/* First free the current block */
-		__free_block(area->free_list, block_count, block);
+		__free_block(area->pages.free_list, block_count, block);
 
 		/* Layer 0 has no buddy */
 		if (layer == 0)
@@ -203,7 +205,7 @@ static int _free_block(struct mem_area* area, unsigned int layer, unsigned long 
 		 * otherwise this part of the free process is done
 		 */
 		unsigned long buddy = block & 1 ? block - 1 : block + 1;
-		if (!__is_block_free(area->free_list, block_count, buddy))
+		if (!__is_block_free(area->pages.free_list, block_count, buddy))
 			break;
 
 		/* Now just move on to the next layer */
@@ -221,27 +223,17 @@ static int _free_block(struct mem_area* area, unsigned int layer, unsigned long 
 		block_count = 1ul << layer;
 		block <<= 1;
 		for (unsigned long i = 0; i < count; i++)
-			__free_block(area->free_list, block_count, block + i);
+			__free_block(area->pages.free_list, block_count, block + i);
 		count <<= 1;
 	}
 
 	return 0;
 }
 
-/* Behaves pretty much exactly like __is_block_free, except with some extra checks and math */
-static bool _is_block_free(struct mem_area* area, unsigned int layer, unsigned long block) {
-	if (layer >= area->layer_count)
-		return false;
-	unsigned long block_count = 1ul << layer;
-	if (block >= block_count)
-		return false;
-	return __is_block_free(area->free_list, block_count, block);
-}
-
 struct zone {
-	mm_t zone_type;
-	unsigned long area_count;
-	struct mem_area* areas;
+	mm_t zone_type; /* Has only 1 flag, either MM_ZONE_DMA, MM_ZONE_DMA32, or MM_ZONE_NORMAL */
+	unsigned long area_count; /* The number of areas the zone has */
+	struct mem_area* areas; /* The array of memory areas, in order by area->base */
 };
 
 /*
@@ -272,9 +264,9 @@ static struct mem_area* select_mem_area(struct zone* zone, unsigned int order, u
 				best = a;
 		}
 
-		spinlock_lock(&best->lock);
+		spinlock_lock(&best->pages.lock);
 		*layer = best->layer_count - order - 1u;
-		*block = find_first_free(best->free_list, *layer);
+		*block = find_first_free(best->pages.free_list, *layer);
 		if (*block != ULONG_MAX)
 			return best;
 
@@ -282,7 +274,7 @@ static struct mem_area* select_mem_area(struct zone* zone, unsigned int order, u
 		 * Reaching here means that either there was no contiguous block,
 		 * or somebody got to this area before we did
 		 */
-		spinlock_unlock(&best->lock);
+		spinlock_unlock(&best->pages.lock);
 	}
 
 	return NULL;
@@ -310,6 +302,7 @@ static physaddr_t __alloc_pages(struct zone* zone, unsigned int order) {
 
 	unsigned long irq_flags = local_irq_save();
 	physaddr_t ret = 0;
+	int err;
 
 	unsigned int layer;
 	unsigned long block;
@@ -317,7 +310,6 @@ static physaddr_t __alloc_pages(struct zone* zone, unsigned int order) {
 	if (!area)
 		goto out;
 
-	int err;
 retry:
 	ret = 0;
 
@@ -326,9 +318,9 @@ retry:
 	 * block is set to ULONG_MAX so that way we know to actually retry.
 	 */
 	if (block == ULONG_MAX) {
-		block = find_first_free(area->free_list, layer);
+		block = find_first_free(area->pages.free_list, layer);
 		if (block == ULONG_MAX) {
-			spinlock_unlock(&area->lock);
+			spinlock_unlock(&area->pages.lock);
 			area = select_mem_area(zone, order, &layer, &block);
 			if (!area)
 				goto out;
@@ -367,7 +359,7 @@ retry:
 	}
 out:
 	if (area)
-		spinlock_unlock(&area->lock);
+		spinlock_unlock(&area->pages.lock);
 	local_irq_restore(irq_flags);
 	return ret;
 }
@@ -384,25 +376,16 @@ static int __free_pages(struct zone* zone, physaddr_t addr, unsigned int order) 
 
 	unsigned long block = (addr - area->base) / alloc_size;
 
-	int ret = 0;
-
 	unsigned long lock_flags;
-	spinlock_lock_irq_save(&area->lock, &lock_flags);
+	spinlock_lock_irq_save(&area->pages.lock, &lock_flags);
 
-	if (_is_block_free(area, layer, block)) {
-		ret = -EALREADY;
-		goto out;
-	}
-
-	ret = _free_block(area, layer, block);
-	if (unlikely(ret)) {
-		printk(PRINTK_CRIT "mm: %s failed to free pages, err: %i\n", __func__, ret);
-		goto out;
-	}
-
+	int ret = _free_block(area, layer, block);
+	if (ret)
+		goto cleanup;
 	__atomic_sub_fetch(&area->used_4k_blocks, block4k_count, __ATOMIC_SEQ_CST);
-out:
-	spinlock_unlock_irq_restore(&area->lock, &lock_flags);
+
+cleanup:
+	spinlock_unlock_irq_restore(&area->pages.lock, &lock_flags);
 	return ret;
 }
 
@@ -465,8 +448,11 @@ static struct zone* get_zone_addr(physaddr_t addr, size_t size) {
 }
 
 physaddr_t alloc_pages(mm_t mm_flags, unsigned int order) {
-	if (order >= MAX_ORDER)
+	if (order >= MAX_ORDER) {
+		printk(PRINTK_ERR "mm: order (%u) >= MAX_ORDER (%u) in %s\n", order, MAX_ORDER, __func__);
+		dump_stack();
 		return 0;
+	}
 
 	struct zone* zone = get_zone_mm(mm_flags);
 	if (!zone) {
@@ -501,30 +487,45 @@ physaddr_t alloc_pages(mm_t mm_flags, unsigned int order) {
 }
 
 void free_pages(physaddr_t addr, unsigned int order) {
-	if (order >= MAX_ORDER)
-		return;
-	if (addr < 0x1000) {
-		printk("mm: Tried to free the first page of physical memory!\n");
-		dump_stack();
-		return;
+	int err = 0;
+	if (order >= MAX_ORDER || addr % PAGE_SIZE || addr < PAGE_SIZE) {
+		err = -EINVAL;
+		goto err;
 	}
 
 	size_t alloc_size = PAGE_SIZE << order;
 	struct zone* zone = get_zone_addr(addr, alloc_size);
 	if (!zone) {
-		printk(PRINTK_ERR "mm: %s failed to get zone from address\n", __func__);
-		dump_stack();
-		return;
+		err = -EFAULT;
+		goto err;
 	}
 
-	int err = __free_pages(zone, addr, order);
-	if (err == -EFAULT) {
-		printk(PRINTK_CRIT "mm: %s tried to free a bad address\n", __func__);
-		dump_stack();
-	} else if (err == -EALREADY) {
-		printk(PRINTK_CRIT "mm: %s tried to free an address that was already free\n", __func__);
-		dump_stack();
+	err = __free_pages(zone, addr, order);
+	if (err)
+		goto err;
+
+	return;
+err:
+	switch (err) {
+	case -EFAULT:
+		printk(PRINTK_ERR "mm: %s Tried to free bad address (%.16lx)\n", __func__, addr);
+		break;
+	case -EALREADY:
+		printk(PRINTK_ERR "mm: %s tried to free an address that was already free (%.16lx)\n", __func__, addr);
+		break;
+	case -EINVAL:
+		if (order >= MAX_ORDER)
+			printk(PRINTK_ERR "mm: order (%u) >= MAX_ORDER (%u) in %s\n", order, MAX_ORDER, __func__);
+		if (addr % PAGE_SIZE)
+			printk(PRINTK_ERR "mm: Misaligned address passed to %s (%.16lx)\n", __func__, addr);
+		if (addr < PAGE_SIZE)
+			printk(PRINTK_ERR "mm: %s tried to free the first page of memory\n", __func__);
+		break;
+	default:
+		printk(PRINTK_ERR "mm: %s unknown error (%i)\n", __func__, err);
+		break;
 	}
+	dump_stack();
 }
 
 static u64 round_power2(u64 base, u64 x) {
@@ -558,7 +559,7 @@ static void dma_zone_init(physaddr_t last_usable) {
 
 	dma_zone.area_count = 1;
 	dma_area.base = 0;
-	dma_area.free_list = dma_area_free_list;
+	dma_area.pages.free_list = dma_area_free_list;
 	dma_area.size = round_power2(PAGE_SIZE, dma_size);
 	dma_area.real_size = dma_size;
 	dma_zone.areas = &dma_area;
@@ -594,9 +595,9 @@ static int init_area(struct mem_area* area, mm_t free_list_zone, physaddr_t base
 	area->layer_count = layer_count;
 	area->total_4k_blocks = 1 << (layer_count - 1);
 	area->used_4k_blocks = 0;
-	area->free_list = hhdm_virtual(free_list);
-	area->lock = SPINLOCK_INITIALIZER;
-	memset(area->free_list, 0, free_list_size);
+	area->pages.free_list = hhdm_virtual(free_list);
+	area->pages.lock = SPINLOCK_INITIALIZER;
+	memset(area->pages.free_list, 0, free_list_size);
 
 	/* Allocate the invalid area, if there is one */
 	if (rounded_size != real_size) {
