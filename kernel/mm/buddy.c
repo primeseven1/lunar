@@ -508,16 +508,16 @@ void free_pages(physaddr_t addr, unsigned int order) {
 err:
 	switch (err) {
 	case -EFAULT:
-		printk(PRINTK_ERR "mm: %s Tried to free bad address (%.16lx)\n", __func__, addr);
+		printk(PRINTK_ERR "mm: %s Tried to free bad address (%#.16lx)\n", __func__, addr);
 		break;
 	case -EALREADY:
-		printk(PRINTK_ERR "mm: %s tried to free an address that was already free (%.16lx)\n", __func__, addr);
+		printk(PRINTK_ERR "mm: %s tried to free an address that was already free (%#.16lx)\n", __func__, addr);
 		break;
 	case -EINVAL:
 		if (order >= MAX_ORDER)
 			printk(PRINTK_ERR "mm: order (%u) >= MAX_ORDER (%u) in %s\n", order, MAX_ORDER, __func__);
 		if (addr % PAGE_SIZE)
-			printk(PRINTK_ERR "mm: Misaligned address passed to %s (%.16lx)\n", __func__, addr);
+			printk(PRINTK_ERR "mm: Misaligned address passed to %s (%#.16lx)\n", __func__, addr);
 		if (addr < PAGE_SIZE)
 			printk(PRINTK_ERR "mm: %s tried to free the first page of memory\n", __func__);
 		break;
