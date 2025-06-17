@@ -23,7 +23,11 @@ static int slab_init(struct slab_cache* cache, struct slab* slab) {
 	/* Allocate a virtual address for the slab base */
 	slab->base = vmap(NULL, slab_size, VMAP_ALLOC, MMU_READ | MMU_WRITE, &cache->mm_flags);
 	if (!slab->base) {
-		vunmap(slab->free, map_size, VMAP_FREE);
+		int err = vunmap(slab->free, map_size, VMAP_FREE);
+		if (unlikely(err)) {
+			printk(PRINTK_CRIT "mm: Failed to unmap free list in %s (%i)\n", __func__, err);
+			dump_stack();
+		}
 		return -ENOMEM;
 	}
 
@@ -38,7 +42,11 @@ static int slab_cache_grow(struct slab_cache* cache) {
 
 	int err = slab_init(cache, slab);
 	if (err) {
-		vunmap(slab, sizeof(*slab), VMAP_FREE);
+		int verr = vunmap(slab, sizeof(*slab), VMAP_FREE);
+		if (unlikely(verr)) {
+			printk(PRINTK_CRIT "mm: Failed to unmap new slab: %i\n", verr);
+			dump_stack();
+		}
 		return err;
 	}
 
@@ -58,7 +66,7 @@ static void* slab_take(struct slab_cache* cache, struct slab* slab) {
 	/* Simply find a free block within the bitmap */
 	for (size_t i = 0; i < cache->obj_count; i++) {
 		size_t byte_index = i / 8;
-		u8 bit_index = i % 8;
+		unsigned int bit_index = i % 8;
 
 		if (!(slab->free[byte_index] & (1 << bit_index))) {
 			slab->free[byte_index] |= (1 << bit_index);
@@ -247,19 +255,32 @@ int slab_cache_destroy(struct slab_cache* cache) {
 	if (cache->partial || cache->full)
 		return -EEXIST;
 
+	int err;
+
 	struct slab* slab = cache->empty;
 	while (slab) {
 		struct slab* next = slab->next;
 		if (next)
 			next->prev = NULL;
 
-		vunmap(slab->base, cache->obj_size * cache->obj_count, VMAP_FREE);
-		vunmap(slab->free, (cache->obj_count + 7) / 8, VMAP_FREE);
-		vunmap(slab, sizeof(*slab), VMAP_FREE);
+		int base_err = vunmap(slab->base, cache->obj_size * cache->obj_count, VMAP_FREE);
+		int free_list_err = vunmap(slab->free, (cache->obj_count + 7) / 8, VMAP_FREE);
+		int slab_err = vunmap(slab, sizeof(*slab), VMAP_FREE);
+		if (unlikely(base_err))
+			err = base_err;
+		if (unlikely(free_list_err))
+			err = free_list_err;
+		if (unlikely(slab_err))
+			err = slab_err;
+
+		if (!(base_err == free_list_err && free_list_err == slab_err)) {
+			printk(PRINTK_WARN "mm: Different error codes in %s, base_err: %i, free_list_err: %i, slab_err: %i, choosing %i\n",
+					__func__, base_err, free_list_err, slab_err, err);
+		}
 
 		slab = next;
 	}
 
-	vunmap(cache, sizeof(*cache), VMAP_FREE);
-	return 0;
+	err = vunmap(cache, sizeof(*cache), VMAP_FREE);
+	return err;
 }
