@@ -89,6 +89,11 @@ asm_isr_common:
 	pushq %rbp
 	movq %rsp, %rbp
 
+	/*
+	 * We don't save any extra context, the C code does that if there is any.
+	 * The kernel is compiled with -mgeneral-regs-only, so we don't need to worry about
+	 * the extra context being trashed.
+	 */
 	call __isr_entry
 
 	popq %rax

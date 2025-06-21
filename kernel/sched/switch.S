@@ -21,10 +21,14 @@
 
 /* _Noreturn void asm_task_switch(struct context*) */
 .globl asm_task_switch
+.type asm_task_switch, @function
 asm_task_switch:
-	movq %rdi, %rsp
+	movq %rdi, %rsp /* Contains the context struct */
 
-	addq $8, %rsp /* skip cr2 */
+	popq %rax
+	movq %rax, %cr2
+
+	/* If there is any extra context to restore, the C code restores that. */
 	popq %rax
 	popq %rbx
 	popq %rcx
@@ -41,9 +45,12 @@ asm_task_switch:
 	popq %r14
 	popq %r15
 
-	addq $24, %rsp /* Remove isr return address, vector, and error code */
-	cmpq $SEGMENT_KERNEL_CODE, 8(%rsp)
-	jne .do_iretq
+	addq $24, %rsp /* Remove __isr_common_ret, vector, and err_code */
+
+	/* Now there's a proper interrupt frame, now just check if returning to user mode */
+	cmpq $SEGMENT_USER_CODE, 8(%rsp)
+	je .do_iretq
 	swapgs
 .do_iretq:
 	iretq
+.size asm_task_switch, . - asm_task_switch
