@@ -1,5 +1,13 @@
 #include <crescent/asm/segment.h>
 
+.code64
+
+/*
+ * It's possible that an NMI/MCE happens before swapgs gets executed,
+ * the C code should handle this condition properly by reading the MSR directly
+ * when an NMI/MCE happens, so when the NMI/MCE returns, GSBASE should be null and
+ * the correct value gets swapped.
+ */
 .macro swapgs_if_needed
 	cmpq $SEGMENT_KERNEL_CODE, 24(%rsp) /* Check to see if the interrupt happened in kernel mode */
 	je 1f
@@ -50,7 +58,6 @@ asm_isr_\n:
 .previous
 .endm
 
-.code64
 .text
 .type isr_common, @function
 .align 0x10
@@ -76,7 +83,11 @@ asm_isr_common:
 	/* Parameter for __isr_entry */
 	movq %rsp, %rdi
 
-	/* Align the stack by 16 */
+	/*
+	 * Align the stack by 16, save the alignment in rbx since that register
+	 * must be preserved throughout function calls (system v abi). This is not
+	 * very likely to happen in this context.
+	 */
 	movq %rsp, %rbx
 	andq $15, %rbx
 	subq %rbx, %rsp
@@ -96,10 +107,11 @@ asm_isr_common:
 	 */
 	call __isr_entry
 
+	/* Remove return address and rbp, we do not care about these values at all at this point */
 	popq %rax
 	popq %rax
 
-	/* If there was an alignment of the stack, we now need to restore it back to the way it was */
+	/* Restore previous alignment of the stack */
 	addq %rsp, %rbx
 
 	popq %rax
