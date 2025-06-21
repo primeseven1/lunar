@@ -1,13 +1,14 @@
 #pragma once
 
 #include <crescent/asm/msr.h>
-#include <crescent/mm/vmm.h>
+#include <crescent/sched/sched.h>
 
 struct cpu {
 	struct cpu* self;
 	u32 processor_id, lapic_id;
 	bool in_interrupt;
 	struct vmm_ctx vmm_ctx;
+	struct task* current_task, *queue;
 };
 
 /**

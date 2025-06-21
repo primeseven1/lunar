@@ -12,18 +12,6 @@ enum apic_base_flags {
 	APIC_BASE_ENABLE = (1 << 11)
 };
 
-enum lapic_regs {
-	LAPIC_REG_ID = 0x20,
-	LAPIC_REG_EOI = 0xB0,
-	LAPIC_REG_SPURIOUS = 0xF0,
-	LAPIC_REG_LVT_TIMER = 0x320,
-	LAPIC_REG_LVT_LINT0 = 0x350,
-	LAPIC_REG_LVT_LINT1 = 0x360,
-	LAPIC_REG_TIMER_INITIAL = 0x380,
-	LAPIC_REG_TIMER_CURRENT = 0x390,
-	LAPIC_REG_TIMER_DIVIDE = 0x3E0
-};
-
 #define LVT_DELIVERY_NMI (0b100 << 8)
 #define LVT_MASK (1 << 16)
 
@@ -34,12 +22,12 @@ void apic_set_madt_ops(const struct acpi_madt_ops* ops) {
 	madt_ops = ops;
 }
 
-static inline u32 lapic_read(unsigned int reg) {
+u32 lapic_read(unsigned int reg) {
 	u32 __iomem* io = (u32*)((u8*)lapic_address + reg);
 	return readl(io);
 }
 
-static inline void lapic_write(unsigned int reg, u32 x) {
+void lapic_write(unsigned int reg, u32 x) {
 	u32 __iomem* io = (u32*)((u8*)lapic_address + reg);
 	writel(io, x);
 }

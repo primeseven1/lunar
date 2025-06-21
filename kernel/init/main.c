@@ -13,6 +13,7 @@
 #include <crescent/mm/buddy.h>
 #include <crescent/mm/heap.h>
 #include <crescent/asm/segment.h>
+#include <crescent/sched/sched.h>
 
 static int init_status = INIT_STATUS_NOTHING;
 int init_status_get(void) {
@@ -70,7 +71,9 @@ _Noreturn __asmlinkage void kernel_main(void) {
 			printk(PRINTK_WARN "init: Failed to set cmdline loglevel, err: %i", err);
 	}
 
+	sched_init();
 	printk(PRINTK_CRIT "init: kernel_main ended!\n");
+	local_irq_enable(); /* Testing purposes only, probably will be moved somewhere */
 die:
 	while (1)
 		__asm__ volatile("hlt");

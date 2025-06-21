@@ -89,6 +89,21 @@ static inline void ioapic_write(u32 __iomem* ioapic, u8 reg, u32 x) {
 	writel(io + 4, x);
 }
 
+enum lapic_regs {
+	LAPIC_REG_ID = 0x20,
+	LAPIC_REG_EOI = 0xB0,
+	LAPIC_REG_SPURIOUS = 0xF0,
+	LAPIC_REG_LVT_TIMER = 0x320,
+	LAPIC_REG_LVT_LINT0 = 0x350,
+	LAPIC_REG_LVT_LINT1 = 0x360,
+	LAPIC_REG_TIMER_INITIAL = 0x380,
+	LAPIC_REG_TIMER_CURRENT = 0x390,
+	LAPIC_REG_TIMER_DIVIDE = 0x3E0
+};
+
+u32 lapic_read(unsigned int reg);
+void lapic_write(unsigned int reg, u32 x);
+
 int apic_set_irq(u8 irq, u8 vector, u8 processor, bool masked);
 int apic_bsp_init(void);
 void apic_eoi(const struct isr* isr);
