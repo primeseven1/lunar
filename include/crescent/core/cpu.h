@@ -20,4 +20,8 @@ static inline struct cpu* current_cpu(void) {
 	return cpu;
 }
 
+static inline void swap_cpu(void) {
+	__asm__ volatile("swapgs" : : : "memory");
+}
+
 void bsp_cpu_init(void);

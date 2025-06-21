@@ -55,10 +55,10 @@ _Noreturn __asmlinkage void kernel_main(void) {
 	 * At some point, I will add support for the i8259 PIC, 
 	 * so that way the kernel doesn't need to panic when ACPI is disabled 
 	 */
+	i8259_init();
 	err = apic_bsp_init();
 	if (err)
 		panic("Failed to initialize APIC, err: %i", err);
-	i8259_init();
 
 	const char* loglevel = cmdline_get("loglevel");
 	if (loglevel) {

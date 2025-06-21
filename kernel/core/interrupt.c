@@ -34,18 +34,17 @@ const struct isr* interrupt_register(void (*handler)(const struct isr*, const st
 
 __asmlinkage void __isr_entry(const struct context* ctx);
 __asmlinkage void __isr_entry(const struct context* ctx) {
-	struct cpu* cpu = current_cpu();
-
-	/* This can happen if an NMI/MCE happens before swapgs is executed in an interrupt handler. */
 	bool bad_cpu = false;
-	if (unlikely(!cpu)) {
-		__asm__ volatile("swapgs" : : : "memory");
-		cpu = current_cpu();
-		bad_cpu = true;
-		printk(PRINTK_WARN "core: cpu is not valid!\n");
+	if (ctx->vector == INTERRUPT_EXCEPTION_NMI || ctx->vector == INTERRUPT_EXCEPTION_MACHINE_CHECK) {
+		u64 gsbase = rdmsr(MSR_GS_BASE);
+		if (!gsbase) {
+			swap_cpu();
+			bad_cpu = true;
+		}
 	}
 
-	bool previous = current_cpu()->in_interrupt;
+	struct cpu* cpu = current_cpu();
+	bool previous = cpu->in_interrupt;
 	if (!previous)
 		cpu->in_interrupt = true;
 
@@ -64,7 +63,7 @@ __asmlinkage void __isr_entry(const struct context* ctx) {
 
 	cpu->in_interrupt = previous;
 	if (unlikely(bad_cpu))
-		__asm__ volatile("swapgs" : : : "memory");
+		swap_cpu();
 }
 
 static void nmi(const struct isr* isr, const struct context* ctx) {
