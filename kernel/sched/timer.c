@@ -39,7 +39,7 @@ static void i8253_wait(unsigned long ms) {
 		__i8253_wait(ms);
 }
 
-static void timer(const struct isr* isr, const struct context* ctx) {
+static void timer(const struct isr* isr, struct context* ctx) {
 	(void)isr;
 	(void)ctx;
 	static unsigned long x = 0;
@@ -47,6 +47,11 @@ static void timer(const struct isr* isr, const struct context* ctx) {
 }
 
 static spinlock_t i8253_lock = SPINLOCK_INITIALIZER;
+
+static struct irq timer_irq = {
+	.irq = -1,
+	.eoi = apic_eoi
+};
 
 void timer_init(void) {
 	spinlock_lock(&i8253_lock);
@@ -58,7 +63,7 @@ void timer_init(void) {
 
 	u32 ticks = U32_MAX - lapic_read(LAPIC_REG_TIMER_CURRENT);
 
-	const struct isr* lapic_timer_isr = interrupt_register(timer, apic_eoi);
+	const struct isr* lapic_timer_isr = interrupt_register(&timer_irq, timer);
 	if (!lapic_timer_isr)
 		panic("Failed to allocate LAPIC timer ISR");
 

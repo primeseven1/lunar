@@ -9,7 +9,6 @@
 #include <crescent/core/cmdline.h>
 #include <crescent/core/interrupt.h>
 #include <crescent/core/apic.h>
-#include <crescent/core/i8259.h>
 #include <crescent/mm/buddy.h>
 #include <crescent/mm/heap.h>
 #include <crescent/asm/segment.h>
@@ -52,11 +51,6 @@ _Noreturn __asmlinkage void kernel_main(void) {
 
 	module_load("acpi");
 
-	/* 
-	 * At some point, I will add support for the i8259 PIC, 
-	 * so that way the kernel doesn't need to panic when ACPI is disabled 
-	 */
-	i8259_init();
 	err = apic_bsp_init();
 	if (err)
 		panic("Failed to initialize APIC, err: %i", err);

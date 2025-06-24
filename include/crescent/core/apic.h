@@ -106,4 +106,9 @@ void lapic_write(unsigned int reg, u32 x);
 
 int apic_set_irq(u8 irq, u8 vector, u8 processor, bool masked);
 int apic_bsp_init(void);
-void apic_eoi(const struct isr* isr);
+void apic_eoi(const struct irq* irq);
+
+#define I8259_VECTOR_OFFSET 0x20
+#define I8259_VECTOR_COUNT 0x10
+
+void i8259_spurious_eoi(const struct irq* irq);

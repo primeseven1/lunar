@@ -5,35 +5,80 @@
 #include <crescent/core/locking.h>
 #include <crescent/core/printk.h>
 #include <crescent/core/cpu.h>
-#include <crescent/core/i8259.h>
 #include <crescent/core/interrupt.h>
+#include <crescent/core/apic.h>
 #include <crescent/lib/string.h>
-#include "idt.h"
+#include <crescent/asm/segment.h>
 #include "traps.h"
 
-static struct isr isr_handlers[INTERRUPT_COUNT];
+struct idt_entry {
+	u16 handler_low;
+	u16 cs;
+	u8 ist;
+	u8 flags;
+	u16 handler_mid;
+	u32 handler_high;
+	u32 __reserved;
+} __attribute__((packed));
+
+static struct idt_entry* idt = NULL;
+extern const uintptr_t isr_table[INTERRUPT_COUNT];
+
+static void __idt_init(void) {
+	for (size_t i = 0; i < INTERRUPT_COUNT; i++) {
+		idt[i].handler_low = isr_table[i] & 0xFFFF;
+		idt[i].cs = SEGMENT_KERNEL_CODE;
+		idt[i].ist = i == 18 ? 1 : i == 8 ? 2 : i == 2 ? 3 : 0;
+		idt[i].flags = 0x8e;
+		idt[i].handler_mid = (isr_table[i] >> 16) & 0xFFFF;
+		idt[i].handler_high = isr_table[i] >> 32;
+		idt[i].__reserved = 0;
+	}
+}
+
+static void idt_init(void) {
+	const size_t idt_size = sizeof(*idt) * INTERRUPT_COUNT;
+	if (!idt) {
+		idt = vmap(NULL, idt_size, VMAP_ALLOC, MMU_READ | MMU_WRITE, NULL);
+		if (!idt)
+			panic("Failed to initialize IDT");
+		__idt_init();
+		vprotect(idt, idt_size, 0, MMU_READ);
+	}
+
+	struct {
+		u16 limit;
+		struct idt_entry* pointer;
+	} __attribute__((packed)) idtr = {
+		.limit = idt_size - 1,
+		.pointer = idt
+	};
+	__asm__ volatile("lidt %0" : : "m"(idtr) : "memory");
+}
+
+static struct isr isr_handlers[INTERRUPT_COUNT] = { 0 };
 static spinlock_t isr_handlers_lock = SPINLOCK_INITIALIZER;
 
-const struct isr* interrupt_register(void (*handler)(const struct isr*, const struct context*), void (*eoi)(const struct isr*)) {
+const struct isr* interrupt_register(struct irq* irq, void (*handler)(const struct isr*, struct context*)) {
 	unsigned long flags;
 	spinlock_lock_irq_save(&isr_handlers_lock, &flags);
 
-	struct isr* ret = NULL;
+	struct isr* isr = NULL;
 	for (int i = 0; i < INTERRUPT_COUNT; i++) {
 		if (!isr_handlers[i].handler) {
-			ret = &isr_handlers[i];
-			ret->handler = handler;
-			ret->eoi = eoi;
+			isr = &isr_handlers[i];
+			isr->irq = irq;
+			isr->handler = handler;
 			break;
 		}
 	}
 
 	spinlock_unlock_irq_restore(&isr_handlers_lock, &flags);
-	return ret;
+	return isr;
 }
 
-__asmlinkage void __isr_entry(const struct context* ctx);
-__asmlinkage void __isr_entry(const struct context* ctx) {
+__asmlinkage void __isr_entry(struct context* ctx);
+__asmlinkage void __isr_entry(struct context* ctx) {
 	bool bad_cpu = false;
 	if (ctx->vector == INTERRUPT_EXCEPTION_NMI || ctx->vector == INTERRUPT_EXCEPTION_MACHINE_CHECK) {
 		u64 gsbase = rdmsr(MSR_GS_BASE);
@@ -58,45 +103,55 @@ __asmlinkage void __isr_entry(const struct context* ctx) {
 	else
 		printk(PRINTK_CRIT "core: Interrupt %lu happened, there is no handler for it!\n", ctx->vector);
 
-	if (isr->eoi)
-		isr->eoi(isr);
+	if (isr->irq) {
+		if (!isr->irq->eoi)
+			printk(PRINTK_CRIT "core: No EOI for IRQ %u\n", isr->irq->irq);
+		else
+			isr->irq->eoi(isr->irq);
+	}
 
 	cpu->in_interrupt = previous;
 	if (unlikely(bad_cpu))
 		swap_cpu();
 }
 
-static void nmi(const struct isr* isr, const struct context* ctx) {
+static void nmi(const struct isr* isr, struct context* ctx) {
 	(void)isr;
 	(void)ctx;
 	panic("NMI");
 }
 
-static void spurious(const struct isr* isr, const struct context* ctx) {
+static void spurious(const struct isr* isr, struct context* ctx) {
 	(void)ctx;
 	if (isr->vector == INTERRUPT_SPURIOUS_VECTOR) {
 		printk(PRINTK_WARN "core: spurious interrupt from lapic\n");
 	} else {
-		u8 irq = isr->vector - I8259_VECTOR_OFFSET;
-		printk(PRINTK_WARN "core: spurious interrupt from i8259 %hhu\n", irq);
+		printk(PRINTK_WARN "core: spurious interrupt from i8259 %hhu\n", isr->irq->irq);
 	}
 }
+
+static struct irq irq7 = {
+	.irq = 7,
+	.eoi = i8259_spurious_eoi
+};
+static struct irq irq15 = {
+	.irq = 15,
+	.eoi = i8259_spurious_eoi
+};
 
 void interrupts_init(void) {
 	for (int i = 0; i < INTERRUPT_COUNT; i++) {
 		isr_handlers[i].vector = i;
-		isr_handlers[i].eoi = NULL;
-		if (i < INTERRUPT_EXCEPTION_COUNT) {
+		if (i < INTERRUPT_EXCEPTION_COUNT)
 			isr_handlers[i].handler = i == INTERRUPT_EXCEPTION_NMI ? nmi : do_trap;
-		} else if (i >= I8259_VECTOR_OFFSET && i < I8259_VECTOR_OFFSET + I8259_VECTOR_COUNT) {
-			isr_handlers[i].handler = spurious;
-			isr_handlers[i].eoi = i8259_spurious_eoi;
-		} else if (i == INTERRUPT_SPURIOUS_VECTOR) {
-			isr_handlers[i].handler = spurious;
-		} else {
-			isr_handlers[i].handler = NULL;
-		}
 	}
+
+	int i8259_irq = I8259_VECTOR_OFFSET + 7;
+	isr_handlers[i8259_irq].irq = &irq7;
+	isr_handlers[i8259_irq].handler = spurious;
+	i8259_irq = I8259_VECTOR_OFFSET + 15;
+	isr_handlers[i8259_irq].irq = &irq15;
+	isr_handlers[i8259_irq].handler = spurious;
 
 	idt_init();
 }

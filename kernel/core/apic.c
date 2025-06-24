@@ -7,6 +7,59 @@
 #include <crescent/mm/buddy.h>
 #include <crescent/mm/vmm.h>
 
+#define PIC1 0x20
+#define PIC2 0xA0
+#define PIC1_DATA (PIC1 + 1)
+#define PIC2_DATA (PIC2 + 1)
+
+#define PIC_EOI 0x20
+
+void i8259_spurious_eoi(const struct irq* irq) {
+	if (irq->irq == 15)
+		outb(PIC1, PIC_EOI);
+}
+
+#define ICW1_ICW4 0x01
+#define ICW1_SINGLE 0x02
+#define ICW1_INTERVAL4 0x04
+#define ICW1_LEVEL 0x08
+#define ICW1_INIT 0x10
+#define ICW4_8086 0x01
+#define ICW4_AUTO 0x02
+#define ICW4_BUF_SLAVE 0x08
+#define ICW4_BUF_MASTER 0x0C
+#define ICW4_SFNM 0x10
+
+static void i8259_init(void) {
+	/* Start initiailization in cascade mode */
+	outb(PIC1, ICW1_INIT | ICW1_ICW4);
+	io_wait();
+	outb(PIC2, ICW1_INIT | ICW1_ICW4);
+	io_wait();
+
+	/* Set vector offsets */
+	outb(PIC1_DATA, I8259_VECTOR_OFFSET);
+	io_wait();
+	outb(PIC2_DATA, I8259_VECTOR_OFFSET + 8);
+	io_wait();
+
+	/* Tell PIC1 there is a PIC2 */
+	outb(PIC1_DATA, 4);
+	io_wait();
+	outb(PIC2_DATA, 2); /* Tell PIC2 it's "cascade identity", whatever that means */
+	io_wait();
+
+	/* Put both PIC's into 8086 mode */
+	outb(PIC1_DATA, ICW4_8086);
+	io_wait();
+	outb(PIC2_DATA, ICW4_8086);
+	io_wait();
+
+	/* Mask all interrupts */
+	outb(PIC1_DATA, 0xFF);
+	outb(PIC2_DATA, 0xFF);
+}
+
 enum apic_base_flags {
 	APIC_BASE_BSP = (1 << 8),
 	APIC_BASE_ENABLE = (1 << 11)
@@ -46,8 +99,8 @@ static void ioapic_redtbl_write(u32 __iomem* ioapic, u8 entry, u8 vector,
 	ioapic_write(ioapic, 0x11 + entry * 2, (u32)dest << 24);
 }
 
-void apic_eoi(const struct isr* isr) {
-	(void)isr;
+void apic_eoi(const struct irq* irq) {
+	(void)irq;
 	lapic_write(LAPIC_REG_EOI, 0);
 }
 
@@ -82,6 +135,8 @@ int apic_bsp_init(void) {
 	if (!madt_ops)
 		return -ENOSYS;
 
+	i8259_init();
+
 	physaddr_t lapic_physical = ROUND_DOWN(rdmsr(MSR_APIC_BASE), PAGE_SIZE);
 	lapic_address = iomap(lapic_physical, PAGE_SIZE, MMU_READ | MMU_WRITE);
 	if (unlikely(!lapic_address))
@@ -96,6 +151,6 @@ int apic_bsp_init(void) {
 	}
 
 	/* Setup spurious IRQ, the ISR is already set up */
-	lapic_write(LAPIC_REG_SPURIOUS, 0xFF | 0x100);
+	lapic_write(LAPIC_REG_SPURIOUS, INTERRUPT_SPURIOUS_VECTOR | 0x100);
 	return 0;
 }

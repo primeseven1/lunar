@@ -17,7 +17,7 @@ static void do_page_fault(const struct context* ctx) {
 	__asm__ volatile("ud2");
 }
 
-void do_trap(const struct isr* isr, const struct context* ctx) {
+void do_trap(const struct isr* isr, struct context* ctx) {
 	switch (isr->vector) {
 	case INTERRUPT_EXCEPTION_PAGE_FAULT:
 		do_page_fault(ctx);

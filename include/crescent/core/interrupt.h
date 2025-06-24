@@ -45,15 +45,20 @@ struct context {
 	unsigned long ss;
 } __attribute__((packed));
 
+struct irq {
+	int irq;
+	void (*eoi)(const struct irq*);
+};
+
 struct isr {
-	u8 vector;
-	void (*handler)(const struct isr* self, const struct context* ctx);
-	void (*eoi)(const struct isr* self);
+	struct irq* irq;
+	unsigned int vector;
+	void (*handler)(const struct isr*, struct context*);
 };
 
 #define INTERRUPT_COUNT 256
 
-const struct isr* interrupt_register(void (*handler)(const struct isr*, const struct context*), void (*eoi)(const struct isr*));
+const struct isr* interrupt_register(struct irq* irq, void (*handler)(const struct isr*, struct context*));
 void interrupts_init(void);
 
 /**
