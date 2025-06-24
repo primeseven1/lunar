@@ -4,8 +4,11 @@
 #include <crescent/lib/string.h>
 #include "video.h"
 
-void liminefb_put_pixel(struct limine_framebuffer* fb_dev, 
+int liminefb_put_pixel(struct limine_framebuffer* fb_dev, 
 		u32 x, u32 y, u8 red, u8 green, u8 blue) {
+	if (x >= fb_dev->width || y >= fb_dev->height)
+		return -EFAULT;
+
 	u32 color = (red << fb_dev->red_mask_shift) | (green << fb_dev->green_mask_shift) |
 			(blue << fb_dev->blue_mask_shift);
 	u64 index = x * (fb_dev->bpp >> 3) + (y * fb_dev->pitch);
@@ -22,6 +25,8 @@ void liminefb_put_pixel(struct limine_framebuffer* fb_dev,
 		writeb(addr.addr8 + 1, (color >> 8) & 0xFF);
 		writeb(addr.addr8 + 2, (color >> 16) & 0xFF);
 	}
+
+	return 0;
 }
 
 void liminefb_clear_screen(struct limine_framebuffer* fb_dev, u8 red, u8 green, u8 blue) {
@@ -37,7 +42,7 @@ void liminefb_clear_screen(struct limine_framebuffer* fb_dev, u8 red, u8 green, 
 	if (fb_dev->bpp == 32) {
 		count = (fb_dev->width * fb_dev->height * (fb_dev->bpp >> 3)) >> 2;
 		while (count--)
-			writel(addr.addr32, color);
+			writel(addr.addr32++, color);
 	} else if (fb_dev->bpp == 24) {
 		count = (fb_dev->width * fb_dev->height * (fb_dev->bpp >> 3)) / 3;
 		while (count--) {

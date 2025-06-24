@@ -12,6 +12,7 @@ _Noreturn void panic(const char* fmt, ...) {
 	va_list va;
 	va_start(va, fmt);
 
+	printk_emerg_release_lock();
 	vsnprintf(panic_msg, sizeof(panic_msg), fmt, va);
 	dump_stack();
 	printk(PRINTK_EMERG "Kernel panic - %s\n", panic_msg);

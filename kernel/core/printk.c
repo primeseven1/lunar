@@ -6,9 +6,7 @@
 
 static char printk_buf[1024 + 1];
 static spinlock_t printk_lock = SPINLOCK_INITIALIZER;
-
 static void (*printk_hooks[5])(const struct printk_msg*) = { 0 };
-
 static unsigned int printk_level = CONFIG_PRINTK_LEVEL;
 
 int printk_set_hook(void (*hook)(const struct printk_msg*)) {
@@ -102,4 +100,8 @@ int printk(const char* fmt, ...) {
 	int ret = vprintk(fmt, va);
 	va_end(va);
 	return ret;
+}
+
+void printk_emerg_release_lock(void) {
+	spinlock_unlock(&printk_lock);
 }

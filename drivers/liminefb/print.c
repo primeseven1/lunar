@@ -34,20 +34,31 @@ static void scroll_text(struct printk_video_dev* dev) {
 	memset_io(addr, 0, count);
 }
 
-static void put_char(struct printk_video_dev* dev, unsigned char c, u8 red, u8 green, u8 blue) {
+static int __put_char(struct printk_video_dev* dev, unsigned char c, u8 red, u8 green, u8 blue) {
 	u32 x = dev->current_x * dev->font->width;
 	u32 y = dev->current_y * dev->font->height;
 
-	if (unlikely(x > dev->framebuffer->width || y > dev->framebuffer->height))
-		return;
+	if (unlikely(x >= dev->framebuffer->width || y >= dev->framebuffer->height)) {
+		liminefb_clear_screen(dev->framebuffer, 0, 0, 0);
+		dev->current_x = 0;
+		dev->current_y = 0;
+	}
 
 	for (int row = 0; row < dev->font->height; row++) {
 		for (int col = dev->font->width - 1; col >= 0; col--) {
 			const u8* font_data = dev->font->font_data + c * dev->font->height;
 			if (font_data[row] & (1 << col)) {
-				liminefb_put_pixel(dev->framebuffer, 
+				int err = liminefb_put_pixel(dev->framebuffer, 
 						x + dev->font->width - col - 1, y + row, red, green,
 						blue);
+
+				/* This can happen if an NMI occurs in the middle of execution, and the state can be inconsistent */
+				if (unlikely(err == -EFAULT)) {
+					initial_dev.current_x = 0;
+					initial_dev.current_y = 0;
+					liminefb_clear_screen(dev->framebuffer, 0, 0, 0);
+					return -EAGAIN;
+				}
 			}
 		}
 	}
@@ -61,6 +72,8 @@ static void put_char(struct printk_video_dev* dev, unsigned char c, u8 red, u8 g
 			dev->current_y = dev->max_y;
 		}
 	}
+
+	return 0;
 }
 
 static bool handle_escape(struct printk_video_dev* dev, char c) {
@@ -154,6 +167,14 @@ static const char* get_lvl_str_rgb(unsigned int level, u32* r, u32* g, u32* b) {
 	return "";
 }
 
+static inline void put_char(struct printk_video_dev* dev, unsigned char c, u32 r, u32 g, u32 b) {
+	if (handle_escape(dev, c))
+		return;
+	int err = __put_char(&initial_dev, c, r, g, b);
+	if (unlikely(err == -EAGAIN))
+		__put_char(&initial_dev, c, r, g, b);
+}
+
 void liminefb_printk_hook(const struct printk_msg* msg) {
 	if (msg->msg_level > msg->global_level)
 		return;
@@ -165,13 +186,8 @@ void liminefb_printk_hook(const struct printk_msg* msg) {
 
 	const char* m = msg->msg;
 	size_t len = msg->len;
-
-	while (len) {
-		if (!handle_escape(&initial_dev, *m))
-			put_char(&initial_dev, (unsigned char)*m, 0xcc, 0xcc, 0xcc);
-		m++;
-		len--;
-	}
+	while (len--)
+		put_char(&initial_dev, *m++, 0xcc, 0xcc, 0xcc);
 }
 
 void liminefb_print_init(struct limine_framebuffer* fb) {

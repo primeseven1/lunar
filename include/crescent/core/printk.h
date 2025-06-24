@@ -51,3 +51,5 @@ int vprintk(const char* fmt, va_list va);
  */
 __attribute__((format(printf, 1, 2)))
 int printk(const char* fmt, ...);
+
+void printk_emerg_release_lock(void);
