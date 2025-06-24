@@ -47,14 +47,6 @@ _Noreturn __asmlinkage void kernel_main(void) {
 	if (err)
 		printk("init: Failed to parse cmdline! err: %i\n", err);
 
-	init_status = INIT_STATUS_BASIC;
-
-	module_load("acpi");
-
-	err = apic_bsp_init();
-	if (err)
-		panic("Failed to initialize APIC, err: %i", err);
-
 	const char* loglevel = cmdline_get("loglevel");
 	if (loglevel) {
 		unsigned int level = *loglevel - '0';
@@ -64,6 +56,14 @@ _Noreturn __asmlinkage void kernel_main(void) {
 		else if (err)
 			printk(PRINTK_WARN "init: Failed to set cmdline loglevel, err: %i", err);
 	}
+
+	init_status = INIT_STATUS_BASIC;
+
+	module_load("acpi");
+
+	err = apic_bsp_init();
+	if (err)
+		panic("Failed to initialize APIC, err: %i", err);
 
 	sched_init();
 	printk(PRINTK_CRIT "init: kernel_main ended!\n");
