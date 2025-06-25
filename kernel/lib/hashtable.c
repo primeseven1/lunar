@@ -25,7 +25,7 @@ struct hashtable* hashtable_create(size_t head_count, size_t value_size) {
 	if (!table)
 		return NULL;
 
-	table->heads = kmalloc(head_count * sizeof(struct hashtable_node), MM_ZONE_NORMAL);
+	table->heads = kzalloc(head_count * sizeof(struct hashtable_node), MM_ZONE_NORMAL);
 	if (!table->heads) {
 		kfree(table);
 		return NULL;

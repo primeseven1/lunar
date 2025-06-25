@@ -122,7 +122,6 @@ void* kmalloc(size_t size, mm_t mm_flags) {
 	alloc_info->size = size;
 
 	u8* ret = (u8*)(alloc_info + 1);
-	memset(ret, 0, size);
 
 	size_t* check_value = (size_t*)(ret + size);
 	*check_value = HEAP_CHK_VALUE;

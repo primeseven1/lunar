@@ -16,6 +16,14 @@
  */
 void* kmalloc(size_t size, mm_t mm_flags);
 
+static inline void* kzalloc(size_t size, mm_t mm_flags) {
+	void* ret = kmalloc(size, mm_flags);
+	if (!ret)
+		return NULL;
+	__builtin_memset(ret, 0, size);
+	return ret;
+}
+
 /**
  * @brief Free a block of memory from a heap pool
  * @param ptr The pointer to the block of memory
