@@ -27,4 +27,4 @@ static int acpi_init(void) {
 	return 0;
 }
 
-MODULE("acpi", INIT_STATUS_BASIC, acpi_init);
+MODULE("acpi", INIT_STATUS_MM, acpi_init);

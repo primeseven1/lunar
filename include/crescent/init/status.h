@@ -2,7 +2,8 @@
 
 enum system_statuses {
 	INIT_STATUS_NOTHING,
-	INIT_STATUS_BASIC /* Things up to kmalloc have been initialized */
+	INIT_STATUS_MM,
+	INIT_STATUS_SCHED
 };
 
 int init_status_get(void);

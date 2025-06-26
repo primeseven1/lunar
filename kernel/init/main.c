@@ -57,7 +57,7 @@ _Noreturn __asmlinkage void kernel_main(void) {
 			printk(PRINTK_WARN "init: Failed to set cmdline loglevel, err: %i", err);
 	}
 
-	init_status = INIT_STATUS_BASIC;
+	init_status = INIT_STATUS_MM;
 
 	module_load("acpi");
 
@@ -66,6 +66,7 @@ _Noreturn __asmlinkage void kernel_main(void) {
 		panic("Failed to initialize APIC, err: %i", err);
 
 	sched_init();
+	init_status = INIT_STATUS_SCHED;
 	printk(PRINTK_CRIT "init: kernel_main ended!\n");
 	local_irq_enable(); /* Testing purposes only, probably will be moved somewhere */
 die:
