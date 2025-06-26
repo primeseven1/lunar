@@ -4,7 +4,7 @@
 #include <crescent/core/apic.h>
 #include <crescent/core/printk.h>
 #include <crescent/core/panic.h>
-#include "timer.h"
+#include "sched.h"
 
 #define I8253_FREQ 1193182
 #define I8253_CHANNEL0 0x40
@@ -42,8 +42,7 @@ static void i8253_wait(unsigned long ms) {
 static void timer(const struct isr* isr, struct context* ctx) {
 	(void)isr;
 	(void)ctx;
-	static unsigned long x = 0;
-	printk(PRINTK_INFO "sched: timer %lu\n", ++x);
+	sched_switch(ctx);
 }
 
 static spinlock_t i8253_lock = SPINLOCK_INITIALIZER;
@@ -53,7 +52,7 @@ static struct irq timer_irq = {
 	.eoi = apic_eoi
 };
 
-void timer_init(void) {
+void sched_timer_init(void) {
 	spinlock_lock(&i8253_lock);
 	lapic_write(LAPIC_REG_TIMER_DIVIDE, 0x03);
 	lapic_write(LAPIC_REG_TIMER_INITIAL, U32_MAX);

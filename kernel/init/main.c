@@ -69,6 +69,8 @@ _Noreturn __asmlinkage void kernel_main(void) {
 	init_status = INIT_STATUS_SCHED;
 	printk(PRINTK_CRIT "init: kernel_main ended!\n");
 	local_irq_enable(); /* Testing purposes only, probably will be moved somewhere */
+	while (1)
+		printk("not idle\n");
 die:
 	while (1)
 		__asm__ volatile("hlt");

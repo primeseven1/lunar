@@ -8,7 +8,8 @@ struct cpu {
 	u32 processor_id, lapic_id;
 	bool in_interrupt;
 	struct vmm_ctx vmm_ctx;
-	struct task* current_task, *queue;
+	struct thread* current_thread, *thread_queue;
+	spinlock_t thread_queue_lock;
 };
 
 /**
