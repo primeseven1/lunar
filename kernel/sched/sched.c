@@ -13,7 +13,7 @@ static struct proc* kernel_proc = NULL;
 
 static struct thread* find_thread(struct thread* thread) {
 	while (thread) {
-		if (thread->state == THREAD_STATE_RUNNABLE)
+		if (__atomic_load_n(&thread->state, __ATOMIC_SEQ_CST) == THREAD_STATE_RUNNABLE)
 			break;
 
 		thread = thread->sched.next;
@@ -70,7 +70,7 @@ void sched_schedule(struct thread* thread, struct proc* proc) {
 		proc->threads = thread;
 	}
 	__atomic_add_fetch(&proc->thread_count, 1, __ATOMIC_SEQ_CST);
-	thread->state = THREAD_STATE_RUNNABLE;
+	__atomic_store_n(&thread->state, THREAD_STATE_RUNNABLE, __ATOMIC_SEQ_CST);
 
 	/* Now add thread to the CPU run queue, the CPU must always be running at least 1 thread */
 	_thread = cpu->current_thread;

@@ -5,6 +5,7 @@
 #include <crescent/core/cpu.h>
 #include <crescent/common.h>
 #include "sched.h"
+#include "kthread.h"
 
 struct thread* kthread_create(unsigned int flags, void* (*func)(void*), void* arg) {
 	(void)flags;
@@ -21,7 +22,8 @@ struct thread* kthread_create(unsigned int flags, void* (*func)(void*), void* ar
 	thread->info.stack_top = stack;
 	thread->info.stack_size = 0x4000;
 
-	thread->ctx.general_regs.rip = func;
+	thread->ctx.general_regs.rax = (long)func;
+	thread->ctx.general_regs.rip = asm_kthread_start;
 	thread->ctx.general_regs.cs = SEGMENT_KERNEL_CODE;
 	thread->ctx.general_regs.rflags = 0x202;
 	thread->ctx.general_regs.ss = SEGMENT_KERNEL_DATA;
