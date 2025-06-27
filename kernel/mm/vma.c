@@ -102,7 +102,7 @@ static void* __vma_alloc_pages_aligned(struct vma* vma, unsigned long count, siz
 	}
 
 	if (found) {
-		for (unsigned long i = 0; i < start_index + count; i++) {
+		for (unsigned long i = start_index; i < start_index + count; i++) {
 			size_t byte_index = i / 8;
 			unsigned int bit_index = i % 8;
 			vma->free_list[byte_index] |= (1 << bit_index);
@@ -198,62 +198,6 @@ struct vma* vma_create(void* start, void* end, unsigned long page_count) {
 	vma->lock = SPINLOCK_INITIALIZER;
 
 	return vma;
-}
-
-int vma_split(struct vma* vma, void* split_point, struct vma** ret) {
-	if ((uintptr_t)split_point & (PAGE_SIZE - 1))
-		return -EINVAL;
-
-	int err;
-	unsigned long lock_flags;
-	spinlock_lock_irq_save(&vma->lock, &lock_flags);
-
-	if (split_point <= vma->start || split_point >= vma->end) {
-		err = -EINVAL;
-		goto out;
-	}
-
-	void* real_end = (u8*)vma->start + vma->page_count * PAGE_SIZE;
-	if (split_point < real_end) {
-		err = -EEXIST;
-		goto out;
-	}
-
-	struct vma* new_vma = vma_create(split_point, vma->end, 0);
-	if (!new_vma) {
-		err = -ENOMEM;
-		goto out;
-	}
-
-	vma->end = split_point;
-	*ret = new_vma;
-	err = 0;
-out:
-	spinlock_unlock_irq_restore(&vma->lock, &lock_flags);
-	return err;
-}
-
-int vma_merge(struct vma* dvma, struct vma* svma) {
-	unsigned long irq_flags = local_irq_save();
-	spinlock_lock(&dvma->lock);
-	spinlock_lock(&svma->lock);
-
-	int err;
-	if (dvma->end != svma->start) {
-		err = -EINVAL;
-		goto out;
-	}
-	void* svma_end = svma->end;
-	err = vma_destroy(svma);
-	if (err)
-		goto out;
-
-	dvma->end = svma_end;
-out:
-	spinlock_unlock(&dvma->lock);
-	spinlock_unlock(&svma->lock);
-	local_irq_restore(irq_flags);
-	return err;
 }
 
 int vma_destroy(struct vma* vma) {
