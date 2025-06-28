@@ -3,7 +3,9 @@
 #include <crescent/asm/segment.h>
 #include <crescent/mm/vmm.h>
 #include <crescent/core/cpu.h>
+#include <crescent/core/trace.h>
 #include <crescent/common.h>
+#include <crescent/core/printk.h>
 #include "sched.h"
 #include "kthread.h"
 
@@ -22,13 +24,13 @@ struct thread* kthread_create(unsigned int flags, void* (*func)(void*), void* ar
 	thread->info.stack_top = stack;
 	thread->info.stack_size = 0x4000;
 
-	thread->ctx.general_regs.rax = (long)func;
 	thread->ctx.general_regs.rip = asm_kthread_start;
 	thread->ctx.general_regs.cs = SEGMENT_KERNEL_CODE;
 	thread->ctx.general_regs.rflags = 0x202;
 	thread->ctx.general_regs.ss = SEGMENT_KERNEL_DATA;
 	thread->ctx.general_regs.rsp = stack;
-	thread->ctx.general_regs.rdi = (long)arg;
+	thread->ctx.general_regs.rdi = (long)func;
+	thread->ctx.general_regs.rsi = (long)arg;
 
 	sched_schedule(thread, NULL);
 	return thread;
@@ -51,4 +53,11 @@ _Noreturn void kthread_exit(void* ret) {
 	/* TODO: add sched_yeild when implemented */
 	while (1)
 		__asm__ volatile("hlt");
+}
+
+__asmlinkage void __kthread_start(void* (*func)(void* arg), void* arg);
+__asmlinkage void __kthread_start(void* (*func)(void* arg), void* arg) {
+	func(arg);
+	printk(PRINTK_EMERG "sched: Function at %p did not call kthread_exit!\n", func);
+	/* asm_kthread_startup causes a trap already, so just return here */
 }
