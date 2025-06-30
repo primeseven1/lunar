@@ -100,8 +100,10 @@ enum error_types {
 	INSUFFICIENT_OBJECT_SIZE,
 };
 
-_Noreturn static void ubsan_panic(void) {
-	panic("ubsan triggered crash");
+static void ubsan_end(bool die) {
+	if (die)
+		panic("ubsan triggered crash");
+	printk(PRINTK_CRIT "ubsan: Non-critical bug detected\n");
 }
 
 static const char* const type_check_kinds[] = {
@@ -127,44 +129,48 @@ void __ubsan_handle_type_mismatch_v1(struct type_mismatch_info* mismatch, const 
 	switch (err_type) {
 	case NULL_POINTER_USE:
 	case NULL_POINTER_USE_WITH_NULLABILITY:
-		printk(PRINTK_CRIT "ubsan: %s:%u: %s NULL pointer of type %s\n",
+		printk(PRINTK_EMERG "ubsan: %s:%u: %s NULL pointer of type %s\n",
 				mismatch->source.file_name, mismatch->source.line, 
 				type_check_kinds[mismatch->type_check_kind], mismatch->type->name);
-		break;
+		ubsan_end(true);
+		return;
 	case MISALIGNED_POINTER_USE:
 		printk(PRINTK_CRIT "ubsan: %s:%u: misaligned address %p for type %s\n", 
 				mismatch->source.file_name, mismatch->source.line, ptr, mismatch->type->name);
-		break;
+		ubsan_end(false);
+		return;
 	case INSUFFICIENT_OBJECT_SIZE:
-		printk(PRINTK_CRIT "ubsan: %s:%u: %s address %p with insufficient space for an object of type %s\n",
+		printk(PRINTK_EMERG "ubsan: %s:%u: %s address %p with insufficient space for an object of type %s\n",
 				mismatch->source.file_name, mismatch->source.line, 
 				type_check_kinds[mismatch->type_check_kind], ptr, mismatch->type->name);
-		break;
+		ubsan_end(true);
+		return;
 	}
 
-	ubsan_panic();
+	printk(PRINTK_EMERG "ubsan: unknown bug occurred! err_type: %i\n", err_type);
+	ubsan_end(true);
 }
 
 void __ubsan_handle_out_of_bounds(struct out_of_bounds_info* oob, size_t index);
 void __ubsan_handle_out_of_bounds(struct out_of_bounds_info* oob, size_t index) {
-	printk(PRINTK_CRIT "ubsan: %s:%u: index %zu out of bounds for type %s\n", 
+	printk(PRINTK_EMERG "ubsan: %s:%u: index %zu out of bounds for type %s\n", 
 			oob->source.file_name, oob->source.line, index, oob->array_type->name);
-	ubsan_panic();
+	ubsan_end(true);
 }
 
 void __ubsan_handle_nonnull_return_v1(struct non_null_return_info* nonnull, struct source* source);
 void __ubsan_handle_nonnull_return_v1(struct non_null_return_info* nonnull, struct source* source) {
 	(void)nonnull;
-	printk(PRINTK_CRIT "ubsan: %s:%u: NULL pointer returned from function that should never return NULL\n",
+	printk(PRINTK_EMERG "ubsan: %s:%u: NULL pointer returned from function that should never return NULL\n",
 			source->file_name, source->line);
-	ubsan_panic();
+	ubsan_end(true);
 }
 
 void __ubsan_handle_pointer_overflow(struct pointer_overflow_info* overflow, const void* base, const void* result);
 void __ubsan_handle_pointer_overflow(struct pointer_overflow_info* overflow, const void* base, const void* result) {
-	printk(PRINTK_CRIT "ubsan: %s:%u: Pointer %p overflowed to %p\n", 
+	printk(PRINTK_EMERG "ubsan: %s:%u: Pointer %p overflowed to %p\n", 
 			overflow->source.file_name, overflow->source.line, base, result);
-	ubsan_panic();
+	ubsan_end(true);
 }
 
 void __ubsan_handle_load_invalid_value(struct invalid_value_info* invalid, void* from);
@@ -172,21 +178,21 @@ void __ubsan_handle_load_invalid_value(struct invalid_value_info* invalid, void*
 	(void)from;
 	printk(PRINTK_CRIT "ubsan: %s:%u: Loaded invalid value for type %s\n", 
 			invalid->source.file_name, invalid->source.line, invalid->type->name);
-	ubsan_panic();
+	ubsan_end(false);
 }
 
 void __ubsan_handle_builtin_unreachable(struct unreachable_info* unreachable);
 void __ubsan_handle_builtin_unreachable(struct unreachable_info* unreachable) {
-	printk(PRINTK_CRIT "ubsan: %s:%u: Reached an unreachable block\n",
+	printk(PRINTK_EMERG "ubsan: %s:%u: Reached an unreachable block\n",
 			unreachable->source.file_name, unreachable->source.line);
-	ubsan_panic();
+	ubsan_end(true);
 }
 
 void __ubsan_handle_nonnull_arg(struct non_null_arg_info* nonnull);
 void __ubsan_handle_nonnull_arg(struct non_null_arg_info* nonnull) {
-	printk(PRINTK_CRIT "ubsan: %s:%u: nonull argument at arg index %u is NULL\n",
+	printk(PRINTK_EMERG "ubsan: %s:%u: nonull argument at arg index %u is NULL\n",
 			nonnull->source.file_name, nonnull->source.line, nonnull->arg_index);
-	ubsan_panic();
+	ubsan_end(true);
 }
 
 void __ubsan_handle_shift_out_of_bounds(struct shift_out_of_bounds_info* oob, const void* lhs, const void* rhs);
@@ -195,44 +201,46 @@ void __ubsan_handle_shift_out_of_bounds(struct shift_out_of_bounds_info* oob, co
 	(void)rhs;
 	printk(PRINTK_CRIT "ubsan: %s:%u: shift index >= type width\n",
 			oob->source.file_name, oob->source.line);
-	ubsan_panic();
+	ubsan_end(false);
 }
 
 void __ubsan_handle_divrem_overflow(struct overflow_info* overflow, size_t lhs, size_t rhs);
 void __ubsan_handle_divrem_overflow(struct overflow_info* overflow, size_t lhs, size_t rhs) {
 	(void)lhs;
-	printk(PRINTK_CRIT "ubsan: %s:%u: had %s\n",
-			overflow->source.file_name, overflow->source.line,
-			(rhs != 0) ? "divrem overflow" : "division by zero");
-	ubsan_panic();
+	const char* msg = rhs == 0 ? "division by zero" : "divrem overflow";
+	const char* msg_lvl = rhs == 0 ? PRINTK_EMERG : PRINTK_CRIT;
+	printk("%s ubsan: %s:%u: had %s\n",
+			msg_lvl, overflow->source.file_name, overflow->source.line,
+			msg);
+	ubsan_end(rhs == 0);
 }
 
 void __ubsan_handle_vla_bound_not_positive(struct vla_bound_info* info, size_t bound);
 void __ubsan_handle_vla_bound_not_positive(struct vla_bound_info* info, size_t bound) {
 	(void)bound;
-	printk(PRINTK_CRIT "ubsan: %s:%u: vla has a non-positive size\n", 
+	printk(PRINTK_EMERG "ubsan: %s:%u: vla has a non-positive size\n", 
 			info->source.file_name, info->source.line);
-	ubsan_panic();
+	ubsan_end(true);
 }
 
 void __ubsan_handle_invalid_builtin(struct invalid_builtin_info* info);
 void __ubsan_handle_invalid_builtin(struct invalid_builtin_info* info) {
 	(void)info;
 	if (info->kind == 2) {
-		printk(PRINTK_CRIT "ubsan: %s:%u: assumption violated during execution\n",
+		printk(PRINTK_EMERG "ubsan: %s:%u: assumption violated during execution\n",
 				info->source.file_name, info->source.line);
 	} else {
 		printk(PRINTK_CRIT "ubsan: %s:%u: Passing zero to __builtin_%s() which is not valid\n",
 				info->source.file_name, info->source.line, info->kind == 1 ? "clz" : "ctz");
 	}
-	ubsan_panic();
+	ubsan_end(info->kind == 2);
 }
 
 void __ubsan_handle_function_type_mismatch(struct function_type_mismatch_info* info, const void* ptr);
 void __ubsan_handle_function_type_mismatch(struct function_type_mismatch_info* info, const void* ptr) {
-	printk(PRINTK_CRIT "ubsan: %s:%u: call to function %p through pointer to incorrect function type %s\n",
+	printk(PRINTK_EMERG "ubsan: %s:%u: call to function %p through pointer to incorrect function type %s\n",
 			info->source.file_name, info->source.line, ptr, info->type->name);
-	ubsan_panic();
+	ubsan_end(true);
 }
 
 #endif /* CONFIG_UBSAN */
