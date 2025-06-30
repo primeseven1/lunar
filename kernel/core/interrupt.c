@@ -40,8 +40,7 @@ static void idt_init(void) {
 	const size_t idt_size = sizeof(*idt) * INTERRUPT_COUNT;
 	if (!idt) {
 		idt = vmap(NULL, idt_size, VMAP_ALLOC, MMU_READ | MMU_WRITE, NULL);
-		if (!idt)
-			panic("Failed to initialize IDT");
+		assert(idt != NULL);
 		__idt_init();
 		vprotect(idt, idt_size, 0, MMU_READ);
 	}
@@ -93,10 +92,7 @@ __asmlinkage void __isr_entry(struct context* ctx) {
 	if (!previous)
 		cpu->in_interrupt = true;
 
-	/* This should never happen */
-	if (unlikely(ctx->vector >= INTERRUPT_COUNT))
-		panic("Cannot handle interrupt: ctx->vector == %lu", ctx->vector);
-
+	assert(ctx->vector < INTERRUPT_COUNT);
 	struct isr* isr = &isr_handlers[ctx->vector];
 	if (likely(isr->handler))
 		isr->handler(isr, ctx);
