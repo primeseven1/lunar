@@ -1,4 +1,5 @@
 #include <crescent/types.h>
+#include <crescent/common.h>
 #include <crescent/core/cpu.h>
 #include <crescent/core/io.h>
 #include <crescent/core/apic.h>
@@ -63,8 +64,7 @@ void sched_timer_init(void) {
 	u32 ticks = U32_MAX - lapic_read(LAPIC_REG_TIMER_CURRENT);
 
 	const struct isr* lapic_timer_isr = interrupt_register(&timer_irq, timer);
-	if (!lapic_timer_isr)
-		panic("Failed to allocate LAPIC timer ISR");
+	assert(lapic_timer_isr != NULL);
 
 	lapic_write(LAPIC_REG_LVT_TIMER, lapic_timer_isr->vector | (1 << 17));
 	lapic_write(LAPIC_REG_TIMER_DIVIDE, 0x03);

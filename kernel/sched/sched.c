@@ -93,14 +93,11 @@ void sched_init(void) {
 	sched_thread_init();
 
 	struct proc* kproc = sched_proc_create();
-	if (!kproc)
-		panic("Failed to create kernel process");
-	if (kproc->pid != 0)
-		panic("???");
+	assert(kproc);
+	assert(kproc->pid == 0);
 
 	struct thread* this_thread = sched_thread_create();
-	if (!this_thread)
-		panic("Failed to create initial kernel thread");
+	assert(this_thread != NULL);
 	kproc->threads = this_thread;
 
 	struct cpu* cpu = current_cpu();
@@ -109,6 +106,7 @@ void sched_init(void) {
 	kproc->vmm_ctx = &cpu->vmm_ctx;
 	kernel_proc = kproc;
 
-	kthread_create(0, idle, NULL);
+	struct thread* idle_thread = kthread_create(0, idle, NULL);
+	assert(idle_thread != NULL);
 	sched_timer_init();
 }

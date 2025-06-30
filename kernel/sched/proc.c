@@ -86,12 +86,10 @@ void sched_proc_destroy(struct proc* proc) {
 
 void sched_proc_init(void) {
 	proc_cache = slab_cache_create(sizeof(struct proc), _Alignof(struct proc), MM_ZONE_NORMAL, proc_ctor, proc_dtor);
-	if (!proc_cache)
-		panic("Failed to create proc slab cache");
+	assert(proc_cache != NULL);
 
 	const size_t pid_map_size = (max_pid_count + 7) / 8;
 	pid_map = vmap(NULL, pid_map_size, VMAP_ALLOC, MMU_READ | MMU_WRITE, NULL);
+	assert(pid_map != NULL);
 	memset(pid_map, 0, pid_map_size);
-	if (!pid_map)
-		panic("Failed to create PID bitmap");
 }

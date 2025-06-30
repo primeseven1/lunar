@@ -24,6 +24,5 @@ void sched_thread_destroy(struct thread* thread) {
 
 void sched_thread_init(void) {
 	thread_cache = slab_cache_create(sizeof(struct thread), _Alignof(struct thread), MM_ZONE_NORMAL, NULL, NULL);
-	if (!thread_cache)
-		panic("Failed to create thread cache");
+	assert(thread_cache != NULL);
 }
