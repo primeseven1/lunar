@@ -569,9 +569,7 @@ static void dma_zone_init(physaddr_t last_usable) {
 	memset(dma_area_free_list, 0, sizeof(dma_area_free_list));
 
 	/* Allocate the first page of memory, an error should never happen in this context */
-	int err = _alloc_block(&dma_area, dma_area.layer_count - 1, 0);
-	if (unlikely(err))
-		panic("Failed to allocate first physical page of memory? How did this happen?");
+	assert(_alloc_block(&dma_area, dma_area.layer_count - 1, 0) == 0);
 }
 
 /* 
@@ -603,11 +601,8 @@ static int init_area(struct mem_area* area, mm_t free_list_zone, physaddr_t base
 	if (rounded_size != real_size) {
 		unsigned long start_block = real_size / PAGE_SIZE;
 		unsigned long end_block = rounded_size / PAGE_SIZE;
-		for (unsigned long block = start_block; block < end_block; block++) {
-			int err = _alloc_block(area, layer_count - 1, block);
-			if (unlikely(err))
-				panic("Failed to allocate blocks outside of zone?");
-		}
+		for (unsigned long block = start_block; block < end_block; block++)
+			assert(_alloc_block(area, layer_count - 1, block) == 0);
 	}
 	return 0;
 }
@@ -670,8 +665,8 @@ void buddy_init(void) {
 		normal_zone = &dma_zone;
 		printk(PRINTK_DBG "mm: Linking dma32 and normal zones to the dma zone\n");
 		return;
-	} else if (err) {
-		panic("Failed to initialize DMA32 zone");
+	} else {
+		assert(err == 0);
 	}
 	dma32_zone = &__dma32_zone;
 
@@ -680,8 +675,8 @@ void buddy_init(void) {
 		normal_zone = dma32_zone;
 		printk(PRINTK_DBG "mm: Linking normal zone to the dma32 zone\n");
 		return;
-	} else if (unlikely(err)) {
-		panic("Failed to initialize normal zone");
+	} else {
+		assert(err == 0);
 	}
 	normal_zone = &__normal_zone;
 }

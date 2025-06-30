@@ -313,17 +313,12 @@ void vmm_init(void) {
 		}
 	}
 	hhdmvma = vma_create(hhdm_start, hhdm_end, 0);
-	if (!hhdmvma)
-		panic("Failed to create hhdm vma");
+	assert(hhdmvma != NULL);
 
 	for (unsigned int i = 256; i < PTE_COUNT; i++) {
 		if (!(cr3[i] & PT_PRESENT)) {
 			void* start = pagetable_get_base_address_from_top_index(i);
 			void* end = pagetable_get_end_address_from_top_index(i);
-			struct vma* vma = vma_create(start, end, 0);
-			if (!vma)
-				panic("Failed to create kernel VMAs\n");
-
 			if (!kvma)
 				kvma = vma_create(start, end, 0);
 			else if (!iovma)
@@ -333,6 +328,5 @@ void vmm_init(void) {
 		}
 	}
 
-	if (unlikely(!kvma || !iovma))
-		panic("Failed to allocate kvma or iovma ???\n");
+	assert(kvma != NULL && iovma != NULL);
 }

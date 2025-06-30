@@ -75,7 +75,7 @@ static int walk_pagetable(pte_t* pagetable, const void* virtual, bool create, si
 			new_tables_table[i] = &pagetable[indexes[i]];
 		} else if (pagetable[indexes[i]] & PT_HUGEPAGE) {
 			if (unlikely(i != 1 && i != 2))
-				panic("hugepage flag set on invalid PTE!");
+				panic("Hugepage flag set on invalid PTE!");
 
 			/* 
 			 * Make sure we're not returning a PTE that points to another page table, 
@@ -233,9 +233,8 @@ void pagetable_init(void) {
 	struct limine_paging_mode_response* response = paging_mode.response;
 	if (unlikely(!response)) {
 		unsigned long cr4 = ctl4_read();
-		if (cr4 & CTL4_LA57)
-			panic("Wrong paging mode selected by the loader!");
-	} else if (response->mode != LIMINE_PAGING_MODE_X86_64_4LVL) {
-		panic("Wrong paging mode selected by the loader!");
+		assert(!(cr4 & CTL4_LA57));
+	} else {
+		assert(response->mode == LIMINE_PAGING_MODE_X86_64_4LVL);
 	}
 }

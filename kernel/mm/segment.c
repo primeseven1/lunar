@@ -97,28 +97,23 @@ reload:
 
 void segments_init(void) {
 	struct kernel_segments* segments = vmap(NULL, sizeof(*segments), VMAP_ALLOC, MMU_READ | MMU_WRITE, NULL);
-	if (!segments)
-		panic("Failed to allocate GDT on processor %lu", current_cpu()->processor_id);
-
+	assert(segments != NULL);
 	memcpy(segments->segments, base, sizeof(segments->segments));
 
 	/* Allocate TSS + io permission bitmap */
 	size_t tss_size = sizeof(struct tss_descriptor) + (65536 / 8);
 	struct tss_descriptor* tss = vmap(NULL, tss_size, VMAP_ALLOC, MMU_READ | MMU_WRITE, NULL);
-	if (!tss)
-		panic("Failed to allocate TSS!");
+	assert(tss != NULL);
 	memset(tss, INT_MAX, tss_size);
 
 	size_t ist_stack_size = 0x4000;
 	tss->rsp[0] = vmap(NULL, ist_stack_size, VMAP_ALLOC, MMU_READ | MMU_WRITE, NULL);
-	if (!tss->rsp[0])
-		panic("Failed to allocate RSP0 stack!");
+	assert(tss->rsp[0] != NULL);
 	tss->rsp[0] = (u8*)tss->rsp[0] + ist_stack_size;
 
 	for (int i = 0; i < 3; i++) {
 		u8* stack = vmap(NULL, ist_stack_size, VMAP_ALLOC, MMU_READ | MMU_WRITE, NULL);
-		if (!stack)
-			panic("Failed to alloc TSS stack #%i", i + 1);
+		assert(stack != NULL);
 		stack += ist_stack_size;
 		tss->ist[i] = stack;
 	}

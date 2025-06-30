@@ -175,13 +175,11 @@ void* krealloc(void* old, size_t new_size, mm_t mm_flags) {
 void heap_init(void) {
 	/* First map a single page for the mempool */
 	mempool_head = vmap(NULL, sizeof(*mempool_head), VMAP_ALLOC, MMU_READ | MMU_WRITE, NULL);
-	if (!mempool_head)
-		panic("Failed to initialize initial heap pool!");
+	assert(mempool_head != NULL);
 
 	/* Create a cache for creating mempools */
 	mempool_head->cache = slab_cache_create(sizeof(struct mempool), HEAP_ALIGN, MM_ZONE_NORMAL, NULL, NULL);
-	if (!mempool_head->cache)
-		panic("Failed to create mempool cache!");
+	assert(mempool_head->cache != NULL);
 
 	mempool_head->next = NULL;
 	mempool_head->prev = NULL;
