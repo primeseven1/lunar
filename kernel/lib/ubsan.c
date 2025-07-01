@@ -117,7 +117,9 @@ static const char* const type_check_kinds[] = {
 	"downcast of"
 };
 
-void __ubsan_handle_type_mismatch_v1(struct type_mismatch_info* mismatch, const void* ptr);
+__diag_push();
+__diag_ignore("-Wmissing-prototypes");
+
 void __ubsan_handle_type_mismatch_v1(struct type_mismatch_info* mismatch, const void* ptr) {
 	size_t align = 1 << mismatch->log_alignment;
 	int err_type;
@@ -151,14 +153,12 @@ void __ubsan_handle_type_mismatch_v1(struct type_mismatch_info* mismatch, const 
 	ubsan_end(true);
 }
 
-void __ubsan_handle_out_of_bounds(struct out_of_bounds_info* oob, size_t index);
 void __ubsan_handle_out_of_bounds(struct out_of_bounds_info* oob, size_t index) {
 	printk(PRINTK_EMERG "ubsan: %s:%u: index %zu out of bounds for type %s\n", 
 			oob->source.file_name, oob->source.line, index, oob->array_type->name);
 	ubsan_end(true);
 }
 
-void __ubsan_handle_nonnull_return_v1(struct non_null_return_info* nonnull, struct source* source);
 void __ubsan_handle_nonnull_return_v1(struct non_null_return_info* nonnull, struct source* source) {
 	(void)nonnull;
 	printk(PRINTK_EMERG "ubsan: %s:%u: NULL pointer returned from function that should never return NULL\n",
@@ -166,14 +166,12 @@ void __ubsan_handle_nonnull_return_v1(struct non_null_return_info* nonnull, stru
 	ubsan_end(true);
 }
 
-void __ubsan_handle_pointer_overflow(struct pointer_overflow_info* overflow, const void* base, const void* result);
 void __ubsan_handle_pointer_overflow(struct pointer_overflow_info* overflow, const void* base, const void* result) {
 	printk(PRINTK_EMERG "ubsan: %s:%u: Pointer %p overflowed to %p\n", 
 			overflow->source.file_name, overflow->source.line, base, result);
 	ubsan_end(true);
 }
 
-void __ubsan_handle_load_invalid_value(struct invalid_value_info* invalid, void* from);
 void __ubsan_handle_load_invalid_value(struct invalid_value_info* invalid, void* from) {
 	(void)from;
 	printk(PRINTK_CRIT "ubsan: %s:%u: Loaded invalid value for type %s\n", 
@@ -181,21 +179,18 @@ void __ubsan_handle_load_invalid_value(struct invalid_value_info* invalid, void*
 	ubsan_end(false);
 }
 
-void __ubsan_handle_builtin_unreachable(struct unreachable_info* unreachable);
 void __ubsan_handle_builtin_unreachable(struct unreachable_info* unreachable) {
 	printk(PRINTK_EMERG "ubsan: %s:%u: Reached an unreachable block\n",
 			unreachable->source.file_name, unreachable->source.line);
 	ubsan_end(true);
 }
 
-void __ubsan_handle_nonnull_arg(struct non_null_arg_info* nonnull);
 void __ubsan_handle_nonnull_arg(struct non_null_arg_info* nonnull) {
 	printk(PRINTK_EMERG "ubsan: %s:%u: nonull argument at arg index %u is NULL\n",
 			nonnull->source.file_name, nonnull->source.line, nonnull->arg_index);
 	ubsan_end(true);
 }
 
-void __ubsan_handle_shift_out_of_bounds(struct shift_out_of_bounds_info* oob, const void* lhs, const void* rhs);
 void __ubsan_handle_shift_out_of_bounds(struct shift_out_of_bounds_info* oob, const void* lhs, const void* rhs) {
 	(void)lhs;
 	(void)rhs;
@@ -204,7 +199,6 @@ void __ubsan_handle_shift_out_of_bounds(struct shift_out_of_bounds_info* oob, co
 	ubsan_end(false);
 }
 
-void __ubsan_handle_divrem_overflow(struct overflow_info* overflow, size_t lhs, size_t rhs);
 void __ubsan_handle_divrem_overflow(struct overflow_info* overflow, size_t lhs, size_t rhs) {
 	(void)lhs;
 	const char* msg = rhs == 0 ? "division by zero" : "divrem overflow";
@@ -215,7 +209,6 @@ void __ubsan_handle_divrem_overflow(struct overflow_info* overflow, size_t lhs, 
 	ubsan_end(rhs == 0);
 }
 
-void __ubsan_handle_vla_bound_not_positive(struct vla_bound_info* info, size_t bound);
 void __ubsan_handle_vla_bound_not_positive(struct vla_bound_info* info, size_t bound) {
 	(void)bound;
 	printk(PRINTK_EMERG "ubsan: %s:%u: vla has a non-positive size\n", 
@@ -223,7 +216,6 @@ void __ubsan_handle_vla_bound_not_positive(struct vla_bound_info* info, size_t b
 	ubsan_end(true);
 }
 
-void __ubsan_handle_invalid_builtin(struct invalid_builtin_info* info);
 void __ubsan_handle_invalid_builtin(struct invalid_builtin_info* info) {
 	(void)info;
 	if (info->kind == 2) {
@@ -236,11 +228,11 @@ void __ubsan_handle_invalid_builtin(struct invalid_builtin_info* info) {
 	ubsan_end(info->kind == 2);
 }
 
-void __ubsan_handle_function_type_mismatch(struct function_type_mismatch_info* info, const void* ptr);
 void __ubsan_handle_function_type_mismatch(struct function_type_mismatch_info* info, const void* ptr) {
 	printk(PRINTK_EMERG "ubsan: %s:%u: call to function %p through pointer to incorrect function type %s\n",
 			info->source.file_name, info->source.line, ptr, info->type->name);
 	ubsan_end(true);
 }
 
+__diag_pop();
 #endif /* CONFIG_UBSAN */
