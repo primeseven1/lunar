@@ -34,6 +34,11 @@ _start:
 
 	/* Align the stack */
 	andq $-16, %rsp
+
+	pushq $0
+	pushq $0
+	xorq %rbp, %rbp
+
 	call asm_zero_bss
 	call kernel_main
 
