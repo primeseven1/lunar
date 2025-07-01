@@ -40,8 +40,9 @@ void* kthread_join(struct thread* thread) {
 	while (__atomic_load_n(&thread->state, __ATOMIC_SEQ_CST) != THREAD_STATE_ZOMBIE)
 		__asm__ volatile("pause");
 
+	void* ret = (void*)thread->ctx.general_regs.rax;
 	__atomic_sub_fetch(&thread->refcount, 1, __ATOMIC_SEQ_CST);
-	return (void*)thread->ctx.general_regs.rax;
+	return ret;
 }
 
 _Noreturn void kthread_exit(void* ret) {
@@ -55,9 +56,13 @@ _Noreturn void kthread_exit(void* ret) {
 		__asm__ volatile("hlt");
 }
 
-__asmlinkage void __kthread_start(void* (*func)(void* arg), void* arg);
+__diag_push();
+__diag_ignore("-Wmissing-prototypes");
+
 __asmlinkage void __kthread_start(void* (*func)(void* arg), void* arg) {
 	func(arg);
 	printk(PRINTK_EMERG "sched: Function at %p did not call kthread_exit!\n", func);
 	/* asm_kthread_startup causes a trap already, so just return here */
 }
+
+__diag_pop();
