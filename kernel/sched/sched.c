@@ -38,10 +38,7 @@ void sched_switch(struct context* context) {
 	current->ctx.general_regs = *context;
 	__atomic_store_n(&current->state, THREAD_STATE_RUNNABLE, __ATOMIC_SEQ_CST);
 
-	const void* __asm_isr_common_ret = context->__asm_isr_common_ret;
 	*context = new_thread->ctx.general_regs;
-	context->__asm_isr_common_ret = __asm_isr_common_ret;
-
 	__atomic_store_n(&new_thread->state, THREAD_STATE_RUNNING, __ATOMIC_SEQ_CST);
 	cpu->current_thread = new_thread;
 out:
