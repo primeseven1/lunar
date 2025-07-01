@@ -6,7 +6,6 @@
 struct cpu {
 	struct cpu* self;
 	u32 processor_id, lapic_id;
-	bool in_interrupt;
 	struct vmm_ctx vmm_ctx;
 	struct thread* current_thread, *thread_queue;
 	spinlock_t thread_queue_lock;
@@ -20,10 +19,6 @@ static inline struct cpu* current_cpu(void) {
 	struct cpu* cpu;
 	__asm__("movq %%gs:0, %0" : "=r"(cpu));
 	return cpu;
-}
-
-static inline void swap_cpu(void) {
-	__asm__ volatile("swapgs" : : : "memory");
 }
 
 void bsp_cpu_init(void);
