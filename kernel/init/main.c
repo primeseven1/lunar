@@ -19,7 +19,9 @@ int init_status_get(void) {
 	return init_status;
 }
 
-_Noreturn __asmlinkage void kernel_main(void); /* Make the compiler happy */
+__diag_push();
+__diag_ignore("-Wmissing-prototypes");
+
 _Noreturn __asmlinkage void kernel_main(void) {
 	int base_revision = limine_base_revision();
 	if (base_revision != LIMINE_BASE_REVISION)
@@ -75,3 +77,5 @@ die:
 	while (1)
 		__asm__ volatile("hlt");
 }
+
+__diag_pop();
