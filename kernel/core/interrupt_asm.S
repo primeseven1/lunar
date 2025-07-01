@@ -15,12 +15,6 @@
 1:
 .endm
 
-/*
- * Calling isr_common is more convenient for the way i've implemented
- * this. The symbol name will also show up in a stack trace if a panic
- * happens.
- */
-
 /* ISR handler with no error code */
 .macro isr_no_err n
 .text
@@ -29,13 +23,7 @@
 asm_isr_\n:
 	pushq $0
 	pushq $\n
-	swapgs_if_needed
-	cld
-	call asm_isr_common
-	cli /* make sure no interrupts can happen when handling swapgs, iretq will restore this */
-	swapgs_if_needed
-	addq $16, %rsp
-	iretq
+	jmp asm_isr_common
 .size asm_isr_\n, . - asm_isr_\n
 .previous
 .endm
@@ -47,13 +35,7 @@ asm_isr_\n:
 .align 0x10
 asm_isr_\n:
 	pushq $\n
-	swapgs_if_needed
-	cld
-	call asm_isr_common
-	cli /* make sure no interrupts can happen when handling swapgs, iretq will restore this */
-	swapgs_if_needed
-	addq $16, %rsp /* skip the error code */
-	iretq
+	jmp asm_isr_common
 .size asm_isr_\n, . - asm_isr_\n
 .previous
 .endm
@@ -62,6 +44,14 @@ asm_isr_\n:
 .type isr_common, @function
 .align 0x10
 asm_isr_common:
+	cld
+
+	/* 
+	 * No need to disable interrupts before this, the CPU does this for 
+	 * us since the flags in the IDT entry is 0x8e 
+	 */
+	swapgs_if_needed
+
 	pushq %r15
 	pushq %r14
 	pushq %r13
@@ -91,14 +81,11 @@ asm_isr_common:
 	movq %rsp, %rbx
 	andq $15, %rbx
 	subq %rbx, %rsp
-
-	/* 
-	 * Push the return address of the interrupt to the stack, this needs to be done 
-	 * otherwise a stack trace won't show the symbol the fault happened on 
-	 */
-	pushq 152(%rsp,%rbx)
-	pushq %rbp
-	movq %rsp, %rbp
+	
+	/* Fake stack frame */
+	pushq $0
+	pushq $0
+	xorq %rbp, %rbp
 
 	/*
 	 * We don't save any extra context, the C code does that if there is any.
@@ -107,12 +94,8 @@ asm_isr_common:
 	 */
 	call __isr_entry
 
-	/* Remove return address and rbp, we do not care about these values at all at this point */
-	popq %rax
-	popq %rax
-
-	/* Restore previous alignment of the stack */
-	addq %rsp, %rbx
+	/* Remove fake stack frame and realign the stack */
+	leaq 16(%rsp,%rbx), %rsp
 
 	popq %rax
 	movq %rax, %cr2
@@ -132,7 +115,10 @@ asm_isr_common:
 	popq %r14
 	popq %r15
 
-	ret
+	cli /* make sure no interrupts can happen when handling swapgs, iretq will restore this */
+	swapgs_if_needed
+	addq $16, %rsp /* Remove vector + error code */
+	iretq
 .size asm_isr_common, . - asm_isr_common
 
 /* Now just set up all ISR stubs */

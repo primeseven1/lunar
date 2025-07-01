@@ -37,7 +37,6 @@ struct context {
 	long rax, rbx, rcx, rdx, rsi, rdi;
 	void* rbp;
 	long r8, r9, r10, r11, r12, r13, r14, r15;
-	const void* __asm_isr_common_ret;
 	unsigned long vector, err_code;
 	void* rip;
 	unsigned long cs, rflags;
