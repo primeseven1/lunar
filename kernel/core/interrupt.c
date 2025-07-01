@@ -76,7 +76,13 @@ const struct isr* interrupt_register(struct irq* irq, void (*handler)(const stru
 	return isr;
 }
 
-__asmlinkage void __isr_entry(struct context* ctx);
+static inline void swap_cpu(void) {
+	__asm__ volatile("swapgs" : : : "memory");
+}
+
+__diag_push();
+__diag_ignore("-Wmissing-prototypes");
+
 __asmlinkage void __isr_entry(struct context* ctx) {
 	bool bad_cpu = false;
 	if (ctx->vector == INTERRUPT_EXCEPTION_NMI || ctx->vector == INTERRUPT_EXCEPTION_MACHINE_CHECK) {
@@ -87,11 +93,6 @@ __asmlinkage void __isr_entry(struct context* ctx) {
 		}
 	}
 
-	struct cpu* cpu = current_cpu();
-	bool previous = cpu->in_interrupt;
-	if (!previous)
-		cpu->in_interrupt = true;
-
 	assert(ctx->vector < INTERRUPT_COUNT);
 	struct isr* isr = &isr_handlers[ctx->vector];
 	if (likely(isr->handler))
@@ -100,16 +101,15 @@ __asmlinkage void __isr_entry(struct context* ctx) {
 		printk(PRINTK_CRIT "core: Interrupt %lu happened, there is no handler for it!\n", ctx->vector);
 
 	if (isr->irq) {
-		if (!isr->irq->eoi)
-			printk(PRINTK_CRIT "core: No EOI for IRQ %u\n", isr->irq->irq);
-		else
-			isr->irq->eoi(isr->irq);
+		assert(isr->irq->eoi != NULL);
+		isr->irq->eoi(isr->irq);
 	}
 
-	cpu->in_interrupt = previous;
 	if (unlikely(bad_cpu))
 		swap_cpu();
 }
+
+__diag_pop();
 
 static void nmi(const struct isr* isr, struct context* ctx) {
 	(void)isr;

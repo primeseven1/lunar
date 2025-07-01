@@ -13,7 +13,6 @@ void bsp_cpu_init(void) {
 	static struct cpu bsp_cpu = {
 		.self = &bsp_cpu,
 		.processor_id = 0,
-		.in_interrupt = false
 	};
 
 	struct limine_mp_response* mp = mp_request.response;
