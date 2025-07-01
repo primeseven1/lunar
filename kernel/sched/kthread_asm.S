@@ -8,6 +8,7 @@ asm_kthread_start:
 
 	pushq $0 /* Fake return address */
 	pushq $0 /* Fake stack frame */
+	xorq %rbp, %rbp
 
 	/* The thread function and thread arguments are already in rdi/rsi at this point */
 	call __kthread_start
