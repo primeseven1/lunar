@@ -2,7 +2,20 @@
 #include <crescent/core/module.h>
 #include <crescent/lib/string.h>
 #include <crescent/asm/cpuid.h>
-#include "e9.h"
+#include <crescent/core/printk.h>
+#include <crescent/core/io.h>
+
+static void e9hack_printk_hook(const struct printk_msg* msg) {
+	const char* lvl_str = printk_level_string(msg->msg_level);
+	if (!lvl_str)
+		return;
+
+	while (*lvl_str)
+		outb(0xe9, *lvl_str++);
+	const char* _msg = msg->msg;
+	while (*_msg)
+		outb(0xe9, *_msg++);
+}
 
 static int e9hack_init(void) {
 	u32 _unused, ebx, ecx, edx;

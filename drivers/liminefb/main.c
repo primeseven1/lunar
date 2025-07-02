@@ -14,11 +14,7 @@ static int liminefb_init(void) {
 	if (unlikely(!fb_response))
 		return -ENOPROTOOPT;
 
-	int err = liminefb_term_init(fb_response);
-	if (err)
-		return err;
-
-	return 0;
+	return liminefb_term_init(fb_response);
 }
 
 MODULE("liminefb", INIT_STATUS_MM, liminefb_init);

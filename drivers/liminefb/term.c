@@ -1,6 +1,6 @@
 #include <crescent/mm/heap.h>
 #include <crescent/lib/string.h>
-#include <crescent/core/printk.h>
+#include <crescent/core/term.h>
 #include "flanterm/src/flanterm_backends/fb.h"
 #include "term.h"
 
@@ -19,34 +19,6 @@ static void flanterm_kfree(void* ptr, size_t size) {
 static void liminefb_term_write(const char* s, size_t count) {
 	for (u64 i = 0; i < context_count; i++)
 		flanterm_write(contexts[i], s, count);
-}
-
-static const char* get_lvl_string(unsigned int level) {
-	switch (level) {
-	case PRINTK_DBG_N:
-		return "\033[32m[DBG]\033[0m ";
-	case PRINTK_INFO_N:
-		return "\033[97m[INFO]\033[0m ";
-	case PRINTK_WARN_N:
-		return "\033[33m[WARN]\033[0m ";
-	case PRINTK_ERR_N:
-		return "\033[31m[ERR]\033[0m ";
-	case PRINTK_CRIT_N:
-		return "\033[31m[CRIT]\033[0m ";
-	case PRINTK_EMERG_N:
-		return "\033[31m[EMERG]\033[0m ";
-	}
-
-	return NULL;
-}
-
-static void printk_hook(const struct printk_msg* msg) {
-	if (msg->msg_level > msg->global_level)
-		return;
-
-	const char* lvl = get_lvl_string(msg->msg_level);
-	liminefb_term_write(lvl, strlen(lvl));
-	liminefb_term_write(msg->msg, strlen(msg->msg));
 }
 
 int liminefb_term_init(struct limine_framebuffer_response* response) {
@@ -75,6 +47,5 @@ int liminefb_term_init(struct limine_framebuffer_response* response) {
 		}
 	}
 
-	printk_set_hook(printk_hook);
-	return 0;
+	return term_driver_register(liminefb_term_write);
 }
