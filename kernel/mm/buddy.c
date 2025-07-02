@@ -620,6 +620,9 @@ static int zone_init(struct zone* zone, mm_t zone_type, mm_t alloc_zone,
 
 	/* First allocate the array of areas for the zone */
 	unsigned long area_count = zone_size / max_area_size;
+	if (unlikely(area_count == 0))
+		area_count = 1;
+
 	unsigned int area_order = get_order(sizeof(struct mem_area) * area_count);
 	physaddr_t _areas = alloc_pages(alloc_zone, area_order);
 	if (!_areas)
