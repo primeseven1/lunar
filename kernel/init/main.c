@@ -7,6 +7,7 @@
 #include <crescent/core/panic.h>
 #include <crescent/core/cpu.h>
 #include <crescent/core/cmdline.h>
+#include <crescent/core/term.h>
 #include <crescent/core/interrupt.h>
 #include <crescent/core/apic.h>
 #include <crescent/mm/buddy.h>
@@ -60,7 +61,7 @@ _Noreturn __asmlinkage void kernel_main(void) {
 
 	init_status = INIT_STATUS_MM;
 
-	module_load("liminefb");
+	term_init();
 	module_load("acpi");
 
 	err = apic_bsp_init();
@@ -69,10 +70,9 @@ _Noreturn __asmlinkage void kernel_main(void) {
 
 	sched_init();
 	init_status = INIT_STATUS_SCHED;
+
 	printk(PRINTK_CRIT "init: kernel_main ended!\n");
 	local_irq_enable(); /* Testing purposes only, probably will be moved somewhere */
-	while (1)
-		printk("not idle\n");
 die:
 	while (1)
 		__asm__ volatile("hlt");
