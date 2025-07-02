@@ -1,6 +1,7 @@
 #include <crescent/common.h>
 #include <crescent/core/printk.h>
 #include <crescent/core/locking.h>
+#include <crescent/core/term.h>
 #include <crescent/lib/format.h>
 #include <crescent/lib/string.h>
 
@@ -62,6 +63,25 @@ int printk_set_level(unsigned int level) {
 	return 0;
 }
 
+const char* printk_level_string(unsigned int level) {
+	switch (level) {
+	case PRINTK_DBG_N:
+		return "\033[32m[DBG]\033[0m ";
+	case PRINTK_INFO_N:
+		return "\033[97m[INFO]\033[0m ";
+	case PRINTK_WARN_N:
+		return "\033[33m[WARN]\033[0m ";
+	case PRINTK_ERR_N:
+		return "\033[31m[ERR]\033[0m ";
+	case PRINTK_CRIT_N:
+		return "\033[31m[CRIT]\033[0m ";
+	case PRINTK_EMERG_N:
+		return "\033[31m[EMERG]\033[0m ";
+	}
+
+	return NULL;
+}
+
 int vprintk(const char* fmt, va_list va) {
 	unsigned long flags;
 	spinlock_lock_irq_save(&printk_lock, &flags);
@@ -81,13 +101,18 @@ int vprintk(const char* fmt, va_list va) {
 	struct printk_msg msg = {
 		.msg = buf, .msg_level = level, .global_level = printk_level, .len = strlen(buf)
 	};
-
 	/* clang-format on */
+
 	for (size_t i = 0; i < ARRAY_SIZE(printk_hooks); i++) {
 		if (printk_hooks[i])
 			printk_hooks[i](&msg);
 	}
 
+	if (level <= printk_level) {
+		const char* lvlstr = printk_level_string(level);
+		term_write(lvlstr, strlen(lvlstr));
+		term_write(msg.msg, strlen(msg.msg));
+	}
 out:
 	spinlock_unlock_irq_restore(&printk_lock, &flags);
 	return len;
