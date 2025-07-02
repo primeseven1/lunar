@@ -30,7 +30,6 @@ _Noreturn __asmlinkage void kernel_main(void) {
 	bsp_cpu_init();
 
 	/* Attempt to load early modules */
-	module_load("liminefb");
 	int err = module_load("e9hack");
 	if (err && err != -ENOENT)
 		printk(PRINTK_WARN "init: e9hack module init failed (is this real hardware?) err %i\n", err);
@@ -61,6 +60,7 @@ _Noreturn __asmlinkage void kernel_main(void) {
 
 	init_status = INIT_STATUS_MM;
 
+	module_load("liminefb");
 	module_load("acpi");
 
 	err = apic_bsp_init();
