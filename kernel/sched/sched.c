@@ -82,7 +82,7 @@ void sched_schedule(struct thread* thread, struct proc* proc) {
 static _Noreturn void* idle(void* arg) {
 	(void)arg;
 	while (1)
-		printk("idle\n");
+		__asm__ volatile("hlt");
 }
 
 void sched_init(void) {
