@@ -34,6 +34,8 @@ static int __term_driver_register(void (*write)(const char*, size_t)) {
 	while (tail->next)
 		tail = tail->next;
 	tail->next = hook;
+
+	return 0;
 }
 
 int term_driver_register(void (*write)(const char*, size_t)) {
