@@ -105,6 +105,7 @@ u32 lapic_read(unsigned int reg);
 void lapic_write(unsigned int reg, u32 x);
 
 int apic_set_irq(u8 irq, u8 vector, u8 processor, bool masked);
+int apic_ap_init(void);
 int apic_bsp_init(void);
 void apic_eoi(const struct irq* irq);
 

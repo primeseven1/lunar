@@ -85,7 +85,7 @@ __diag_ignore("-Wmissing-prototypes");
 
 __asmlinkage void __isr_entry(struct context* ctx) {
 	bool bad_cpu = false;
-	if (ctx->vector == INTERRUPT_EXCEPTION_NMI || ctx->vector == INTERRUPT_EXCEPTION_MACHINE_CHECK) {
+	if (ctx->vector == INTERRUPT_NMI_VECTOR || ctx->vector == INTERRUPT_MACHINE_CHECK_VECTOR) {
 		u64 gsbase = rdmsr(MSR_GS_BASE);
 		if (!gsbase) {
 			swap_cpu();
@@ -139,7 +139,7 @@ void interrupts_init(void) {
 	for (int i = 0; i < INTERRUPT_COUNT; i++) {
 		isr_handlers[i].vector = i;
 		if (i < INTERRUPT_EXCEPTION_COUNT)
-			isr_handlers[i].handler = i == INTERRUPT_EXCEPTION_NMI ? nmi : do_trap;
+			isr_handlers[i].handler = i == INTERRUPT_NMI_VECTOR ? nmi : do_trap;
 	}
 
 	int i8259_irq = I8259_VECTOR_OFFSET + 7;

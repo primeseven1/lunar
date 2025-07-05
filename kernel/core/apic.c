@@ -124,11 +124,30 @@ int apic_set_irq(u8 irq, u8 vector, u8 processor, bool masked) {
 	struct ioapic_desc* desc = madt_ops->get_ioapic_gsi(irq);
 	if (unlikely(!desc))
 		return -ENOENT;
-
+	
 	irq = irq - desc->base;
 	ioapic_redtbl_write(desc->address, irq, vector, 0, 0, polarity, trigger, masked, processor);
 
 	return 0;
+}
+
+static void __nmi(const struct isr* isr, struct context* ctx) {
+	(void)isr;
+	(void)ctx;
+	panic("NMI");
+}
+
+int apic_ap_init(void) {
+	unsigned long nmi_count = madt_ops->get_entry_count(__ACPI_MADT_ENTRY_TYPE_LAPIC_NMI);
+	for (unsigned long i = 0; i < nmi_count; i++) {
+		struct __acpi_madt_lapic_nmi* nmi = madt_ops->get_entry(__ACPI_MADT_ENTRY_TYPE_LAPIC_NMI, i);
+		if (nmi->uid == current_cpu()->processor_id || nmi->uid == 0xff) {
+			lapic_write(LAPIC_REG_LVT_LINT0 + 0x10 * nmi->lint, 
+					INTERRUPT_NMI_VECTOR | LVT_DELIVERY_NMI | (nmi->flags << 12));
+		}
+	}
+
+	lapic_write(LAPIC_REG_SPURIOUS, INTERRUPT_SPURIOUS_VECTOR | 0x100);
 }
 
 int apic_bsp_init(void) {
@@ -137,11 +156,13 @@ int apic_bsp_init(void) {
 
 	i8259_init();
 
+	/* Get the physical memory address of the LAPIC and map it to virtual memory */
 	physaddr_t lapic_physical = ROUND_DOWN(rdmsr(MSR_APIC_BASE), PAGE_SIZE);
 	lapic_address = iomap(lapic_physical, PAGE_SIZE, MMU_READ | MMU_WRITE);
 	if (unlikely(!lapic_address))
 		return -ENOMEM;
 
+	/* Mask all interrupts on the IOAPICs */
 	unsigned long ioapic_count = madt_ops->get_entry_count(__ACPI_MADT_ENTRY_TYPE_IOAPIC);
 	struct ioapic_desc* ioapics = madt_ops->get_ioapics();
 	for (unsigned long i = 0; i < ioapic_count; i++) {
@@ -150,7 +171,6 @@ int apic_bsp_init(void) {
 			ioapic_redtbl_write(ioapic->address, j - ioapic->base, 0xfe, 0, 0, 0, 0, 1, 0);
 	}
 
-	/* Setup spurious IRQ, the ISR is already set up */
-	lapic_write(LAPIC_REG_SPURIOUS, INTERRUPT_SPURIOUS_VECTOR | 0x100);
+	apic_ap_init();
 	return 0;
 }
