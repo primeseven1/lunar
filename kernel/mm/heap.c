@@ -6,7 +6,7 @@
 #include <crescent/mm/slab.h>
 #include <crescent/lib/string.h>
 
-#define HEAP_CHK_VALUE 0xdecafc0ffeeUL
+#define HEAP_CANARY_VALUE 0xdecafc0ffeeUL
 #define HEAP_ALIGN 16
 
 struct mempool {
@@ -113,8 +113,8 @@ void* kmalloc(size_t size, mm_t mm_flags) {
 		return NULL;
 	struct alloc_info* alloc_info = slab_cache_alloc(pool->cache);
 	if (!alloc_info) {
-		__atomic_sub_fetch(&pool->refcount, 1, __ATOMIC_SEQ_CST);
-		attempt_delete_mempool(pool);
+		if (__atomic_sub_fetch(&pool->refcount, 1, __ATOMIC_SEQ_CST) == 0)
+			attempt_delete_mempool(pool);
 		return NULL;
 	}
 
@@ -123,8 +123,8 @@ void* kmalloc(size_t size, mm_t mm_flags) {
 
 	u8* ret = (u8*)(alloc_info + 1);
 
-	size_t* check_value = (size_t*)(ret + size);
-	*check_value = HEAP_CHK_VALUE;
+	size_t* canary_value = (size_t*)(ret + size);
+	*canary_value = HEAP_CANARY_VALUE;
 
 	return ret;
 }
@@ -132,18 +132,13 @@ void* kmalloc(size_t size, mm_t mm_flags) {
 void kfree(void* ptr) {
 	struct alloc_info* alloc_info = (struct alloc_info*)ptr - 1;
 
-	/* Check for possible heap corruption */
-	size_t* check_value = (size_t*)((u8*)ptr + alloc_info->size);
-	if (*check_value != HEAP_CHK_VALUE) {
-		panic("Kernel heap corruption! check_value: %lu expected: %lu", 
-				*check_value, HEAP_CHK_VALUE);
-	}
+	size_t* canary_value = (size_t*)((u8*)ptr + alloc_info->size);
+	assert(*canary_value == HEAP_CANARY_VALUE);
 
 	struct mempool* pool = alloc_info->pool;
 	slab_cache_free(pool->cache, alloc_info);
-	__atomic_sub_fetch(&pool->refcount, 1, __ATOMIC_SEQ_CST);
-
-	attempt_delete_mempool(alloc_info->pool);
+	if (__atomic_sub_fetch(&pool->refcount, 1, __ATOMIC_SEQ_CST) == 0)
+		attempt_delete_mempool(alloc_info->pool);
 }
 
 void* krealloc(void* old, size_t new_size, mm_t mm_flags) {
