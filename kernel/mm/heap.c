@@ -153,7 +153,7 @@ void* krealloc(void* old, size_t new_size, mm_t mm_flags) {
 
 	struct alloc_info* old_alloc_info = (struct alloc_info*)old - 1;
 	size_t old_size = old_alloc_info->size;
-	if (old_size == new_size)
+	if (old_size == new_size && old_alloc_info->pool->cache->mm_flags == mm_flags)
 		return old;
 
 	void* new = kmalloc(new_size, mm_flags);
