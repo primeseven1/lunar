@@ -21,7 +21,7 @@
 -mno-red-zone
 -mgeneral-regs-only
 
--I./drivers/acpi/include
--I./drivers/acpi/uacpi/include
+-I./include/acpi
+-I./firmware/acpi/uacpi/include
 -DUACPI_BAREBONES_MODE
 -DUACPI_OVERRIDE_TYPES

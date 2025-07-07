@@ -15,6 +15,8 @@
 #include <crescent/asm/segment.h>
 #include <crescent/sched/sched.h>
 
+#include <acpi/acpi_init.h>
+
 static int init_status = INIT_STATUS_NOTHING;
 int init_status_get(void) {
 	return init_status;
@@ -62,8 +64,10 @@ _Noreturn __asmlinkage void kernel_main(void) {
 	init_status = INIT_STATUS_MM;
 
 	term_init();
-	module_load("acpi");
 
+	err = acpi_init();
+	if (err)
+		panic("ACPI failed to initialize, err: %i", err);
 	err = apic_bsp_init();
 	if (err)
 		panic("Failed to initialize APIC, err: %i", err);
