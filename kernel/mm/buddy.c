@@ -328,8 +328,10 @@ retry:
 	}
 
 	err = _alloc_block(area, layer, block);
-	if (err)
+	if (err) {
+		printk(PRINTK_ERR "mm: _alloc_block failed in %s with error code %i\n", __func__, err);
 		goto out;
+	}
 
 	ret = area->base + (block * alloc_size);
 
