@@ -46,7 +46,7 @@ static void timer(const struct isr* isr, struct context* ctx) {
 	sched_switch(ctx);
 }
 
-static spinlock_t i8253_lock = SPINLOCK_INITIALIZER;
+static spinlock_t i8253_lock = SPINLOCK_STATIC_INITIALIZER;
 
 static struct irq timer_irq = {
 	.irq = -1,

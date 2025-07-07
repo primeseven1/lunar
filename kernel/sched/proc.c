@@ -11,7 +11,7 @@
 static struct slab_cache* proc_cache;
 
 static u8* pid_map = NULL;
-static spinlock_t pid_map_lock = SPINLOCK_INITIALIZER;
+static spinlock_t pid_map_lock = SPINLOCK_STATIC_INITIALIZER;
 static const pid_t max_pid_count = 0x100000;
 
 static pid_t alloc_pid(void) {
@@ -53,8 +53,8 @@ static void proc_ctor(void* obj) {
 
 	proc->pid = alloc_pid();
 	proc->threads = NULL;
-	proc->thread_count = 0;
-	proc->thread_lock = SPINLOCK_INITIALIZER;
+	atomic_store(&proc->thread_count, 0, ATOMIC_RELAXED);
+	atomic_store(&proc->thread_lock, SPINLOCK_INITIALIZER, ATOMIC_RELAXED);
 	proc->vmm_ctx = NULL;
 	proc->parent = NULL;
 	proc->sibling = NULL;

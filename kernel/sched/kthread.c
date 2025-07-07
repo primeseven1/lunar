@@ -37,11 +37,11 @@ struct thread* kthread_create(unsigned int flags, void* (*func)(void*), void* ar
 }
 
 void* kthread_join(struct thread* thread) {
-	while (__atomic_load_n(&thread->state, __ATOMIC_SEQ_CST) != THREAD_STATE_ZOMBIE)
+	while (atomic_load(&thread->state, ATOMIC_SEQ_CST) != THREAD_STATE_ZOMBIE)
 		__asm__ volatile("pause");
 
 	void* ret = (void*)thread->ctx.general_regs.rax;
-	__atomic_sub_fetch(&thread->refcount, 1, __ATOMIC_SEQ_CST);
+	atomic_sub_fetch(&thread->refcount, 1, ATOMIC_SEQ_CST);
 	return ret;
 }
 
@@ -49,7 +49,7 @@ _Noreturn void kthread_exit(void* ret) {
 	struct thread* thread = current_cpu()->current_thread;
 
 	thread->ctx.general_regs.rax = (long)ret;
-	__atomic_store_n(&thread->state, THREAD_STATE_ZOMBIE, __ATOMIC_SEQ_CST);
+	atomic_store(&thread->state, THREAD_STATE_ZOMBIE, ATOMIC_SEQ_CST);
 
 	/* TODO: add sched_yeild when implemented */
 	while (1)

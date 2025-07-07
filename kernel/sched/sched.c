@@ -13,7 +13,7 @@ static struct proc* kernel_proc = NULL;
 
 static struct thread* find_thread(struct thread* thread) {
 	while (thread) {
-		if (__atomic_load_n(&thread->state, __ATOMIC_SEQ_CST) == THREAD_STATE_RUNNABLE)
+		if (atomic_load(&thread->state, ATOMIC_SEQ_CST) == THREAD_STATE_RUNNABLE)
 			break;
 
 		thread = thread->sched.next;
@@ -36,10 +36,10 @@ void sched_switch(struct context* context) {
 	}
 
 	current->ctx.general_regs = *context;
-	__atomic_store_n(&current->state, THREAD_STATE_RUNNABLE, __ATOMIC_SEQ_CST);
+	atomic_store(&current->state, THREAD_STATE_RUNNABLE, ATOMIC_SEQ_CST);
 
 	*context = new_thread->ctx.general_regs;
-	__atomic_store_n(&new_thread->state, THREAD_STATE_RUNNING, __ATOMIC_SEQ_CST);
+	atomic_store(&new_thread->state, THREAD_STATE_RUNNING, ATOMIC_SEQ_CST);
 	cpu->current_thread = new_thread;
 out:
 	spinlock_unlock(&cpu->thread_queue_lock);
@@ -66,8 +66,8 @@ void sched_schedule(struct thread* thread, struct proc* proc) {
 	} else {
 		proc->threads = thread;
 	}
-	__atomic_add_fetch(&proc->thread_count, 1, __ATOMIC_SEQ_CST);
-	__atomic_store_n(&thread->state, THREAD_STATE_RUNNABLE, __ATOMIC_SEQ_CST);
+	atomic_add_fetch(&proc->thread_count, 1, ATOMIC_SEQ_CST);
+	atomic_store(&thread->state, THREAD_STATE_RUNNABLE, ATOMIC_SEQ_CST);
 
 	/* Now add thread to the CPU run queue, the CPU must always be running at least 1 thread */
 	_thread = cpu->current_thread;
