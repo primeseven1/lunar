@@ -1,6 +1,6 @@
-[submodule "drivers/acpi/uacpi"]
-	path = drivers/acpi/uacpi
-	url = https://github.com/uACPI/uACPI.git
 [submodule "drivers/liminefb/flanterm"]
 	path = drivers/liminefb/flanterm
 	url = https://codeberg.org/mintsuki/flanterm.git
+[submodule "firmware/acpi/uacpi"]
+	path = firmware/acpi/uacpi
+	url = https://github.com/uACPI/uACPI.git
