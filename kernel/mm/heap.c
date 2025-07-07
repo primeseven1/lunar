@@ -96,7 +96,7 @@ leave:
 
 struct alloc_info {
 	struct mempool* pool;
-	u64 size;
+	u64 size; /* u64 for padding */
 };
 
 void* kmalloc(size_t size, mm_t mm_flags) {
@@ -108,14 +108,22 @@ void* kmalloc(size_t size, mm_t mm_flags) {
 	if (__builtin_add_overflow(size, sizeof(struct alloc_info) + sizeof(size_t), &total_size))
 		return NULL;
 
-	struct mempool* pool = walk_mempools(total_size, mm_flags);
-	if (!pool)
-		return NULL;
-	struct alloc_info* alloc_info = slab_cache_alloc(pool->cache);
-	if (!alloc_info) {
-		if (atomic_sub_fetch(&pool->refcount, 1, ATOMIC_SEQ_CST) == 0)
-			attempt_delete_mempool(pool);
-		return NULL;
+	struct alloc_info* alloc_info;
+	struct mempool* pool = NULL;
+	if (size <= SHRT_MAX) {
+		pool = walk_mempools(total_size, mm_flags);
+		if (!pool)
+			return NULL;
+		alloc_info = slab_cache_alloc(pool->cache);
+		if (!alloc_info) {
+			if (atomic_sub_fetch(&pool->refcount, 1, ATOMIC_SEQ_CST) == 0)
+				attempt_delete_mempool(pool);
+			return NULL;
+		}
+	} else {
+		alloc_info = vmap(NULL, total_size, VMAP_ALLOC, MMU_READ | MMU_WRITE, &mm_flags);
+		if (!alloc_info)
+			return NULL;
 	}
 
 	alloc_info->pool = pool;
@@ -136,6 +144,13 @@ void kfree(void* ptr) {
 	assert(*canary_value == HEAP_CANARY_VALUE);
 
 	struct mempool* pool = alloc_info->pool;
+	if (!pool) {
+		size_t total_size;
+		assert(__builtin_add_overflow(alloc_info->size, sizeof(struct alloc_info) + sizeof(size_t), &total_size) == false);
+		assert(vunmap(alloc_info, total_size, VMAP_FREE) == 0);
+		return;
+	}
+
 	slab_cache_free(pool->cache, alloc_info);
 	if (atomic_sub_fetch(&pool->refcount, 1, ATOMIC_SEQ_CST) == 0)
 		attempt_delete_mempool(alloc_info->pool);
