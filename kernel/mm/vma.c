@@ -195,7 +195,7 @@ struct vma* vma_create(void* start, void* end, unsigned long page_count) {
 	vma->end = end;
 	vma->free_list = free_list;
 	vma->page_count = page_count;
-	vma->lock = SPINLOCK_INITIALIZER;
+	atomic_store(&vma->lock, SPINLOCK_INITIALIZER, ATOMIC_RELAXED);
 
 	return vma;
 }

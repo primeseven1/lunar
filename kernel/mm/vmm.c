@@ -20,7 +20,7 @@ static struct vma* kvma;
 static struct vma* iovma;
 
 /* Lock for all kernel space page tables, since all kernel mappings are shared */
-static spinlock_t kernel_pt_lock = SPINLOCK_INITIALIZER;
+static spinlock_t kernel_pt_lock = SPINLOCK_STATIC_INITIALIZER;
 
 const struct vma* hhdmvma;
 

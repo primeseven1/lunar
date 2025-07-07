@@ -68,7 +68,7 @@ struct mem_area {
 	physaddr_t base; /* Start of the memory area */
 	u64 size; /* The size of the area rounded to a power of two */
 	size_t real_size; /* The actual size of the area, usually the same as size */
-	unsigned long used_4k_blocks; /* The current amount of used blocks, atomic */
+	atomic(unsigned long) used_4k_blocks; /* The current amount of used blocks, atomic */
 	unsigned long total_4k_blocks; /* 1 << MAX_ORDER */
 	unsigned int layer_count; /* MAX_ORDER + 1 */
 	struct {
@@ -258,9 +258,9 @@ static struct mem_area* select_mem_area(struct zone* zone, unsigned int order, u
 			i = 0;
 		for (; i < zone->area_count; i++) {
 			struct mem_area* a = &zone->areas[i];
-			unsigned long used_4k = __atomic_load_n(&a->used_4k_blocks, __ATOMIC_SEQ_CST);
+			unsigned long used_4k = atomic_load(&a->used_4k_blocks, ATOMIC_SEQ_CST);
 			unsigned long free = a->total_4k_blocks - used_4k;
-			if (free >= block_count && used_4k < __atomic_load_n(&best->used_4k_blocks, __ATOMIC_SEQ_CST))
+			if (free >= block_count && used_4k < atomic_load(&best->used_4k_blocks, ATOMIC_SEQ_CST))
 				best = a;
 		}
 
@@ -341,7 +341,7 @@ retry:
 		goto out;
 	}
 
-	__atomic_add_fetch(&area->used_4k_blocks, block4k_count, __ATOMIC_SEQ_CST);
+	atomic_add_fetch(&area->used_4k_blocks, block4k_count, ATOMIC_SEQ_CST);
 
 	/* Now make sure this region is actually marked usable in the memory map */
 	if (!mmap_region_check(ret, alloc_size)) {
@@ -350,7 +350,7 @@ retry:
 			if (mmap_region_check(ret + i, PAGE_SIZE)) {
 				block = ((ret + i) - area->base) >> PAGE_SHIFT;
 				_free_block(area, area->layer_count - 1, block);
-				__atomic_sub_fetch(&area->used_4k_blocks, 1, __ATOMIC_SEQ_CST);
+				atomic_sub_fetch(&area->used_4k_blocks, 1, ATOMIC_SEQ_CST);
 			}
 		}
 
@@ -382,8 +382,7 @@ static int __free_pages(struct zone* zone, physaddr_t addr, unsigned int order) 
 	int ret = _free_block(area, layer, block);
 	if (ret)
 		goto cleanup;
-	__atomic_sub_fetch(&area->used_4k_blocks, block4k_count, __ATOMIC_SEQ_CST);
-
+	atomic_sub_fetch(&area->used_4k_blocks, block4k_count, ATOMIC_SEQ_CST);
 cleanup:
 	spinlock_unlock_irq_restore(&area->pages.lock, &lock_flags);
 	return ret;
@@ -592,9 +591,9 @@ static int init_area(struct mem_area* area, mm_t free_list_zone, physaddr_t base
 	area->size = rounded_size;
 	area->layer_count = layer_count;
 	area->total_4k_blocks = 1 << (layer_count - 1);
-	area->used_4k_blocks = 0;
+	atomic_store(&area->used_4k_blocks, 0, ATOMIC_RELAXED);
 	area->pages.free_list = hhdm_virtual(free_list);
-	area->pages.lock = SPINLOCK_INITIALIZER;
+	atomic_store(&area->pages.lock, SPINLOCK_INITIALIZER, ATOMIC_RELAXED);
 	memset(area->pages.free_list, 0, free_list_size);
 
 	/* Allocate the invalid area, if there is one */
