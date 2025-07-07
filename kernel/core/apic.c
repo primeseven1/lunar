@@ -131,13 +131,7 @@ int apic_set_irq(u8 irq, u8 vector, u8 processor, bool masked) {
 	return 0;
 }
 
-static void __nmi(const struct isr* isr, struct context* ctx) {
-	(void)isr;
-	(void)ctx;
-	panic("NMI");
-}
-
-int apic_ap_init(void) {
+void apic_ap_init(void) {
 	unsigned long nmi_count = madt_ops->get_entry_count(__ACPI_MADT_ENTRY_TYPE_LAPIC_NMI);
 	for (unsigned long i = 0; i < nmi_count; i++) {
 		struct __acpi_madt_lapic_nmi* nmi = madt_ops->get_entry(__ACPI_MADT_ENTRY_TYPE_LAPIC_NMI, i);
