@@ -17,8 +17,8 @@ enum thread_states {
 struct thread {
 	tid_t tid; /* Not used yet */
 	struct proc* proc; /* What process controls this thread? */
-	int state; /* Atomic */
-	unsigned long refcount; /* When 0, the scheduler can destroy this thread, atomic */
+	atomic(int) state; /* Running? Stopped? Dead? */
+	atomic(unsigned long) refcount; /* When 0, the scheduler can destroy this thread */
 	struct {
 		struct thread* next; /* Points to a CPU specific thread */
 	} sched; /* Managed by the scheduler */
@@ -37,7 +37,7 @@ struct thread {
 struct proc {
 	pid_t pid; /* Not used yet */
 	struct thread* threads; /* Only the first thread is guaranteed to be associated with the process */
-	unsigned long thread_count; /* Number of threads for the process */
+	atomic(unsigned long) thread_count; /* Number of threads for the process */
 	spinlock_t thread_lock; /* Protects the linked list for the specific process */
 	struct vmm_ctx* vmm_ctx; /* Virtual memory context */
 	struct proc* parent, *sibling, *child, *next;
