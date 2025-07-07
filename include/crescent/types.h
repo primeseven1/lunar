@@ -86,3 +86,37 @@ typedef _Bool bool;
 
 #define true 1
 #define false 0
+
+enum atomic_orders {
+	ATOMIC_RELAXED = __ATOMIC_RELAXED,
+	ATOMIC_CONSUME = __ATOMIC_CONSUME,
+	ATOMIC_ACQUIRE = __ATOMIC_ACQUIRE,
+	ATOMIC_RELEASE = __ATOMIC_RELEASE,
+	ATOMIC_ACQ_REL = __ATOMIC_ACQ_REL,
+	ATOMIC_SEQ_CST = __ATOMIC_SEQ_CST
+};
+
+#define atomic(type) \
+	struct { \
+		type __x; \
+	}
+
+#define atomic_static_init(v) { .__x = v }
+#define atomic_thread_fence(order) __atomic_thread_fence(order)
+
+#define atomic_load(obj, order) __atomic_load_n(&(obj)->__x, order)
+#define atomic_store(obj, v, order) __atomic_store_n(&(obj)->__x, v, order)
+#define atomic_exchange(obj, v, order) __atomic_exchange_n(&(obj)->__x, v, order)
+
+#define atomic_fetch_add(obj, n, order) __atomic_fetch_add(&(obj)->__x, n, order)
+#define atomic_add_fetch(obj, n, order) __atomic_add_fetch(&(obj)->__x, n, order)
+#define atomic_fetch_sub(obj, n, order) __atomic_fetch_sub(&(obj)->__x, n, order)
+#define atomic_sub_fetch(obj, n, order) __atomic_sub_fetch(&(obj)->__x, n, order)
+#define atomic_fetch_and(obj, n, order)   __atomic_fetch_and(&(obj)->__x, n, order)
+#define atomic_and_fetch(obj, n, order)   __atomic_and_fetch(&(obj)->__x, n, order)
+#define atomic_fetch_or(obj, n, order)    __atomic_fetch_or(&(obj)->__x, n, order)
+#define atomic_or_fetch(obj, n, order)    __atomic_or_fetch(&(obj)->__x, n, order)
+#define atomic_fetch_xor(obj, n, order)   __atomic_fetch_xor(&(obj)->__x, n, order)
+#define atomic_xor_fetch(obj, n, order)   __atomic_xor_fetch(&(obj)->__x, n, order)
+#define atomic_fetch_nand(obj, n, order)  __atomic_fetch_nand(&(obj)->__x, n, order)
+#define atomic_nand_fetch(obj, n, order)  __atomic_nand_fetch(&(obj)->__x, n, order)
