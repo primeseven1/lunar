@@ -2,16 +2,16 @@
 #include <crescent/core/interrupt.h>
 
 void spinlock_lock(spinlock_t* lock) {
-	while (__atomic_exchange_n(lock, 1, __ATOMIC_ACQUIRE))
+	while (atomic_exchange(lock, 1, ATOMIC_ACQUIRE))
 		__asm__ volatile("pause" : : : "memory");
 }
 
 void spinlock_unlock(spinlock_t* lock) {
-	__atomic_store_n(lock, 0, __ATOMIC_RELEASE);
+	atomic_store(lock, 0, ATOMIC_RELEASE);
 }
 
 bool spinlock_try(spinlock_t* lock) {
-	if (__atomic_exchange_n(lock, 1, __ATOMIC_ACQUIRE))
+	if (atomic_exchange(lock, 1, ATOMIC_ACQUIRE))
 		return false;
 	return true;
 }
