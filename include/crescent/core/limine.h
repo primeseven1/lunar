@@ -174,11 +174,15 @@ enum limine_mp_flags {
 	LIMINE_MP_X2APIC = (1 << 0)
 };
 
+struct limine_mp_info;
+
+typedef void (*limine_goto_address_t)(struct limine_mp_info*);
+
 struct limine_mp_info {
 	u32 processor_id;
 	u32 lapic_id;
 	u64 __reserved;
-	void (*goto_address)(struct limine_mp_info*);
+	atomic(limine_goto_address_t) goto_address;
 	u64 extra_argument;
 };
 
