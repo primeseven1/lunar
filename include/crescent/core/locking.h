@@ -2,8 +2,9 @@
 
 #include <crescent/types.h>
 
-typedef volatile unsigned long spinlock_t;
+typedef volatile atomic(unsigned long) spinlock_t;
 
+#define SPINLOCK_STATIC_INITIALIZER atomic_static_init(0)
 #define SPINLOCK_INITIALIZER 0
 
 void spinlock_lock(spinlock_t* lock);
