@@ -11,7 +11,7 @@ static const struct module* find_builtin_module(const char* name) {
 	const struct module* const start = _ld_kernel_modules_start;
 	const struct module* const end = _ld_kernel_modules_end;
 
-	unsigned long mod_count = ((uintptr_t)start - (uintptr_t)end) / sizeof(struct module);
+	unsigned long mod_count = ((uintptr_t)end - (uintptr_t)start) / sizeof(struct module);
 	for (unsigned long i = 0; i < mod_count; i++) {
 		const struct module* mod = &_ld_kernel_modules_start[i];
 		if (strcmp(name, mod->name) == 0)
