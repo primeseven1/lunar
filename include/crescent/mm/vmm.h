@@ -112,3 +112,5 @@ void __iomem* iomap(physaddr_t physical, size_t size, mmuflags_t mmu_flags);
 int iounmap(void __iomem* virtual, size_t size);
 
 void vmm_init(void);
+
+void vmm_switch_context(struct vmm_ctx* new_ctx);
