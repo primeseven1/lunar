@@ -5,11 +5,14 @@
 
 struct cpu {
 	struct cpu* self;
-	u32 processor_id, lapic_id;
+	u32 processor_id, lapic_id, sched_processor_id;
 	struct vmm_ctx vmm_ctx;
-	struct thread* current_thread, *thread_queue;
+	thread_t* current_thread, *thread_queue;
+	atomic(unsigned long) thread_count;
 	spinlock_t thread_queue_lock;
 };
+
+struct cpu** get_cpu_structs(u64* count);
 
 /**
  * @brief Get the current CPU's CPU struct
@@ -21,4 +24,5 @@ static inline struct cpu* current_cpu(void) {
 	return cpu;
 }
 
+void cpu_startup_aps(void);
 void bsp_cpu_init(void);
