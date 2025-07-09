@@ -16,6 +16,14 @@
  */
 void* kmalloc(size_t size, mm_t mm_flags);
 
+/**
+ * @brief Allocate memory from a heap pool and zero the memory
+ *
+ * @param size The size of the allocation
+ * @param mm_flags The conditions for the allocation
+ *
+ * @param A pointer to the memory
+ */
 static inline void* kzalloc(size_t size, mm_t mm_flags) {
 	void* ret = kmalloc(size, mm_flags);
 	if (!ret)

@@ -88,7 +88,27 @@ int vprotect(void* virtual, size_t size, unsigned int flags, mmuflags_t mmu_flag
  */
 int vunmap(void* virtual, size_t size, unsigned int flags);
 
+/**
+ * @brief Map pages as IO memory
+ *
+ * If the caching mode isn't writethrough, the cache is disabled on the page
+ *
+ * @param physical The address of the IO memory
+ * @param size The size of the mapping, the page offset is automatically added
+ * @param mmu_flags The MMU flags to use
+ *
+ * @return The pointer to the memory, the page offset is automatically added
+ */
 void __iomem* iomap(physaddr_t physical, size_t size, mmuflags_t mmu_flags);
+
+/**
+ * @brief Unmap memory from IO space
+ *
+ * @param virtual The virtual address, the page offset is automatically subtracted
+ * @param size The size of the mapping, the page offset is automatically added
+ *
+ * @return -errno on failure
+ */
 int iounmap(void __iomem* virtual, size_t size);
 
 void vmm_init(void);
