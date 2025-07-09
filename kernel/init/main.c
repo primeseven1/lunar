@@ -10,6 +10,7 @@
 #include <crescent/core/term.h>
 #include <crescent/core/interrupt.h>
 #include <crescent/core/apic.h>
+#include <crescent/core/timekeeper.h>
 #include <crescent/mm/buddy.h>
 #include <crescent/mm/heap.h>
 #include <crescent/asm/segment.h>
@@ -72,11 +73,13 @@ _Noreturn __asmlinkage void kernel_main(void) {
 	if (err)
 		panic("Failed to initialize APIC, err: %i", err);
 
+	timekeeper_init();
+
 	sched_init();
 	init_status = INIT_STATUS_SCHED;
 
 	printk(PRINTK_CRIT "init: kernel_main ended!\n");
-	local_irq_enable(); /* Testing purposes only, probably will be moved somewhere */
+	local_irq_enable();
 die:
 	while (1)
 		__asm__ volatile("hlt");
