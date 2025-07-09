@@ -6,12 +6,9 @@
 #include <crescent/core/io.h>
 
 static void e9hack_printk_hook(const struct printk_msg* msg) {
-	const char* lvl_str = printk_level_string(msg->msg_level);
-	if (!lvl_str)
-		return;
-
-	while (*lvl_str)
-		outb(0xe9, *lvl_str++);
+	const char* time_string = msg->time;
+	while (*time_string)
+		outb(0xe9, *time_string++);
 	const char* _msg = msg->msg;
 	while (*_msg)
 		outb(0xe9, *_msg++);
