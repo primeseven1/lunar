@@ -24,6 +24,8 @@ def create_cmdline_parser() -> ap.ArgumentParser:
                         help="Setup ISO root")
     parser.add_argument("--limine", "-l", action="store_true",
                         help="Meant to be used with --setup to clone the bootloader")
+    parser.add_argument("--kvm", "-k", action="store_true",
+                        help="Enable KVM")
     return parser
 
 def parse_cmdline_args(iso_file: str) -> str:
@@ -41,6 +43,8 @@ def parse_cmdline_args(iso_file: str) -> str:
         qemu_args += f" -drive if=pflash,unit=1,file={ovmf_vars},readonly=on"
     qemu_args += f" -m {args.memory}"
     qemu_args += f" -smp cpus={args.cpus}"
+    if args.kvm:
+        qemu_args += " -enable-kvm"
 
     return qemu_args
 
