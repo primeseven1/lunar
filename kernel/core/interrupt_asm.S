@@ -44,12 +44,13 @@ asm_isr_\n:
 .type isr_common, @function
 .align 0x10
 asm_isr_common:
+	/* 
+	 * The CPU already disables interrupts for us, since the IDT entry flags
+	 * are set to 0x8e on all entries.
+	 */
 	cld
 
-	/* 
-	 * No need to disable interrupts before this, the CPU does this for 
-	 * us since the flags in the IDT entry is 0x8e 
-	 */
+	mfence /* Speculative execution barrier */
 	swapgs_if_needed
 
 	pushq %r15
@@ -70,7 +71,7 @@ asm_isr_common:
 	movq %cr2, %rax
 	pushq %rax
 
-	/* Parameter for __isr_entry */
+	/* struct context* parameter for __isr_entry */
 	movq %rsp, %rdi
 
 	/*
@@ -97,6 +98,7 @@ asm_isr_common:
 	/* Remove fake stack frame and realign the stack */
 	leaq 16(%rsp,%rbx), %rsp
 
+	/* Now just restore the context, these registers may have been modified if this interrupt was for a task preemption */
 	popq %rax
 	movq %rax, %cr2
 	popq %rax
@@ -115,7 +117,7 @@ asm_isr_common:
 	popq %r14
 	popq %r15
 
-	cli /* make sure no interrupts can happen when handling swapgs, iretq will restore this */
+	cli /* C code may have decided to re-enable interrupts, so disable this before handling swapgs */
 	swapgs_if_needed
 	addq $16, %rsp /* Remove vector + error code */
 	iretq
