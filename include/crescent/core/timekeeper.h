@@ -14,7 +14,7 @@ struct timekeeper_source {
 	unsigned int rating;
 };
 
-time_t timekeeper_get_ticks(void);
+time_t timekeeper_get_nsec(void);
 
 /**
  * @brief Stall the thread

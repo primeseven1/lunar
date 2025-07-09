@@ -2,6 +2,7 @@
 #include <crescent/core/printk.h>
 #include <crescent/core/locking.h>
 #include <crescent/core/term.h>
+#include <crescent/core/timekeeper.h>
 #include <crescent/lib/format.h>
 #include <crescent/lib/string.h>
 
@@ -63,20 +64,20 @@ int printk_set_level(unsigned int level) {
 	return 0;
 }
 
-const char* printk_level_string(unsigned int level) {
+static const char* printk_level_string(unsigned int level) {
 	switch (level) {
 	case PRINTK_DBG_N:
-		return "\033[32m[DBG]\033[0m ";
+		return "\033[32m";
 	case PRINTK_INFO_N:
-		return "\033[97m[INFO]\033[0m ";
+		return "\033[97m";
 	case PRINTK_WARN_N:
-		return "\033[33m[WARN]\033[0m ";
+		return "\033[33m";
 	case PRINTK_ERR_N:
-		return "\033[31m[ERR]\033[0m ";
+		return "\033[31m";
 	case PRINTK_CRIT_N:
-		return "\033[31m[CRIT]\033[0m ";
+		return "\033[31m";
 	case PRINTK_EMERG_N:
-		return "\033[31m[EMERG]\033[0m ";
+		return "\033[31m";
 	}
 
 	return NULL;
@@ -97,9 +98,17 @@ int vprintk(const char* fmt, va_list va) {
 		buf += 2;
 	}
 
+	char time_string[50];
+	const char* color = printk_level_string(level);
+	time_t nsec = timekeeper_get_nsec();
+	time_t sec = nsec / 1000000000;
+	time_t usec = (nsec % 1000000000) / 1000;
+	snprintf(time_string, sizeof(time_string), "%s[%5llu.%06llu]\033[0m ", color, sec, usec);
+
 	/* clang-format off */
 	struct printk_msg msg = {
-		.msg = buf, .msg_level = level, .global_level = printk_level, .len = strlen(buf)
+		.msg = buf, .time = time_string, .msg_level = level, 
+		.global_level = printk_level, .len = strlen(buf)
 	};
 	/* clang-format on */
 
@@ -109,8 +118,7 @@ int vprintk(const char* fmt, va_list va) {
 	}
 
 	if (level <= printk_level) {
-		const char* lvlstr = printk_level_string(level);
-		term_write(lvlstr, strlen(lvlstr));
+		term_write(time_string, strlen(time_string));
 		term_write(msg.msg, strlen(msg.msg));
 	}
 out:

@@ -29,10 +29,18 @@ static struct timekeeper_source* get_timekeeper(void) {
 	return best;
 }
 
-time_t timekeeper_get_ticks(void) {
+static time_t timekeeper_get_ticks(void) {
 	if (!timekeeper)
 		return 0;
 	return timekeeper->get_ticks();	
+}
+
+time_t timekeeper_get_nsec(void) {
+	if (!timekeeper)
+		return 0;
+
+	time_t ticks = timekeeper_get_ticks();
+	return (ticks * 1000000000ull) / timekeeper->freq;
 }
 
 void timekeeper_stall(unsigned long usec) {

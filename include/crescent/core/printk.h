@@ -18,7 +18,7 @@
 #define PRINTK_EMERG "\001\001"
 
 struct printk_msg {
-	const char* msg;
+	const char* msg, *time;
 	unsigned int msg_level, global_level;
 	size_t len;
 };
@@ -51,13 +51,6 @@ int printk_remove_hook(void (*hook)(const struct printk_msg*));
  * @return -EINVAL if the level is invalid, 0 on success 
  */
 int printk_set_level(unsigned int level);
-
-/**
- * @brief Get the string for a printk level
- * @param The level
- * @return The level string
- */
-const char* printk_level_string(unsigned int level);
 
 /**
  * @brief Print a formatted string to the kernel log
