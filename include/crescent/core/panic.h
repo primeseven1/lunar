@@ -2,6 +2,13 @@
 
 #include <crescent/compiler.h>
 
+/**
+ * @brief Halt the system
+ *
+ * @param fmt The format string
+ * @param ... Arguments for the format string
+ */
+__attribute__((format(printf, 1, 2)))
 _Noreturn void panic(const char* fmt, ...);
 
 #define assert(c) \

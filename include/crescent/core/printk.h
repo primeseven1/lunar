@@ -23,9 +23,40 @@ struct printk_msg {
 	size_t len;
 };
 
+/**
+ * @brief Set a printk hook
+ *
+ * The function will be called regardless of the printk level set.
+ * This is useful for when doing something like outputting messages to the host terminal
+ * when ran in a virtual machine.
+ *
+ * There is a set number of hooks that can be used, and an error is returned once that has
+ * been reached.
+ *
+ * @param hook The hook to use
+ * @return -errno on failure
+ */
 int printk_set_hook(void (*hook)(const struct printk_msg*));
+
+/**
+ * @brief Remove a printk hook
+ * @param hook The hook to remove
+ * @return -errno on failure
+ */
 int printk_remove_hook(void (*hook)(const struct printk_msg*));
+
+/**
+ * @brief Set the printk level
+ * @param level The new level
+ * @return -EINVAL if the level is invalid, 0 on success 
+ */
 int printk_set_level(unsigned int level);
+
+/**
+ * @brief Get the string for a printk level
+ * @param The level
+ * @return The level string
+ */
 const char* printk_level_string(unsigned int level);
 
 /**
@@ -53,4 +84,9 @@ int vprintk(const char* fmt, va_list va);
 __attribute__((format(printf, 1, 2)))
 int printk(const char* fmt, ...);
 
+/**
+ * @brief Release the printk lock in an emergency
+ *
+ * Should only ever be called from panic
+ */
 void printk_emerg_release_lock(void);

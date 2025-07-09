@@ -9,6 +9,11 @@ struct module {
 	int (*init)(void);
 };
 
+/**
+ * @brief Attempt to load a peice of code optionally compiled into the kernel
+ * @param name The name of the module
+ * @return -errno on failure
+ */
 int module_load(const char* name);
 
 #define MODULE(n, is, i) \
