@@ -9,15 +9,14 @@
 #include "sched.h"
 #include "kthread.h"
 
-struct thread* kthread_create(unsigned int flags, void* (*func)(void*), void* arg) {
-	(void)flags;
-	struct thread* thread = sched_thread_create();
+thread_t* kthread_create(unsigned int flags, void* (*func)(void*), void* arg) {
+	thread_t* thread = sched_thread_alloc();
 	if (!thread)
 		return NULL;
 
 	void* stack = vmap(NULL, 0x4000, VMAP_ALLOC, MMU_READ | MMU_WRITE, NULL);
 	if (!stack) {
-		sched_thread_destroy(thread);
+		sched_thread_free(thread);
 		return NULL;
 	}
 	stack = (u8*)stack + 0x4000;
@@ -32,11 +31,11 @@ struct thread* kthread_create(unsigned int flags, void* (*func)(void*), void* ar
 	thread->ctx.general_regs.rdi = (long)func;
 	thread->ctx.general_regs.rsi = (long)arg;
 
-	sched_schedule(thread, NULL);
+	sched_schedule_new_thread(thread, NULL, flags);
 	return thread;
 }
 
-void* kthread_join(struct thread* thread) {
+void* kthread_join(thread_t* thread) {
 	while (atomic_load(&thread->state, ATOMIC_SEQ_CST) != THREAD_STATE_ZOMBIE)
 		__asm__ volatile("pause");
 
@@ -46,7 +45,7 @@ void* kthread_join(struct thread* thread) {
 }
 
 _Noreturn void kthread_exit(void* ret) {
-	struct thread* thread = current_cpu()->current_thread;
+	thread_t* thread = current_cpu()->current_thread;
 
 	thread->ctx.general_regs.rax = (long)ret;
 	atomic_store(&thread->state, THREAD_STATE_ZOMBIE, ATOMIC_SEQ_CST);
@@ -59,7 +58,7 @@ _Noreturn void kthread_exit(void* ret) {
 __diag_push();
 __diag_ignore("-Wmissing-prototypes");
 
-__asmlinkage void __kthread_start(void* (*func)(void* arg), void* arg) {
+__asmlinkage void __kthread_start(void* (*func)(void*), void* arg) {
 	func(arg);
 	printk(PRINTK_EMERG "sched: Function at %p did not call kthread_exit!\n", func);
 	/* asm_kthread_startup causes a trap already, so just return here */

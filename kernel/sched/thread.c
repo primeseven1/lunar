@@ -9,8 +9,8 @@
 
 static struct slab_cache* thread_cache;
 
-struct thread* sched_thread_create(void) {
-	struct thread* thread = slab_cache_alloc(thread_cache);
+thread_t* sched_thread_alloc(void) {
+	thread_t* thread = slab_cache_alloc(thread_cache);
 	if (!thread)
 		return NULL;
 
@@ -18,11 +18,11 @@ struct thread* sched_thread_create(void) {
 	return thread;
 }
 
-void sched_thread_destroy(struct thread* thread) {
+void sched_thread_free(thread_t* thread) {
 	slab_cache_free(thread_cache, thread);
 }
 
 void sched_thread_init(void) {
-	thread_cache = slab_cache_create(sizeof(struct thread), _Alignof(struct thread), MM_ZONE_NORMAL, NULL, NULL);
+	thread_cache = slab_cache_create(sizeof(thread_t), _Alignof(thread_t), MM_ZONE_NORMAL, NULL, NULL);
 	assert(thread_cache != NULL);
 }

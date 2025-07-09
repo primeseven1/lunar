@@ -49,27 +49,26 @@ static void free_pid(pid_t pid) {
 }
 
 static void proc_ctor(void* obj) {
-	struct proc* proc = obj;
+	proc_t* proc = obj;
 
 	proc->pid = alloc_pid();
-	proc->threads = NULL;
-	atomic_store(&proc->thread_count, 0, ATOMIC_RELAXED);
-	atomic_store(&proc->thread_lock, SPINLOCK_INITIALIZER, ATOMIC_RELAXED);
+	proc->threadinfo.threads = NULL;
+	proc->threadinfo.thread_count = 0;
+	atomic_store(&proc->threadinfo.lock, SPINLOCK_INITIALIZER, ATOMIC_RELAXED);
 	proc->vmm_ctx = NULL;
 	proc->parent = NULL;
 	proc->sibling = NULL;
 	proc->child = NULL;
-	proc->next = NULL;
 }
 
 static void proc_dtor(void* obj) {
-	struct proc* proc = obj;
+	proc_t* proc = obj;
 	if (proc->pid != max_pid_count)
 		free_pid(proc->pid);
 }
 
-struct proc* sched_proc_create(void) {
-	struct proc* proc = slab_cache_alloc(proc_cache);
+proc_t* sched_proc_alloc(void) {
+	proc_t* proc = slab_cache_alloc(proc_cache);
 	if (!proc)
 		return NULL;
 	if (proc->pid == max_pid_count) {
@@ -80,12 +79,12 @@ struct proc* sched_proc_create(void) {
 	return proc;
 }
 
-void sched_proc_destroy(struct proc* proc) {
+void sched_proc_free(proc_t* proc) {
 	slab_cache_free(proc_cache, proc);
 }
 
 void sched_proc_init(void) {
-	proc_cache = slab_cache_create(sizeof(struct proc), _Alignof(struct proc), MM_ZONE_NORMAL, proc_ctor, proc_dtor);
+	proc_cache = slab_cache_create(sizeof(proc_t), _Alignof(proc_t), MM_ZONE_NORMAL, proc_ctor, proc_dtor);
 	assert(proc_cache != NULL);
 
 	const size_t pid_map_size = (max_pid_count + 7) / 8;

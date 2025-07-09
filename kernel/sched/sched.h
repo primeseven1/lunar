@@ -4,12 +4,21 @@
 
 void sched_proc_init(void);
 void sched_thread_init(void);
-void sched_timer_init(void);
+void sched_lapic_timer_init(void);
 
-struct proc* sched_proc_create(void);
-void sched_proc_destroy(struct proc* proc);
-struct thread* sched_thread_create(void);
-void sched_thread_destroy(struct thread* thread);
+proc_t* sched_proc_alloc(void);
+void sched_proc_free(proc_t* proc);
+thread_t* sched_thread_alloc(void);
+void sched_thread_free(thread_t* thread);
 
-void sched_schedule(struct thread* thread, struct proc* proc);
-void sched_switch(struct context* ctx);
+int sched_schedule_new_thread(thread_t* thread, proc_t* proc, unsigned int flags);
+
+/**
+ * @brief Switch a task from a timer interrupt
+ *
+ * This function allows the interrupt handler to restore the general purpose registers,
+ * this allows for the EOI to be issued automatically
+ *
+ * @param ctx The context from the interrupt handler
+ */
+void sched_switch_from_interrupt(struct context* ctx);
