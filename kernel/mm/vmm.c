@@ -330,3 +330,9 @@ void vmm_init(void) {
 
 	assert(kvma != NULL && iovma != NULL);
 }
+
+void vmm_switch_context(struct vmm_ctx* new_ctx) {
+	atomic_thread_fence(ATOMIC_SEQ_CST);
+	ctl3_write(hhdm_physical(new_ctx->pagetable));
+	current_cpu()->vmm_ctx = *new_ctx;
+}
