@@ -26,6 +26,10 @@ _ld_kernel_start = .;
 	_ld_kernel_modules_start = .;
 	KEEP(*(.modules .modules.*))
 	_ld_kernel_modules_end = .;
+	. = ALIGN(8);
+	_ld_kernel_timekeepers_start = .;
+	KEEP(*(.timekeepers .timekeepers.*))
+	_ld_kernel_timekeepers_end = .;
 
 	KEEP(*(.limine_requests_start_marker))
 	KEEP(*(.limine_requests))
