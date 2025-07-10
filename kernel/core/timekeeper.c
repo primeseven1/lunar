@@ -1,5 +1,6 @@
 #include <crescent/types.h>
 #include <crescent/common.h>
+#include <crescent/asm/wrap.h>
 #include <crescent/core/printk.h>
 #include <crescent/core/panic.h>
 #include <crescent/core/timekeeper.h>
@@ -54,7 +55,7 @@ void timekeeper_stall(unsigned long usec) {
 	time_t end = start + (usec * ticks_per_us);
 
 	while (timekeeper_get_ticks() < end)
-		__asm__ volatile("pause");
+		cpu_relax();
 
 	local_irq_restore(irq_state);
 }

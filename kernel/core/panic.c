@@ -1,3 +1,4 @@
+#include <crescent/asm/wrap.h>
 #include <crescent/core/panic.h>
 #include <crescent/core/interrupt.h>
 #include <crescent/core/printk.h>
@@ -19,5 +20,5 @@ _Noreturn void panic(const char* fmt, ...) {
 
 	va_end(va);
 	while (1)
-		__asm__ volatile("hlt");
+		cpu_halt();
 }

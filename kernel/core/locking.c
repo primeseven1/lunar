@@ -1,9 +1,10 @@
+#include <crescent/asm/wrap.h>
 #include <crescent/core/locking.h>
 #include <crescent/core/interrupt.h>
 
 void spinlock_lock(spinlock_t* lock) {
 	while (atomic_exchange(lock, 1, ATOMIC_ACQUIRE))
-		__asm__ volatile("pause" : : : "memory");
+		cpu_relax();
 }
 
 void spinlock_unlock(spinlock_t* lock) {
