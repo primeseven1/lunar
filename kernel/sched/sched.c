@@ -5,6 +5,7 @@
 #include <crescent/sched/kthread.h>
 #include <crescent/core/printk.h>
 #include <crescent/core/cpu.h>
+#include <crescent/asm/wrap.h>
 #include <crescent/mm/heap.h>
 #include <crescent/lib/string.h>
 #include <crescent/asm/segment.h>
@@ -213,7 +214,7 @@ out:
 static _Noreturn void* idle(void* arg) {
 	(void)arg;
 	while (1)
-		__asm__ volatile("hlt");
+		cpu_halt();
 }
 
 void sched_allow_ap_cpu_scheduling(void) {

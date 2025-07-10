@@ -6,6 +6,7 @@
 #include <crescent/core/trace.h>
 #include <crescent/common.h>
 #include <crescent/core/printk.h>
+#include <crescent/asm/wrap.h>
 #include "sched.h"
 #include "kthread.h"
 
@@ -37,7 +38,7 @@ thread_t* kthread_create(unsigned int flags, void* (*func)(void*), void* arg) {
 
 void* kthread_join(thread_t* thread) {
 	while (atomic_load(&thread->state, ATOMIC_SEQ_CST) != THREAD_STATE_ZOMBIE)
-		__asm__ volatile("pause");
+		cpu_relax();
 
 	void* ret = (void*)thread->ctx.general_regs.rax;
 	atomic_sub_fetch(&thread->refcount, 1, ATOMIC_SEQ_CST);
@@ -52,7 +53,7 @@ _Noreturn void kthread_exit(void* ret) {
 
 	/* TODO: add sched_yeild when implemented */
 	while (1)
-		__asm__ volatile("hlt");
+		cpu_halt();
 }
 
 __diag_push();
