@@ -1,4 +1,5 @@
 #include <crescent/compiler.h>
+#include <crescent/asm/wrap.h>
 #include <crescent/init/status.h>
 #include <crescent/core/limine.h>
 #include <crescent/core/module.h>
@@ -82,7 +83,7 @@ _Noreturn __asmlinkage void kernel_main(void) {
 	local_irq_enable();
 die:
 	while (1)
-		__asm__ volatile("hlt");
+		cpu_halt();
 }
 
 __diag_pop();
