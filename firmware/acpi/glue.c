@@ -28,7 +28,7 @@ void uacpi_kernel_log(uacpi_log_level level, const uacpi_char* str) {
 void* uacpi_kernel_map(uacpi_phys_addr physical, size_t size) {
 	size_t page_offset = physical % PAGE_SIZE;
 	physaddr_t _physical = physical - page_offset;
-	void* virtual = vmap(NULL, size + page_offset, VMAP_PHYSICAL, MMU_READ | MMU_WRITE, &_physical);
+	void* virtual = vmap(NULL, size + page_offset, MMU_READ | MMU_WRITE, VMM_PHYSICAL, &_physical);
 	if (!virtual)
 		return NULL;
 	return (u8*)virtual + page_offset;
@@ -39,7 +39,7 @@ void uacpi_kernel_unmap(void* virtual, size_t size) {
 	void* _virtual = (u8*)virtual - page_offset;
 	int err = vunmap(_virtual, size + page_offset, 0);
 	if (err)
-		uacpi_kernel_log(UACPI_LOG_ERROR, "Failed to unmap kernel memory");
+		printk(PRINTK_ERR "acpi: %s failed with error code %i\n", __func__, err);
 }
 
 static struct limine_rsdp_request __limine_request rsdp_request = {
