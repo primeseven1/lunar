@@ -88,7 +88,7 @@ void sched_proc_init(void) {
 	assert(proc_cache != NULL);
 
 	const size_t pid_map_size = (max_pid_count + 7) / 8;
-	pid_map = vmap(NULL, pid_map_size, VMAP_ALLOC, MMU_READ | MMU_WRITE, NULL);
+	pid_map = vmap(NULL, pid_map_size, MMU_READ | MMU_WRITE, VMM_ALLOC, NULL);
 	assert(pid_map != NULL);
 	memset(pid_map, 0, pid_map_size);
 }

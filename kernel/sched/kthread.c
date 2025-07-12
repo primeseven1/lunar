@@ -15,7 +15,7 @@ thread_t* kthread_create(unsigned int flags, void* (*func)(void*), void* arg) {
 	if (!thread)
 		return NULL;
 
-	void* stack = vmap(NULL, 0x4000, VMAP_ALLOC, MMU_READ | MMU_WRITE, NULL);
+	void* stack = vmap(NULL, 0x4000, MMU_READ | MMU_WRITE, VMM_ALLOC, NULL);
 	if (!stack) {
 		sched_thread_free(thread);
 		return NULL;
