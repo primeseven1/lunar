@@ -84,6 +84,11 @@ int pagetable_unmap(pte_t* pagetable, void* virtual);
  */
 physaddr_t pagetable_get_physical(pte_t* pagetable, const void* virtual);
 
+/**
+ * @brief Get the base address of a top level page table index
+ * @param index The index
+ * @return The base address
+ */
 void* pagetable_get_base_address_from_top_index(unsigned int index);
-void* pagetable_get_end_address_from_top_index(unsigned int index);
+
 void pagetable_init(void);

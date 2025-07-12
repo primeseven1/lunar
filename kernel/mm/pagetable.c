@@ -43,7 +43,7 @@ static int walk_pagetable(pte_t* pagetable, const void* virtual, bool create, si
 
 	for (size_t i = 0; i < ARRAY_SIZE(indexes) - 1; i++) {
 		/* Check to see if we want either a 1GiB or 2MiB page */
-		if ((*page_size == HUGEPAGE_1G && i == 1) || (*page_size == HUGEPAGE_SIZE && i == 2)) {
+		if ((*page_size == HUGEPAGE_1G && i == 1) || (*page_size == HUGEPAGE_2M_SIZE && i == 2)) {
 			*ret = &pagetable[indexes[i]];
 			return 0;
 		}
@@ -84,7 +84,7 @@ static int walk_pagetable(pte_t* pagetable, const void* virtual, bool create, si
 			 * If *page_size is zero, then write the page size so that way the caller knows 
 			 * if it needs it for some reason.
 			 */
-			size_t _page_size = i == 1 ? HUGEPAGE_1G : HUGEPAGE_SIZE;
+			size_t _page_size = i == 1 ? HUGEPAGE_1G : HUGEPAGE_2M_SIZE;
 			if (_page_size != *page_size) {
 				if (*page_size != 0)
 					return -EEXIST;
@@ -104,7 +104,7 @@ static int walk_pagetable(pte_t* pagetable, const void* virtual, bool create, si
 }
 
 int pagetable_map(pte_t* pagetable, void* virtual, physaddr_t physical, unsigned long pt_flags) {
-	size_t page_size = pt_flags & PT_HUGEPAGE ? HUGEPAGE_SIZE : PAGE_SIZE;
+	size_t page_size = pt_flags & PT_HUGEPAGE ? HUGEPAGE_2M_SIZE : PAGE_SIZE;
 	if ((uintptr_t)virtual & (page_size - 1) || physical & (page_size - 1) || 
 			!is_virtual_canonical(virtual) || !physical)
 		return -EINVAL;
@@ -131,7 +131,7 @@ int pagetable_update(pte_t* pagetable, void* virtual, physaddr_t physical, unsig
 	if (err)
 		return err;
 
-	if (pt_flags & PT_HUGEPAGE && page_size != HUGEPAGE_SIZE)
+	if (pt_flags & PT_HUGEPAGE && page_size != HUGEPAGE_2M_SIZE)
 		return -EFAULT;
 	if ((uintptr_t)virtual & (page_size - 1) || physical & (page_size - 1))
 		return -EINVAL;
@@ -219,14 +219,9 @@ static struct limine_paging_mode_request __limine_request paging_mode = {
 void* pagetable_get_base_address_from_top_index(unsigned int index) {
 	if (index >= 512)
 		return NULL;
-
 	if (index >= 256)
 		return (void*)(((u64)index << 39) | 0xFFFF000000000000);
 	return (void*)((u64)index << 39);
-}
-
-void* pagetable_get_end_address_from_top_index(unsigned int index) {
-	return (u8*)pagetable_get_base_address_from_top_index(index) + PML4_MAX_4K_PAGES * PAGE_SIZE;
 }
 
 void pagetable_init(void) {

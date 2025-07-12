@@ -121,7 +121,7 @@ void* kmalloc(size_t size, mm_t mm_flags) {
 			return NULL;
 		}
 	} else {
-		alloc_info = vmap(NULL, total_size, VMAP_ALLOC, MMU_READ | MMU_WRITE, &mm_flags);
+		alloc_info = vmap(NULL, total_size, MMU_READ | MMU_WRITE, VMM_ALLOC, &mm_flags);
 		if (!alloc_info)
 			return NULL;
 	}
@@ -147,7 +147,7 @@ void kfree(void* ptr) {
 	if (!pool) {
 		size_t total_size;
 		assert(__builtin_add_overflow(alloc_info->size, sizeof(struct alloc_info) + sizeof(size_t), &total_size) == false);
-		assert(vunmap(alloc_info, total_size, VMAP_FREE) == 0);
+		assert(vunmap(alloc_info, total_size, 0) == 0);
 		return;
 	}
 
@@ -184,7 +184,7 @@ void* krealloc(void* old, size_t new_size, mm_t mm_flags) {
 
 void heap_init(void) {
 	/* First map a single page for the mempool */
-	mempool_head = vmap(NULL, sizeof(*mempool_head), VMAP_ALLOC, MMU_READ | MMU_WRITE, NULL);
+	mempool_head = vmap(NULL, sizeof(*mempool_head), MMU_READ | MMU_WRITE, VMM_ALLOC, NULL);
 	assert(mempool_head != NULL);
 
 	/* Create a cache for creating mempools */

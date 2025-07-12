@@ -1,63 +1,64 @@
 #pragma once
 
+#include <crescent/asm/errno.h>
 #include <crescent/core/locking.h>
+#include <crescent/mm/vmm.h>
+
+struct mm;
 
 struct vma {
-	void* start, *end; /* Not modified after creation */
-	u8* free_list; /* Free list bitmap */
-	unsigned long page_count; /* The number of pages currectly allocated to the vma */
-	spinlock_t lock;
+	uintptr_t start, top;
+	mmuflags_t prot;
+	int flags;
+	struct vma* prev, *next;
 };
 
 /**
- * @brief Allocate pages from a VMA
+ * @brief Find a virtual memory area based on an address
  *
- * If `align` is not a power of two and not zero, NULL is returned.
- * If `align is` zero, then the address will be aligned by PAGE_SIZE.
+ * LOCKING: Does not grab any locks, you are expected to take mm->vma_list_lock
  *
- * Pages are guarunteed to be aligned by 4K.
- *
- * LOCKING:
- * vma->lock is expected to be unlocked before calling this function
- *
- * @param vma The VMA to allocate from
- * @param page_count The number of pages to allocate
- * @param align The alignment for the pages
- *
- * @return The address of the page
+ * @param mm The mm struct to grab it from
+ * @param address The address to look up
  */
-void* vma_alloc_pages(struct vma* vma, unsigned long page_count, size_t align);
+struct vma* vma_find(struct mm* mm, void* address);
 
 /**
- * @brief Free pages from a VMA
+ * @brief Add a virtual memory area to the VMA list
  *
- * LOCKING:
- * vma->lock is expected to be unlocked before calling this function.
+ * LOCKING: Does not grab any locks, you are expected to take mm->vma_list_lock
  *
- * @param vma The VMA to free pages from
- * @param addr The address to free
- * @param page_count The number of pages to free
+ * @param mm The mm struct to apply it to
+ * @param hint A hint on where the mapping should be placed, rounded to the nearest page boundary
+ * @param size The size of the mapping, rounded up to the nearest page boundary
+ * @param prot Protection flags for the page
+ * @param flags Unimplemented
+ * @param ret Where the address will be stored, uninitialized on failure
+ *
+ * @return -errno on failure
  */
-void vma_free_pages(struct vma* vma, void* addr, unsigned long page_count);
+int vma_map(struct mm* mm, void* hint, size_t size, mmuflags_t prot, int flags, void** ret);
 
 /**
- * @brief Create a VMA
+ * @brief Change the protection flags for a VMA
  *
- * The VMA cannot be expanded past the end of the VMA
+ * LOCKING: Does not grab any locks, you are expected to take mm->vma_list_lock
  *
- * @param start The start of the VMA
- * @param end The end of the VMA.
- * @param page_count The initial page count
+ * @param mm The mm struct to apply it to
+ * @param address The address to change
+ * @param size The size of the mapping to change, rounded up to the nearest page boundary
+ * @param prot The new protection flags
  *
- * @return The pointer to the newly created VMA
+ * @return -errno on failure
  */
-struct vma* vma_create(void* start, void* end, unsigned long page_count);
+int vma_protect(struct mm* mm, void* address, size_t size, mmuflags_t prot);
 
 /**
- * @brief Destroy a VMA
- * @param vma The VMA to destroy
+ * @brief Remove a VMA from the list
  *
- * @retval 0 Success
- * @retval -EEXIST There are still pages that are in use from the VMA
+ * LOCKING: Does not grab any locks, you are expected to take mm->vma_list_lock
+ *
+ * @param mm The mm struct to apply it to
+ * @param addr The address to 
  */
-int vma_destroy(struct vma* vma);
+int vma_unmap(struct mm* mm, void* addr, size_t size);

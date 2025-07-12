@@ -15,15 +15,15 @@ static int slab_init(struct slab_cache* cache, struct slab* slab) {
 	size_t slab_size = cache->obj_size * cache->obj_count;
 
 	/* Allocate free list bitmap */
-	slab->free = vmap(NULL, map_size, VMAP_ALLOC, MMU_READ | MMU_WRITE, NULL);
+	slab->free = vmap(NULL, map_size, MMU_READ | MMU_WRITE, VMM_ALLOC, NULL);
 	if (!slab->free)
 		return -ENOMEM;
 	memset(slab->free, 0, map_size);
 
 	/* Allocate a virtual address for the slab base */
-	slab->base = vmap(NULL, slab_size, VMAP_ALLOC, MMU_READ | MMU_WRITE, &cache->mm_flags);
+	slab->base = vmap(NULL, slab_size, MMU_READ | MMU_WRITE, VMM_ALLOC, &cache->mm_flags);
 	if (!slab->base) {
-		int err = vunmap(slab->free, map_size, VMAP_FREE);
+		int err = vunmap(slab->free, map_size, 0);
 		if (unlikely(err)) {
 			printk(PRINTK_CRIT "mm: Failed to unmap free list in %s (%i)\n", __func__, err);
 			dump_stack();
@@ -36,13 +36,13 @@ static int slab_init(struct slab_cache* cache, struct slab* slab) {
 }
 
 static int slab_cache_grow(struct slab_cache* cache) {
-	struct slab* slab = vmap(NULL, sizeof(*slab), VMAP_ALLOC, MMU_READ | MMU_WRITE, NULL);
+	struct slab* slab = vmap(NULL, sizeof(*slab), MMU_READ | MMU_WRITE, VMM_ALLOC, NULL);
 	if (!slab)
 		return -ENOMEM;
 
 	int err = slab_init(cache, slab);
 	if (err) {
-		int verr = vunmap(slab, sizeof(*slab), VMAP_FREE);
+		int verr = vunmap(slab, sizeof(*slab), 0);
 		if (unlikely(verr)) {
 			printk(PRINTK_CRIT "mm: Failed to unmap new slab: %i\n", verr);
 			dump_stack();
@@ -233,7 +233,7 @@ struct slab_cache* slab_cache_create(size_t obj_size, size_t align,
 	else if (align & (align - 1))
 		return NULL;
 
-	struct slab_cache* cache = vmap(NULL, sizeof(*cache), VMAP_ALLOC, MMU_READ | MMU_WRITE, NULL);
+	struct slab_cache* cache = vmap(NULL, sizeof(*cache), MMU_READ | MMU_WRITE, VMM_ALLOC, NULL);
 	if (!cache)
 		return NULL;
 
@@ -263,9 +263,9 @@ int slab_cache_destroy(struct slab_cache* cache) {
 		if (next)
 			next->prev = NULL;
 
-		int base_err = vunmap(slab->base, cache->obj_size * cache->obj_count, VMAP_FREE);
-		int free_list_err = vunmap(slab->free, (cache->obj_count + 7) / 8, VMAP_FREE);
-		int slab_err = vunmap(slab, sizeof(*slab), VMAP_FREE);
+		int base_err = vunmap(slab->base, cache->obj_size * cache->obj_count, 0);
+		int free_list_err = vunmap(slab->free, (cache->obj_count + 7) / 8, 0);
+		int slab_err = vunmap(slab, sizeof(*slab), 0);
 		if (unlikely(base_err))
 			err = base_err;
 		if (unlikely(free_list_err))
@@ -281,6 +281,6 @@ int slab_cache_destroy(struct slab_cache* cache) {
 		slab = next;
 	}
 
-	err = vunmap(cache, sizeof(*cache), VMAP_FREE);
+	err = vunmap(cache, sizeof(*cache), 0);
 	return err;
 }

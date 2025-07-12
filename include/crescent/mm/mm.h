@@ -1,10 +1,13 @@
 #pragma once
 
 #include <crescent/types.h>
+#include <crescent/mm/vma.h>
 
-#define PAGE_SIZE 0x1000ul
-#define HUGEPAGE_SIZE 0x200000ul
-#define PAGE_SHIFT 12
+struct mm {
+	struct vma* vma_list;
+	spinlock_t vma_list_lock;
+	void* mmap_start, *mmap_end;
+};
 
 static inline unsigned int get_order(size_t size) {
 	if (size <= PAGE_SIZE)
