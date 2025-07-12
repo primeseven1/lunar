@@ -39,10 +39,10 @@ static void __idt_init(void) {
 static void idt_init(void) {
 	const size_t idt_size = sizeof(*idt) * INTERRUPT_COUNT;
 	if (!idt) {
-		idt = vmap(NULL, idt_size, VMAP_ALLOC, MMU_READ | MMU_WRITE, NULL);
+		idt = vmap(NULL, idt_size, MMU_READ | MMU_WRITE, VMM_ALLOC, NULL);
 		assert(idt != NULL);
 		__idt_init();
-		vprotect(idt, idt_size, 0, MMU_READ);
+		vprotect(idt, idt_size, MMU_READ, 0);
 	}
 
 	struct {

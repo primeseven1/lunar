@@ -40,7 +40,7 @@ int cmdline_parse(void) {
 	 * Don't want to modify the cmdline directly, so make a copy of it. Use vmap over kmalloc
 	 * since after we're done parsing, the memory becomes read only.
 	 */
-	char* cmdline_copy = vmap(NULL, cmdline_size, VMAP_ALLOC, MMU_READ | MMU_WRITE, NULL);
+	char* cmdline_copy = vmap(NULL, cmdline_size, MMU_READ | MMU_WRITE, VMM_ALLOC, NULL);
 	char* const cmdline_copy_copy = cmdline_copy;
 	if (!cmdline_copy)
 		return -ENOMEM;
@@ -91,7 +91,7 @@ int cmdline_parse(void) {
 
 	int kprotect_err;
 leave:
-	kprotect_err = vprotect(cmdline_copy_copy, cmdline_size, 0, MMU_READ);
+	kprotect_err = vprotect(cmdline_copy_copy, cmdline_size, MMU_READ, 0);
 	if (kprotect_err)
 		printk(PRINTK_ERR "core: Failed to remap command line arguments as read only!\n");
 	return err;
