@@ -165,11 +165,30 @@ cleanup:
 	return NULL;
 }
 
-int vprotect(void* virtual, size_t size, mmuflags_t mmu_flags, int flags) {
-	if ((uintptr_t)virtual % PAGE_SIZE)
-		return -EINVAL;
+static bool full_overlap_check(struct mm* mm, const void* virtual, size_t size) {
+	const u8* v8 = virtual;
+	size_t size_remaining = size;
 
-	(void)flags;
+	while (1) {
+		struct vma* vma = vma_find(mm, v8);
+		if (!vma)
+			return false;
+
+		size_t covered = vma->top - (uintptr_t)v8;
+		if (covered >= size_remaining)
+			return true;
+
+		size_remaining -= covered;
+		v8 += covered;
+	}
+}
+
+int vprotect(void* virtual, size_t size, mmuflags_t mmu_flags, int flags) {
+	if ((uintptr_t)virtual % PAGE_SIZE || !vprotect_validate_flags(flags))
+		return -EINVAL;
+	unsigned long pt_flags = mmu_to_pt(mmu_flags);
+	if (pt_flags == 0)
+		return -EINVAL;
 	unsigned long page_count = (size + PAGE_SIZE - 1) >> PAGE_SHIFT;
 	if (page_count == 0)
 		return -EINVAL;
@@ -178,36 +197,66 @@ int vprotect(void* virtual, size_t size, mmuflags_t mmu_flags, int flags) {
 	pte_t* pagetable = current_cpu()->mm_struct->pagetable;
 	int err = 0;
 
+	unsigned int old_mmu_size_order = get_order(page_count * sizeof(mmuflags_t));
+	physaddr_t _old_mmu = alloc_pages(MM_ZONE_NORMAL, old_mmu_size_order);
+	if (!_old_mmu)
+		return -ENOMEM;
+	mmuflags_t* old_mmu = hhdm_virtual(_old_mmu);
+	memset(old_mmu, 0, page_count * sizeof(mmuflags_t));
+
 	unsigned long irq;
 	spinlock_lock_irq_save(&kernel_mm_struct.vma_list_lock, &irq);
 
-	while (page_count--) {
+	if (!full_overlap_check(&kernel_mm_struct, virtual, size)) {
+		err = -ENOENT;
+		goto out;
+	}
+
+	void* tmp = virtual;
+
+	for (unsigned long i = 0; i < page_count; i++) {
 		struct vma* vma = vma_find(&kernel_mm_struct, virtual);
-		if (!vma) {
-			err = -ENOENT;
-			goto err;
-		}
-		err = vma_protect(&kernel_mm_struct, virtual, size, mmu_flags);
+		old_mmu[i] = vma->prot;
+		err = vma_protect(&kernel_mm_struct, virtual, page_size, mmu_flags);
 		if (err)
-			goto err;
-		err = pagetable_update(pagetable, virtual, pagetable_get_physical(pagetable, virtual), mmu_flags);
+			goto undo;
+		err = pagetable_update(pagetable, virtual, pagetable_get_physical(pagetable, virtual), pt_flags);
 		if (err)
-			goto err;
-		tlb_flush_range(virtual, page_size);
+			goto undo;
 		virtual = (u8*)virtual + page_size;
 	}
 
-err:
+
+	tlb_flush_range(virtual, size);
+	goto out;
+undo:
+	virtual = tmp;
+	for (unsigned long i = 0; i < page_count - 1; i++) {
+		if (old_mmu[i] == 0)
+			break;
+
+		pt_flags = mmu_to_pt(old_mmu[i]);
+		physaddr_t physical = pagetable_get_physical(pagetable, virtual);
+		assert(vma_protect(&kernel_mm_struct, virtual, page_size, old_mmu[i]) == 0);
+		assert(pagetable_update(pagetable, virtual, physical, pt_flags) == 0);
+
+		virtual = (u8*)virtual + page_size;
+	}
+
+	/* There shouldn't be a need for a TLB flush here, but do it again anyway to be safe */
+	tlb_flush_range(virtual, size);
+
+out:
+	free_pages(_old_mmu, old_mmu_size_order);
 	spinlock_unlock_irq_restore(&kernel_mm_struct.vma_list_lock, &irq);
 	return err;
 }
 
 int vunmap(void* virtual, size_t size, int flags) {
-	if ((uintptr_t)virtual % PAGE_SIZE)
+	if ((uintptr_t)virtual % PAGE_SIZE || !vunmap_validate_flags(flags))
 		return -EINVAL;
-
 	unsigned long page_count = (size + PAGE_SIZE - 1) >> PAGE_SHIFT;
-	if (page_count == 0 || (uintptr_t)virtual % PAGE_SIZE || !vunmap_validate_flags(flags))
+	if (page_count == 0)
 		return -EINVAL;
 
 	pte_t* pagetable = current_cpu()->mm_struct->pagetable;

@@ -21,7 +21,7 @@ static void vma_free(struct vma* vma) {
 	free_pages(hhdm_physical(vma), get_order(sizeof(*vma)));
 }
 
-struct vma* vma_find(struct mm* mm, void* address) {
+struct vma* vma_find(struct mm* mm, const void* address) {
 	for (struct vma* vma = mm->vma_list; vma; vma = vma->next) {
 		if ((uintptr_t)address >= vma->start && (uintptr_t)address < vma->top)
 			return vma;

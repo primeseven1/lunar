@@ -21,7 +21,7 @@ struct vma {
  * @param mm The mm struct to grab it from
  * @param address The address to look up
  */
-struct vma* vma_find(struct mm* mm, void* address);
+struct vma* vma_find(struct mm* mm, const void* address);
 
 /**
  * @brief Add a virtual memory area to the VMA list
