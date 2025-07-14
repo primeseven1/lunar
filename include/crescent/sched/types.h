@@ -1,6 +1,7 @@
 #pragma once
 
 #include <crescent/core/interrupt.h>
+#include <crescent/mm/mm.h>
 
 typedef int pid_t;
 typedef int tid_t;
@@ -44,6 +45,6 @@ typedef struct proc {
 		spinlock_t lock;
 		u8* tid_map;
 	} threadinfo;
-	struct vmm_ctx* vmm_ctx;
+	struct mm* mm_struct;
 	struct proc* parent, *sibling, *child;
 } proc_t;

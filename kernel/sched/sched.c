@@ -83,7 +83,7 @@ void sched_switch_from_interrupt(struct context* context) {
 
 	*context = new_thread->ctx.general_regs; /* This will allow the interrupt handler to restore the regs for us */
 	if (current->proc != new_thread->proc)
-		vmm_switch_context(new_thread->proc->vmm_ctx);
+		vmm_switch_mm_struct(new_thread->proc->mm_struct);
 
 	atomic_store(&new_thread->state, THREAD_STATE_RUNNING, ATOMIC_SEQ_CST);
 	cpu->current_thread = new_thread;
@@ -241,7 +241,7 @@ void sched_init(void) {
 	struct cpu* cpu = current_cpu();
 	cpu->thread_queue = this_thread;
 	cpu->current_thread = this_thread;
-	kproc->vmm_ctx = &cpu->vmm_ctx;
+	kproc->mm_struct = cpu->mm_struct;
 
 	thread_t* idle_thread = kthread_create(SCHED_THIS_CPU | SCHED_IDLE, idle, NULL);
 	assert(idle_thread != NULL);

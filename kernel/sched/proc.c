@@ -55,7 +55,7 @@ static void proc_ctor(void* obj) {
 	proc->threadinfo.threads = NULL;
 	proc->threadinfo.thread_count = 0;
 	atomic_store(&proc->threadinfo.lock, SPINLOCK_INITIALIZER, ATOMIC_RELAXED);
-	proc->vmm_ctx = NULL;
+	proc->mm_struct = NULL;
 	proc->parent = NULL;
 	proc->sibling = NULL;
 	proc->child = NULL;
