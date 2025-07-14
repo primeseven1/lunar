@@ -104,7 +104,7 @@ void* vmap(void* hint, size_t size, mmuflags_t mmu_flags, int flags, void* optio
 		return NULL;
 
 	u8* ret = virtual;
-	pte_t* pagetable = current_cpu()->vmm_ctx.pagetable;
+	pte_t* pagetable = current_cpu()->mm_struct->pagetable;
 
 	unsigned long irq;
 	spinlock_lock_irq_save(&kernel_mm_struct.vma_list_lock, &irq);
@@ -175,7 +175,7 @@ int vprotect(void* virtual, size_t size, mmuflags_t mmu_flags, int flags) {
 		return -EINVAL;
 
 	size_t page_size = PAGE_SIZE;
-	pte_t* pagetable = current_cpu()->vmm_ctx.pagetable;
+	pte_t* pagetable = current_cpu()->mm_struct->pagetable;
 	int err = 0;
 
 	unsigned long irq;
@@ -210,7 +210,7 @@ int vunmap(void* virtual, size_t size, int flags) {
 	if (page_count == 0 || (uintptr_t)virtual % PAGE_SIZE || !vunmap_validate_flags(flags))
 		return -EINVAL;
 
-	pte_t* pagetable = current_cpu()->vmm_ctx.pagetable;
+	pte_t* pagetable = current_cpu()->mm_struct->pagetable;
 	int err;
 
 	unsigned long irq;
@@ -270,8 +270,10 @@ void vmm_init(void) {
 	pagetable_init();
 
 	/* No need to check the pointer, the system would triple fault if an invalid page table was in cr3 */
+	struct cpu* cpu = current_cpu();
+	cpu->mm_struct = &kernel_mm_struct;
 	pte_t* cr3 = hhdm_virtual(ctl3_read());
-	current_cpu()->vmm_ctx.pagetable = cr3;
+	cpu->mm_struct->pagetable = cr3;
 
 	int best = 0;
 	int best_len = 0;
@@ -302,8 +304,12 @@ void vmm_init(void) {
 	kernel_mm_struct.mmap_end = pagetable_get_base_address_from_top_index(best + best_len);
 }
 
-void vmm_switch_context(struct vmm_ctx* new_ctx) {
+void vmm_switch_mm_struct(struct mm* mm) {
+	unsigned long irq = local_irq_save();
+
 	atomic_thread_fence(ATOMIC_SEQ_CST);
-	ctl3_write(hhdm_physical(new_ctx->pagetable));
-	current_cpu()->vmm_ctx = *new_ctx;
+	ctl3_write(hhdm_physical(mm->pagetable));
+	current_cpu()->mm_struct = mm;
+
+	local_irq_restore(irq);
 }

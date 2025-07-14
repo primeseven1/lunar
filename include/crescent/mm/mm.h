@@ -2,8 +2,10 @@
 
 #include <crescent/types.h>
 #include <crescent/mm/vma.h>
+#include <crescent/mm/vmm.h>
 
 struct mm {
+	pte_t* pagetable;
 	struct vma* vma_list;
 	spinlock_t vma_list_lock;
 	void* mmap_start, *mmap_end;

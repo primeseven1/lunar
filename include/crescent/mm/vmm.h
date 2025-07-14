@@ -36,10 +36,7 @@ static inline void tlb_flush_range(void* virtual, size_t size) {
 }
 
 typedef unsigned long pte_t;
-
-struct vmm_ctx {
-	pte_t* pagetable;
-};
+struct mm;
 
 /**
  * @brief Map some memory to the kernel address space
@@ -116,4 +113,4 @@ int iounmap(void __iomem* virtual, size_t size);
 
 void vmm_init(void);
 
-void vmm_switch_context(struct vmm_ctx* new_ctx);
+void vmm_switch_mm_struct(struct mm* new_ctx);
