@@ -61,10 +61,8 @@ int vma_map(struct mm* mm, void* hint, size_t size, mmuflags_t prot, int flags, 
 	base = ROUND_UP(base, align);
 	if (!(flags & VMM_FIXED) && (base < (uintptr_t)mm->mmap_start || base + size > (uintptr_t)mm->mmap_end))
 		base = (uintptr_t)mm->mmap_start;
-	if (flags & VMM_FIXED && !(flags & VMM_NOREPLACE)) {
+	if (flags & VMM_FIXED && !(flags & VMM_NOREPLACE))
 		vma_rip(mm, hint, size);
-		goto fixed;
-	}
 
 	/* Skip VMA's that end at or before the hint */
 	struct vma* prev = NULL;
@@ -100,7 +98,6 @@ int vma_map(struct mm* mm, void* hint, size_t size, mmuflags_t prot, int flags, 
 	if (flags & VMM_HUGEPAGE_2M)
 		addr = ROUND_UP(addr, HUGEPAGE_2M_SIZE);
 
-fixed:
 	vma->start = addr;
 	vma->top = addr + size;
 	vma->prev = prev;
