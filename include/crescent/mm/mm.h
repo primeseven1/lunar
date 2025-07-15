@@ -23,3 +23,5 @@ typedef enum {
 	MM_ZONE_DMA32 = (1 << 1),
 	MM_ZONE_NORMAL = (1 << 2),
 } mm_t;
+
+void vmm_switch_mm_struct(struct mm* new_ctx);

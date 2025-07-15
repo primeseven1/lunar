@@ -22,7 +22,8 @@ enum vmm_flags {
 	VMM_PHYSICAL = (1 << 1),
 	VMM_FIXED = (1 << 2),
 	VMM_NOREPLACE = (1 << 3),
-	VMM_IOMEM = (1 << 4)
+	VMM_IOMEM = (1 << 4),
+	VMM_HUGEPAGE_2M = (1 << 5)
 };
 
 static inline void tlb_flush_single(void* virtual) {
@@ -36,7 +37,6 @@ static inline void tlb_flush_range(void* virtual, size_t size) {
 }
 
 typedef unsigned long pte_t;
-struct mm;
 
 /**
  * @brief Map some memory to the kernel address space
@@ -47,7 +47,8 @@ struct mm;
  *
  * If VMM_PHYSICAL is used, this function will map the virtual address to a physical address,
  * optional must not be NULL, otherwise this function will return NULL. The optional argument
- * will be assumed to be pointing to a type of physaddr_t.
+ * will be assumed to be pointing to a type of physaddr_t. The physical address must be
+ * aligned, or this function will fail.
  *
  * If VMM_IOMEM is used, this function will use the I/O memory VMA. When this flag is used,
  * VMAP_PHYSICAL is implied. Avoid use of this flag directly, use iomap/iounmap instead.
@@ -112,5 +113,3 @@ void __iomem* iomap(physaddr_t physical, size_t size, mmuflags_t mmu_flags);
 int iounmap(void __iomem* virtual, size_t size);
 
 void vmm_init(void);
-
-void vmm_switch_mm_struct(struct mm* new_ctx);

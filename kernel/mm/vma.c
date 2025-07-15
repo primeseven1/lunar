@@ -43,10 +43,14 @@ static void vma_rip(struct mm* mm, void* start, size_t size) {
 }
 
 int vma_map(struct mm* mm, void* hint, size_t size, mmuflags_t prot, int flags, void** ret) {
-	if (size == 0 || ((!hint || (uintptr_t)hint % PAGE_SIZE) && flags & VMM_FIXED))
+	size_t align = PAGE_SIZE;
+	if (flags & VMM_HUGEPAGE_2M)
+		align = HUGEPAGE_2M_SIZE;
+
+	if (size == 0 || ((!hint || (uintptr_t)hint % align) && flags & VMM_FIXED))
 		return -EINVAL;
 
-	size = ROUND_UP(size, PAGE_SIZE);
+	size = ROUND_UP(size, align);
 	struct vma* vma = vma_alloc();
 	if (!vma)
 		return -ENOMEM;
@@ -54,12 +58,13 @@ int vma_map(struct mm* mm, void* hint, size_t size, mmuflags_t prot, int flags, 
 	vma->flags = flags;
 
 	uintptr_t base = (uintptr_t)hint;
-	base = ROUND_UP(base, PAGE_SIZE);
+	base = ROUND_UP(base, align);
 	if (!(flags & VMM_FIXED) && (base < (uintptr_t)mm->mmap_start || base + size > (uintptr_t)mm->mmap_end))
 		base = (uintptr_t)mm->mmap_start;
-
-	if (flags & VMM_FIXED && !(flags & VMM_NOREPLACE))
+	if (flags & VMM_FIXED && !(flags & VMM_NOREPLACE)) {
 		vma_rip(mm, hint, size);
+		goto fixed;
+	}
 
 	/* Skip VMA's that end at or before the hint */
 	struct vma* prev = NULL;
@@ -72,23 +77,30 @@ int vma_map(struct mm* mm, void* hint, size_t size, mmuflags_t prot, int flags, 
 	/* Find a memory hole large enough for the size */
 	uintptr_t addr = base;
 	while (iter) {
-		if (iter->start - addr >= size)
+		if (flags & VMM_HUGEPAGE_2M) {
+			if (iter->start - addr >= size + HUGEPAGE_2M_SIZE)
+				break;
+		} else if (iter->start - addr >= size) {
 			break;
+		}
+
 		addr = iter->top;
 		prev = iter;
 		iter = iter->next;
 	}
 
-	/* 
-	 * This if statement cannot be executed unless VMM_NOREPLACE is also here, 
-	 * since the VMM_FIXED flag already rips out previous mappings when used without
-	 * the VMM_NOREPLACE flag
-	 */
 	if (flags & VMM_FIXED && addr != (uintptr_t)hint) {
 		vma_free(vma);
 		return -EEXIST;
+	} else if (addr >= (uintptr_t)mm->mmap_end) {
+		vma_free(vma);
+		return -ENOMEM;
 	}
 
+	if (flags & VMM_HUGEPAGE_2M)
+		addr = ROUND_UP(addr, HUGEPAGE_2M_SIZE);
+
+fixed:
 	vma->start = addr;
 	vma->top = addr + size;
 	vma->prev = prev;

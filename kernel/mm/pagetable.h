@@ -62,9 +62,7 @@ int pagetable_update(pte_t* pagetable, void* virtual, physaddr_t physical, unsig
 /**
  * @brief Unmap an entry in a page table
  *
- * -EINVAL is returned if virtual or physical are not page aligned.
- * Same goes with invalid pt_flags. This value is also returned if virtual is non-canonical.
- *
+ * -EINVAL is returned if virtual isn't page aligned. This value is also returned if virtual is non-canonical.
  * -ENOENT is returned if the PTE isn't present
  *
  * @param pagetable The page table to use
