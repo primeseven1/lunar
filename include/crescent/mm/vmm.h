@@ -9,6 +9,7 @@
 #define HUGEPAGE_2M_SHIFT 21
 
 typedef enum {
+	MMU_NONE = 0,
 	MMU_READ = (1 << 0),
 	MMU_WRITE = (1 << 1),
 	MMU_USER = (1 << 2),

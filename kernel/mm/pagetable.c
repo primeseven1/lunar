@@ -114,7 +114,7 @@ int pagetable_map(pte_t* pagetable, void* virtual, physaddr_t physical, unsigned
 	if (err)
 		return err;
 
-	if (*pte & PT_PRESENT)
+	if (*pte)
 		return -EEXIST;
 
 	*pte = physical | pt_flags;
@@ -136,9 +136,6 @@ int pagetable_update(pte_t* pagetable, void* virtual, physaddr_t physical, unsig
 		return -EFAULT;
 	if ((uintptr_t)virtual & (page_size - 1) || physical & (page_size - 1))
 		return -EINVAL;
-
-	if (!(pt_flags & PT_PRESENT))
-		return -ENOENT;
 
 	*pte = physical | pt_flags;
 	return 0;
@@ -181,7 +178,7 @@ int pagetable_unmap(pte_t* pagetable, void* virtual) {
 	if ((uintptr_t)virtual & (page_size - 1))
 		return -EINVAL;
 
-	if (!(*pte & PT_PRESENT))
+	if (!(*pte))
 		return -ENOENT;
 
 	*pte = 0;
@@ -200,7 +197,7 @@ physaddr_t pagetable_get_physical(pte_t* pagetable, const void* virtual) {
 	if (err)
 		return 0;
 
-	if (!(*pte & PT_PRESENT))
+	if (!(*pte))
 		return 0;
 
 	return (*pte & ~(0xFFF | PT_NX)) + ((uintptr_t)virtual & (page_size - 1));

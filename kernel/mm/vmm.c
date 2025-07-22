@@ -16,7 +16,7 @@
 
 static unsigned long mmu_to_pt(mmuflags_t mmu_flags) {
 	if (mmu_flags & MMU_CACHE_DISABLE && mmu_flags & MMU_WRITETHROUGH)
-		return 0;
+		return ULONG_MAX;
 
 	unsigned long pt_flags = 0;
 	if (mmu_flags & MMU_READ)
@@ -56,6 +56,7 @@ static inline bool vunmap_validate_flags(int flags) {
 
 static struct mm kernel_mm_struct;
 
+/* Called by vmap, this function checks to see what caused the error, and tries to correct it if possible. */
 static bool handle_pagetable_error(pte_t* pagetable, 
 		void* virtual, physaddr_t physical, unsigned long pt_flags, 
 		int err, int flags) {
@@ -96,6 +97,7 @@ struct page {
 	struct page* next;
 };
 
+/* Called by record_page_struct */
 static int create_page_struct(struct page** head, void* virtual,
 		physaddr_t physical, size_t page_size, mmuflags_t mmu_flags, int vmm_flags) {
 	physaddr_t _page = alloc_pages(MM_ZONE_NORMAL, get_order(sizeof(struct page)));
@@ -116,6 +118,7 @@ static int create_page_struct(struct page** head, void* virtual,
 	return 0;
 }
 
+/* Called by vmap, can be called when the vma list lock is released */
 static inline void free_page_structs(struct page* head) {
 	while (head) {
 		struct page* next = head->next;
@@ -124,6 +127,7 @@ static inline void free_page_structs(struct page* head) {
 	}
 }
 
+/* Must be called with the vma list lock acquired, called by vmap */
 static int record_page_struct(struct page** head, struct mm* mm, void* virtual) {
 	struct vma* vma = vma_find(mm, virtual);
 	if (!vma) /* fine */
@@ -147,6 +151,7 @@ static int record_page_struct(struct page** head, struct mm* mm, void* virtual) 
 	return create_page_struct(head, virtual, physical, page_size, vma->prot, vma->flags);
 }
 
+/* Can be called with the lock released, called by vmap */
 static void fixed_free_previous(struct page* head) {
 	while (head) {
 		if (head->vmm_flags & VMM_ALLOC) {
@@ -158,6 +163,7 @@ static void fixed_free_previous(struct page* head) {
 	}
 }
 
+/* Must be called with the lock acquired, called by vmap when a fixed mapping fails */
 static void fixed_restore_previous_after_fail(struct page* head, pte_t* pagetable) {
 	while (head) {
 		void* _unused;
@@ -187,7 +193,7 @@ void* vmap(void* hint, size_t size, mmuflags_t mmu_flags, int flags, void* optio
 	if (!vmap_validate_flags(flags))
 		return NULL;
 	unsigned long pt_flags = mmu_to_pt(mmu_flags);
-	if (pt_flags == 0)
+	if (pt_flags == ULONG_MAX)
 		return NULL;
 
 	const size_t page_size = flags & VMM_HUGEPAGE_2M ? HUGEPAGE_2M_SIZE : PAGE_SIZE;
@@ -202,20 +208,21 @@ void* vmap(void* hint, size_t size, mmuflags_t mmu_flags, int flags, void* optio
 		pt_flags |= PT_HUGEPAGE;
 
 	pte_t* pagetable = kernel_mm_struct.pagetable;
-	struct page* prev_pages = NULL;
+	struct page* prev_pages = NULL; /* For fixed mappings, keeps track of the old pages */
 
 	unsigned long irq;
 	spinlock_lock_irq_save(&kernel_mm_struct.vma_list_lock, &irq);
 
 	unsigned long mapped = 0;
 
+	/* Record any pages that could be overwritten, so that we can restore them later if a fixed mapping fails. */
 	if (flags & VMM_FIXED && !(flags & VMM_NOREPLACE)) {
 		u8* virtual = hint;
 		u8* end = virtual + size;
 		while (virtual < end) {
 			int err = record_page_struct(&prev_pages, &kernel_mm_struct, virtual);
 			if (err)
-				goto out;
+				goto cleanup_novma;
 			virtual += PAGE_SIZE;
 		}
 	}
@@ -223,22 +230,24 @@ void* vmap(void* hint, size_t size, mmuflags_t mmu_flags, int flags, void* optio
 	u8* virtual;
 	int err = vma_map(&kernel_mm_struct, hint, size, mmu_flags, flags, (void**)&virtual);
 	if (err)
-		goto out;
+		goto cleanup_novma;
 	u8* const ret = virtual;
 
 	if (flags & VMM_PHYSICAL) {
 		if (!optional)
-			goto cleanup;
+			goto cleanup_all;
 		physaddr_t physical = *(physaddr_t*)optional;
 		if (physical % page_size) {
 			err = -EINVAL;
-			goto cleanup;
+			goto cleanup_all;
 		}
 
 		while (page_count--) {
 			err = pagetable_map(pagetable, virtual, physical, pt_flags);
 			if (!handle_pagetable_error(pagetable, virtual, physical, pt_flags, err, flags))
-				goto cleanup;
+				goto cleanup_all;
+
+			tlb_flush_range(virtual, page_size);
 
 			mapped++;
 			virtual += page_size;
@@ -252,27 +261,38 @@ void* vmap(void* hint, size_t size, mmuflags_t mmu_flags, int flags, void* optio
 		while (page_count--) {
 			physaddr_t physical = alloc_pages(mm_flags, page_size_order);
 			if (!physical)
-				goto cleanup;
-			err = pagetable_map(pagetable, virtual, physical, pt_flags);
+				goto cleanup_all;
+			err = pagetable_map(pagetable, virtual, physical, pt_flags | PT_READ_WRITE);
 			if (!handle_pagetable_error(pagetable, virtual, physical, pt_flags, err, flags)) {
 				free_pages(physical, page_size_order);
-				goto cleanup;
+				goto cleanup_all;
+			}
+
+			tlb_flush_range(virtual, page_size);
+			memset(virtual, 0, page_size);
+			if (!(pt_flags & PT_READ_WRITE)) {
+				assert(pagetable_update(pagetable, virtual, physical, pt_flags) == 0);
+				tlb_flush_range(virtual, page_size);
 			}
 
 			mapped++;
 			virtual += page_size;
 		}
 	} else {
-		goto cleanup;
+		goto cleanup_all;
 	}
 
-	tlb_flush_range(ret, size);
+	spinlock_unlock_irq_restore(&kernel_mm_struct.vma_list_lock, &irq);
+
+	/* 
+	 * Free previous physical pages allocated with the VMM_ALLOC flag for fixed mappings.
+	 * Both of these functions can be called with null pointers, so no need to check for
+	 * null here.
+	 */
 	fixed_free_previous(prev_pages);
 	free_page_structs(prev_pages);
-
-	spinlock_unlock_irq_restore(&kernel_mm_struct.vma_list_lock, &irq);
 	return ret;
-cleanup:
+cleanup_all:
 	while (mapped--) {
 		virtual -= page_size;
 
@@ -293,12 +313,13 @@ cleanup:
 			free_pages(physical, page_size_order);
 	}
 
-	err = vma_unmap(&kernel_mm_struct, virtual, size);
+	err = vma_unmap(&kernel_mm_struct, ret, size);
 	if (err)
 		printk(PRINTK_ERR "mm: vma_unmap failed in error handling of %s (err: %i)\n", __func__, err);
 
+	/* No need to check if prev_pages is null, since the function handles that for us */
 	fixed_restore_previous_after_fail(prev_pages, pagetable);
-out:
+cleanup_novma:
 	free_page_structs(prev_pages);
 	spinlock_unlock_irq_restore(&kernel_mm_struct.vma_list_lock, &irq);
 	return NULL;
@@ -308,7 +329,7 @@ int vprotect(void* virtual, size_t size, mmuflags_t mmu_flags, int flags) {
 	if ((uintptr_t)virtual % PAGE_SIZE || size == 0 || !vprotect_validate_flags(flags))
 		return -EINVAL;
 	unsigned long pt_flags = mmu_to_pt(mmu_flags);
-	if (pt_flags == 0)
+	if (pt_flags == ULONG_MAX)
 		return -EINVAL;
 
 	pte_t* pagetable = current_cpu()->mm_struct->pagetable;
@@ -392,19 +413,35 @@ void __iomem* iomap(physaddr_t physical, size_t size, mmuflags_t mmu_flags) {
 	if (!(mmu_flags & MMU_WRITETHROUGH))
 		mmu_flags |= MMU_CACHE_DISABLE;
 
-	size_t page_offset = physical % PAGE_SIZE;
+	const size_t page_offset = physical % PAGE_SIZE;
 	physaddr_t _physical = physical - page_offset;
-	u8 __iomem* ret = vmap(NULL, size + page_offset, mmu_flags, VMM_IOMEM, &_physical);
-	if (!ret)
+	const size_t map_size = size + page_offset;
+
+	const size_t total_size = map_size + PAGE_SIZE * 2;
+
+	u8* const base = vmap(NULL, total_size, mmu_flags, VMM_IOMEM, &_physical);
+	if (!base)
 		return NULL;
+
+	
+	vprotect(base, PAGE_SIZE, MMU_NONE, 0);
+	vprotect(base + PAGE_SIZE + map_size, PAGE_SIZE, MMU_NONE, 0);
+
+	u8* iomem = base + PAGE_SIZE;
+	u8* const ret = vmap((void*)iomem, map_size, mmu_flags, VMM_IOMEM | VMM_FIXED, &physical);
+	if (unlikely(!ret)) {
+		vunmap(base, total_size, 0);
+		return NULL;
+	}
 
 	return ret + page_offset;
 }
 
 int iounmap(void __iomem* virtual, size_t size) {
-	size_t page_offset = (uintptr_t)virtual % PAGE_SIZE;
-	void* _virtual = (u8*)virtual - page_offset;
-	return vunmap(_virtual, size + page_offset, 0);
+	const size_t page_offset = (uintptr_t)virtual % PAGE_SIZE;
+	u8* const base = (u8*)virtual - page_offset - PAGE_SIZE;
+	const size_t total_size = size + page_offset + PAGE_SIZE * 2;
+	return vunmap(base, total_size, 0);
 }
 
 void vmm_init(void) {

@@ -18,7 +18,6 @@ static int slab_init(struct slab_cache* cache, struct slab* slab) {
 	slab->free = vmap(NULL, map_size, MMU_READ | MMU_WRITE, VMM_ALLOC, NULL);
 	if (!slab->free)
 		return -ENOMEM;
-	memset(slab->free, 0, map_size);
 
 	/* Allocate a virtual address for the slab base */
 	slab->base = vmap(NULL, slab_size, MMU_READ | MMU_WRITE, VMM_ALLOC, &cache->mm_flags);
