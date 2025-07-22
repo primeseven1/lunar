@@ -15,14 +15,13 @@ thread_t* kthread_create(unsigned int flags, void* (*func)(void*), void* arg) {
 	if (!thread)
 		return NULL;
 
-	void* stack = vmap(NULL, 0x4000, MMU_READ | MMU_WRITE, VMM_ALLOC, NULL);
+	void* stack = vmap_kstack();
 	if (!stack) {
 		sched_thread_free(thread);
 		return NULL;
 	}
-	stack = (u8*)stack + 0x4000;
 	thread->info.stack_top = stack;
-	thread->info.stack_size = 0x4000;
+	thread->info.stack_size = KSTACK_SIZE;
 
 	thread->ctx.general_regs.rip = asm_kthread_start;
 	thread->ctx.general_regs.cs = SEGMENT_KERNEL_CODE;
