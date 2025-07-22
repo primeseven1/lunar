@@ -131,7 +131,8 @@ int pagetable_update(pte_t* pagetable, void* virtual, physaddr_t physical, unsig
 	if (err)
 		return err;
 
-	if (pt_flags & PT_HUGEPAGE && page_size != HUGEPAGE_2M_SIZE)
+	if ((pt_flags & PT_HUGEPAGE && page_size != HUGEPAGE_2M_SIZE) ||
+			(!(pt_flags & PT_HUGEPAGE) && page_size != PAGE_SIZE))
 		return -EFAULT;
 	if ((uintptr_t)virtual & (page_size - 1) || physical & (page_size - 1))
 		return -EINVAL;
