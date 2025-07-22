@@ -105,20 +105,15 @@ void segments_init(void) {
 	struct tss_descriptor* tss = vmap(NULL, tss_size, MMU_READ | MMU_WRITE, VMM_ALLOC, NULL);
 	assert(tss != NULL);
 	memset(tss, INT_MAX, tss_size);
-
-	size_t ist_stack_size = 0x4000;
-	tss->rsp[0] = vmap(NULL, ist_stack_size, MMU_READ | MMU_WRITE, VMM_ALLOC, NULL);
-	assert(tss->rsp[0] != NULL);
-	tss->rsp[0] = (u8*)tss->rsp[0] + ist_stack_size;
-
-	for (int i = 0; i < 3; i++) {
-		u8* stack = vmap(NULL, ist_stack_size, MMU_READ | MMU_WRITE, VMM_ALLOC, NULL);
-		assert(stack != NULL);
-		stack += ist_stack_size;
-		tss->ist[i] = stack;
-	}
-
 	tss->iopb = sizeof(*tss);
+
+	/* Create stacks */
+	tss->rsp[0] = vmap_kstack();
+	assert(tss->rsp[0] != NULL);
+	for (int i = 0; i < 3; i++) {
+		tss->ist[i] = vmap_kstack();
+		assert(tss->ist[i] != NULL);
+	}
 
 	/* Now set up the TSS descriptor */
 	segments->tss.desc.limit_low = sizeof(*tss);
@@ -130,6 +125,7 @@ void segments_init(void) {
 	segments->tss.base_top = (uintptr_t)tss >> 32;
 	segments->tss.__reserved = 0;
 
+	/* Now just load the GDT for the CPU */
 	struct {
 		u16 limit;
 		struct kernel_segments* pointer;

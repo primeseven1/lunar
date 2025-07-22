@@ -423,9 +423,15 @@ void __iomem* iomap(physaddr_t physical, size_t size, mmuflags_t mmu_flags) {
 	if (!base)
 		return NULL;
 
-	
-	vprotect(base, PAGE_SIZE, MMU_NONE, 0);
-	vprotect(base + PAGE_SIZE + map_size, PAGE_SIZE, MMU_NONE, 0);
+	/* Add guard pages, errors should not happen here */
+	if (unlikely(vprotect(base, PAGE_SIZE, MMU_NONE, 0) != 0)) {
+		assert(vunmap(base, total_size, 0) == 0);
+		return NULL;
+	}
+	if (unlikely(vprotect(base + PAGE_SIZE + map_size, PAGE_SIZE, MMU_NONE, 0) != 0)) {
+		assert(vunmap(base, total_size, 0) == 0);
+		return NULL;
+	}
 
 	u8* iomem = base + PAGE_SIZE;
 	u8* const ret = vmap((void*)iomem, map_size, mmu_flags, VMM_IOMEM | VMM_FIXED, &physical);
@@ -442,6 +448,28 @@ int iounmap(void __iomem* virtual, size_t size) {
 	u8* const base = (u8*)virtual - page_offset - PAGE_SIZE;
 	const size_t total_size = size + page_offset + PAGE_SIZE * 2;
 	return vunmap(base, total_size, 0);
+}
+
+void* vmap_kstack(void) {
+	const size_t total_size = KSTACK_SIZE + PAGE_SIZE;
+
+	u8* ptr = vmap(NULL, total_size, MMU_READ | MMU_WRITE, VMM_ALLOC, NULL);
+	if (!ptr)
+		return NULL;
+
+	/* Map guard page */
+	if (unlikely(vprotect(ptr, PAGE_SIZE, MMU_NONE, 0) != 0)) {
+		assert(vunmap(ptr, total_size, 0) == 0);
+		return NULL;
+	}
+
+	return ptr + total_size;
+}
+
+int vunmap_kstack(void* stack) {
+	const size_t total_size = KSTACK_SIZE + PAGE_SIZE;
+	stack = (u8*)stack - total_size;
+	return vunmap(stack, total_size, 0);
 }
 
 void vmm_init(void) {

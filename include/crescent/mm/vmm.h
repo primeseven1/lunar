@@ -3,6 +3,8 @@
 #include <crescent/compiler.h>
 #include <crescent/core/locking.h>
 
+#define KSTACK_SIZE 0x4000
+
 #define PAGE_SIZE 0x1000ul
 #define HUGEPAGE_2M_SIZE 0x200000ul
 #define PAGE_SHIFT 12
@@ -112,5 +114,20 @@ void __iomem* iomap(physaddr_t physical, size_t size, mmuflags_t mmu_flags);
  * @return -errno on failure
  */
 int iounmap(void __iomem* virtual, size_t size);
+
+/**
+ * @brief Create a stack that is KSTACK_SIZE in length
+ *
+ * Adds a 4K guard page at the end of the stack.
+ *
+ * @return The address of the stack.
+ */
+void* vmap_kstack(void);
+
+/**
+ * @brief Unmap a kernel stack
+ * @param stack The stack to unmap
+ */
+int vunmap_kstack(void* stack);
 
 void vmm_init(void);
