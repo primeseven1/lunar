@@ -9,6 +9,7 @@
 #include "sched.h"
 
 static struct slab_cache* proc_cache;
+static struct slab_cache* thread_cache;
 
 static u8* pid_map = NULL;
 static spinlock_t pid_map_lock = SPINLOCK_STATIC_INITIALIZER;
@@ -49,7 +50,7 @@ static void free_pid(pid_t pid) {
 }
 
 static void proc_ctor(void* obj) {
-	proc_t* proc = obj;
+	struct proc* proc = obj;
 
 	proc->pid = alloc_pid();
 	proc->threadinfo.threads = NULL;
@@ -62,13 +63,13 @@ static void proc_ctor(void* obj) {
 }
 
 static void proc_dtor(void* obj) {
-	proc_t* proc = obj;
+	struct proc* proc = obj;
 	if (proc->pid != max_pid_count)
 		free_pid(proc->pid);
 }
 
-proc_t* sched_proc_alloc(void) {
-	proc_t* proc = slab_cache_alloc(proc_cache);
+struct proc* sched_proc_alloc(void) {
+	struct proc* proc = slab_cache_alloc(proc_cache);
 	if (!proc)
 		return NULL;
 	if (proc->pid == max_pid_count) {
@@ -79,15 +80,30 @@ proc_t* sched_proc_alloc(void) {
 	return proc;
 }
 
-void sched_proc_free(proc_t* proc) {
+void sched_proc_free(struct proc* proc) {
 	slab_cache_free(proc_cache, proc);
 }
 
-void sched_proc_init(void) {
-	proc_cache = slab_cache_create(sizeof(proc_t), _Alignof(proc_t), MM_ZONE_NORMAL, proc_ctor, proc_dtor);
-	assert(proc_cache != NULL);
+struct thread* sched_thread_alloc(void) {
+	struct thread* thread = slab_cache_alloc(thread_cache);
+	if (!thread)
+		return NULL;
 
+	memset(thread, 0, sizeof(*thread));
+	return thread;
+}
+
+void sched_thread_free(struct thread* thread) {
+	slab_cache_free(thread_cache, thread);
+}
+
+void sched_create_init(void) {
+	proc_cache = slab_cache_create(sizeof(struct proc), _Alignof(struct proc), MM_ZONE_NORMAL, proc_ctor, proc_dtor);
+	assert(proc_cache != NULL);
 	const size_t pid_map_size = (max_pid_count + 7) / 8;
 	pid_map = vmap(NULL, pid_map_size, MMU_READ | MMU_WRITE, VMM_ALLOC, NULL);
 	assert(pid_map != NULL);
+
+	thread_cache = slab_cache_create(sizeof(struct thread), _Alignof(struct thread), MM_ZONE_NORMAL, NULL, NULL);
+	assert(thread_cache != NULL);
 }

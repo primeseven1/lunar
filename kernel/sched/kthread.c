@@ -7,11 +7,14 @@
 #include <crescent/common.h>
 #include <crescent/core/printk.h>
 #include <crescent/asm/wrap.h>
+#include <crescent/asm/flags.h>
 #include "sched.h"
-#include "kthread.h"
 
-thread_t* kthread_create(unsigned int flags, void* (*func)(void*), void* arg) {
-	thread_t* thread = sched_thread_alloc();
+/* Bit 1 is reserved, and must always be set */
+#define RFLAGS_DEFAULT ((1 << 1) | CPU_FLAG_INTERRUPT)
+
+struct thread* kthread_create(int sched_flags, int kthread_flags, void* (*func)(void*), void* arg) {
+	struct thread* thread = sched_thread_alloc();
 	if (!thread)
 		return NULL;
 
@@ -20,34 +23,36 @@ thread_t* kthread_create(unsigned int flags, void* (*func)(void*), void* arg) {
 		sched_thread_free(thread);
 		return NULL;
 	}
-	thread->info.stack_top = stack;
-	thread->info.stack_size = KSTACK_SIZE;
+	thread->stack = stack;
+	thread->stack_size = KSTACK_SIZE;
 
-	thread->ctx.general_regs.rip = asm_kthread_start;
-	thread->ctx.general_regs.cs = SEGMENT_KERNEL_CODE;
-	thread->ctx.general_regs.rflags = 0x202;
-	thread->ctx.general_regs.ss = SEGMENT_KERNEL_DATA;
-	thread->ctx.general_regs.rsp = stack;
-	thread->ctx.general_regs.rdi = (long)func;
-	thread->ctx.general_regs.rsi = (long)arg;
+	thread->ctx.rip = asm_kthread_start;
+	thread->ctx.cs = SEGMENT_KERNEL_CODE;
+	thread->ctx.rflags = RFLAGS_DEFAULT;
+	thread->ctx.ss = SEGMENT_KERNEL_DATA;
+	thread->ctx.rsp = stack;
+	thread->ctx.rdi = (long)func;
+	thread->ctx.rsi = (long)arg;
 
-	sched_schedule_new_thread(thread, NULL, flags);
+	atomic_store(&thread->refcount, kthread_flags & KTHREAD_JOIN ? 1 : 0, ATOMIC_SEQ_CST);
+	schedule_thread(thread, NULL, sched_flags);
+
 	return thread;
 }
 
-void* kthread_join(thread_t* thread) {
+void* kthread_join(struct thread* thread) {
 	while (atomic_load(&thread->state, ATOMIC_SEQ_CST) != THREAD_STATE_ZOMBIE)
 		cpu_relax();
 
-	void* ret = (void*)thread->ctx.general_regs.rax;
+	void* ret = (void*)thread->ctx.rax;
 	atomic_sub_fetch(&thread->refcount, 1, ATOMIC_SEQ_CST);
 	return ret;
 }
 
 _Noreturn void kthread_exit(void* ret) {
-	thread_t* thread = current_cpu()->current_thread;
+	struct thread* thread = current_cpu()->current_thread;
 
-	thread->ctx.general_regs.rax = (long)ret;
+	thread->ctx.rax = (long)ret;
 	atomic_store(&thread->state, THREAD_STATE_ZOMBIE, ATOMIC_SEQ_CST);
 
 	/* TODO: add sched_yeild when implemented */
@@ -58,10 +63,11 @@ _Noreturn void kthread_exit(void* ret) {
 __diag_push();
 __diag_ignore("-Wmissing-prototypes");
 
-__asmlinkage void __kthread_start(void* (*func)(void*), void* arg) {
-	func(arg);
-	printk(PRINTK_EMERG "sched: Function at %p did not call kthread_exit!\n", func);
-	/* asm_kthread_startup causes a trap already, so just return here */
+__asmlinkage _Noreturn void __kthread_start(void* (*func)(void*), void* arg) {
+	/* It's preferred for the thread function to call kthread_exit for clarity, but it's not a huge deal if that doesn't happen */
+	void* ret = func(arg);
+	printk(PRINTK_WARN "function at %p failed to call kthread_exit!\n", func);
+	kthread_exit(ret);
 }
 
 __diag_pop();

@@ -1,24 +1,55 @@
 #pragma once
 
-#include <crescent/sched/sched.h>
+#include <crescent/compiler.h>
 
-void sched_proc_init(void);
-void sched_thread_init(void);
-void sched_lapic_timer_init(void);
-
-proc_t* sched_proc_alloc(void);
-void sched_proc_free(proc_t* proc);
-thread_t* sched_thread_alloc(void);
-void sched_thread_free(thread_t* thread);
-
-int sched_schedule_new_thread(thread_t* thread, proc_t* proc, unsigned int flags);
+void sched_preempt_init(void);
+void sched_create_init(void);
 
 /**
- * @brief Switch a task from a timer interrupt
+ * @brief Allocate a process struct
  *
- * This function allows the interrupt handler to restore the general purpose registers,
- * this allows for the EOI to be issued automatically
+ * Automatically assigns a PID to the new process
  *
- * @param ctx The context from the interrupt handler
+ * @return A new process struct
  */
-void sched_switch_from_interrupt(struct context* ctx);
+struct proc* sched_proc_alloc(void);
+
+/**
+ * @brief Free a process struct
+ * @param proc The process struct to free
+ */
+void sched_proc_free(struct proc* proc);
+
+/**
+ * @brief Allocate a thread struct
+ * @return The new thread struct
+ */
+struct thread* sched_thread_alloc(void);
+
+/**
+ * @brief Free a thread struct
+ * @param thread The thread to free
+ */
+void sched_thread_free(struct thread* thread);
+
+/**
+ * @brief Select a new thread to be scheduled
+ * @param start The thread to start searching from
+ * @return The new thread selected
+ */
+struct thread* select_new_thread(struct thread* start);
+
+/**
+ * @brief Schedule a new thread
+ *
+ * The refcount is not modified by this function.
+ *
+ * @param thread The thread to schedule
+ * @param proc The process to associate this thread with. NULL means the kernel process
+ * @param flags Scheduler flags
+ *
+ * @return -errno on failure, 0 on success
+ */
+int schedule_thread(struct thread* thread, struct proc* proc, int flags);
+
+__asmlinkage _Noreturn void asm_kthread_start(void);
