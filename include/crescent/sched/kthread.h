@@ -1,7 +1,11 @@
 #pragma once
 
-#include <crescent/sched/types.h>
+#include <crescent/sched/sched.h>
 
-thread_t* kthread_create(unsigned int flags, void* (*func)(void*), void* arg);
+enum kthread_flags {
+	KTHREAD_JOIN = (1 << 0)
+};
+
+struct thread* kthread_create(int sched_flags, int kthread_flags, void* (*func)(void*), void* arg);
 _Noreturn void kthread_exit(void* ret);
-void* kthread_join(thread_t* thread);
+void* kthread_join(struct thread* thread);
