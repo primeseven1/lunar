@@ -1,14 +1,15 @@
 #include <crescent/types.h>
 #include <crescent/common.h>
 #include <crescent/compiler.h>
+#include <crescent/asm/segment.h>
 #include <crescent/core/panic.h>
 #include <crescent/core/locking.h>
 #include <crescent/core/printk.h>
 #include <crescent/core/cpu.h>
 #include <crescent/core/interrupt.h>
 #include <crescent/core/apic.h>
+#include <crescent/mm/vmm.h>
 #include <crescent/lib/string.h>
-#include <crescent/asm/segment.h>
 #include "traps.h"
 
 struct idt_entry {
