@@ -120,7 +120,7 @@ int iounmap(void __iomem* virtual, size_t size);
  *
  * Adds a 4K guard page at the end of the stack.
  *
- * @return The address of the stack.
+ * @return The address of the stack, the pointer returned points to the top of the stack.
  */
 void* vmap_kstack(void);
 
