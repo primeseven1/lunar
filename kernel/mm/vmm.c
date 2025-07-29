@@ -434,20 +434,20 @@ void __iomem* iomap(physaddr_t physical, size_t size, mmuflags_t mmu_flags) {
 	}
 
 	u8* iomem = base + PAGE_SIZE;
-	u8* const ret = vmap((void*)iomem, map_size, mmu_flags, VMM_IOMEM | VMM_FIXED, &physical);
+	u8* const ret = vmap(iomem, map_size, mmu_flags, VMM_IOMEM | VMM_FIXED, &physical);
 	if (unlikely(!ret)) {
 		vunmap(base, total_size, 0);
 		return NULL;
 	}
 
-	return ret + page_offset;
+	return (u8 __iomem*)ret + page_offset;
 }
 
 int iounmap(void __iomem* virtual, size_t size) {
 	const size_t page_offset = (uintptr_t)virtual % PAGE_SIZE;
-	u8* const base = (u8*)virtual - page_offset - PAGE_SIZE;
+	u8 __iomem* const base = (u8 __iomem*)virtual - page_offset - PAGE_SIZE;
 	const size_t total_size = size + page_offset + PAGE_SIZE * 2;
-	return vunmap(base, total_size, 0);
+	return vunmap((void __force*)base, total_size, 0);
 }
 
 void* vmap_kstack(void) {

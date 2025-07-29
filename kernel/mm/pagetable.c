@@ -39,7 +39,7 @@ static int walk_pagetable(pte_t* pagetable, const void* virtual, bool create, si
 	 * so proper cleanup can be done after any allocation failures
 	 */
 	physaddr_t new_tables[3] = { 0, 0, 0 };
-	pte_t* new_tables_table[3] = { 0, 0, 0 };
+	pte_t* new_tables_table[3] = { NULL, NULL, NULL };
 
 	for (size_t i = 0; i < ARRAY_SIZE(indexes) - 1; i++) {
 		/* Check to see if we want either a 1GiB or 2MiB page */
