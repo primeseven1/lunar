@@ -32,7 +32,7 @@ int liminefb_term_init(struct limine_framebuffer_response* response) {
 
 	for (u64 i = 0; i < context_count; i++) {
 		struct limine_framebuffer* fb = response->framebuffers[i];
-		contexts[i] = flanterm_fb_init(flanterm_kmalloc, flanterm_kfree, (u32*)fb->address, 
+		contexts[i] = flanterm_fb_init(flanterm_kmalloc, flanterm_kfree, (u32 __force*)fb->address, 
 				fb->width, fb->height, fb->pitch, fb->red_mask_size, fb->red_mask_shift, 
 				fb->green_mask_size, fb->green_mask_shift, fb->blue_mask_size, fb->blue_mask_shift, 
 				NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, 0, 1, 0, 0, 0);
