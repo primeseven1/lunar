@@ -77,8 +77,8 @@ struct ioapic_desc {
 	u32 __iomem* address;
 	u32 base, top;
 };
-struct ioapic_desc* ioapics;
-unsigned long ioapic_count;
+static struct ioapic_desc* ioapics;
+static unsigned long ioapic_count;
 
 static struct acpi_madt* madt = NULL;
 
@@ -119,12 +119,12 @@ static struct ioapic_desc* get_ioapic_gsi(u32 gsi) {
 }
 
 u32 lapic_read(unsigned int reg) {
-	u32 __iomem* io = (u32*)((u8*)lapic_address + reg);
+	u32 __iomem* io = (u32 __iomem*)((u8 __iomem*)lapic_address + reg);
 	return readl(io);
 }
 
 void lapic_write(unsigned int reg, u32 x) {
-	u32 __iomem* io = (u32*)((u8*)lapic_address + reg);
+	u32 __iomem* io = (u32 __iomem*)((u8 __iomem*)lapic_address + reg);
 	writel(io, x);
 }
 

@@ -11,7 +11,7 @@ struct term_hook {
 	struct term_hook* next;
 };
 
-struct term_hook* term_hook_head = NULL;
+static struct term_hook* term_hook_head = NULL;
 static spinlock_t hooks_lock = SPINLOCK_STATIC_INITIALIZER;
 
 static int __term_driver_register(void (*write)(const char*, size_t)) {
