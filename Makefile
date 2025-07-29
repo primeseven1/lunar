@@ -8,21 +8,15 @@ CFLAGS = -c -MMD -MP -std=c11 -I./include \
 	 -fno-omit-frame-pointer -fwrapv \
 	 -Wall -Wextra -Wshadow -Wpointer-arith \
 	 -Winline -Wimplicit-fallthrough -Wvla -Walloca \
-	 -Wstrict-prototypes -Wmissing-prototypes \
+	 -Wstrict-prototypes -Wmissing-prototypes -Wno-attributes \
 	 -mno-red-zone -mgeneral-regs-only \
 	 -O$(CONFIG_OPTIMIZATION)
 LDFLAGS = -static -nostdlib --no-dynamic-linker \
 	  -ztext -zmax-page-size=0x1000 \
 	  -O$(CONFIG_OPTIMIZATION)
 
-ifeq ($(CONFIG_LLVM), y)
-CC := clang
-LD := ld.lld
-CFLAGS += --target=x86_64-pc-none-elf -fcolor-diagnostics
-else
 CC := x86_64-elf-gcc
 LD := x86_64-elf-ld
-endif
 
 ifeq ($(CONFIG_DEBUG), y)
 ASMFLAGS += -g
@@ -48,6 +42,9 @@ else
 LDSCRIPT := ./kernel/linker_x86_64.ld
 endif
 
+LIBGCC_DIR = $(shell dirname $(shell $(CC) $(CFLAGS) -print-libgcc-file-name))
+LDFLAGS += -L$(LIBGCC_DIR)
+
 .PHONY: all menuconfig clean iso
 
 all: $(OUTPUT)
@@ -64,23 +61,30 @@ menuconfig:
 	scripts/mconf.sh
 
 $(OUTPUT): $(S_OBJECT_FILES) $(C_OBJECT_FILES) $(LDSCRIPT)
-	$(LD) $(LDFLAGS) $(S_OBJECT_FILES) $(C_OBJECT_FILES) -T$(LDSCRIPT) -o $(OUTPUT)
+	@echo "[LD] $@"
+	@$(LD) $(LDFLAGS) $(S_OBJECT_FILES) $(C_OBJECT_FILES) -T$(LDSCRIPT) -o $(OUTPUT) -lgcc
+	@echo "[BUILD] Kernel image $@ is ready!"
 
 %.o: %.S
-	$(CC) $(ASMFLAGS) $< -o $@
+	@echo "[AS] $<"
+	@$(CC) $(ASMFLAGS) $< -o $@
 
 %.o: %.c
-	$(CC) $(CFLAGS) $< -o $@
+	@echo "[CC] $<"
+	@sparse $(CFLAGS) $<
+	@$(CC) $(CFLAGS) $< -o $@
 
 clean:
-	rm -f $(S_OBJECT_FILES) $(C_OBJECT_FILES) $(H_DEPENDENCIES) $(OUTPUT)
+	@rm -f $(S_OBJECT_FILES) $(C_OBJECT_FILES) $(H_DEPENDENCIES) $(OUTPUT)
+	@echo "[CLEAN] ."
 
-ISO_ROOT := ./tools/testing/iso
-ISO_OUTPUT := ./tools/testing/crescent.iso
+ISO_ROOT := tools/testing/iso
+ISO_OUTPUT := tools/testing/crescent.iso
 
 iso: $(OUTPUT)
-	cp -v $(OUTPUT) $(ISO_ROOT)
-	xorriso -as mkisofs -b boot/limine/limine-bios-cd.bin -no-emul-boot \
+	@cp $(OUTPUT) $(ISO_ROOT)
+	@xorriso -as mkisofs -b boot/limine/limine-bios-cd.bin -no-emul-boot \
 		-no-emul-boot -boot-load-size 4 -boot-info-table --efi-boot boot/limine/limine-uefi-cd.bin \
-		--efi-boot-part --efi-boot-image --protective-msdos-label $(ISO_ROOT) -o $(ISO_OUTPUT)
-	./tools/limine/limine bios-install $(ISO_OUTPUT)
+		--efi-boot-part --efi-boot-image --protective-msdos-label $(ISO_ROOT) -o $(ISO_OUTPUT) &> /dev/null
+	@./tools/limine/limine bios-install $(ISO_OUTPUT) &> /dev/null
+	@echo "[ISO] $(ISO_OUTPUT)"
