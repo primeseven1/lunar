@@ -1,11 +1,5 @@
 mainmenu "Crescent 0.01 Configuration"
 
-config LLVM
-	bool "Enable LLVM"
-	default y
-	help
-	  "Use LLVM tools (clang/lld) instead of GNU tools (gcc/ld)"
-
 menu "Build options"
 
 config DEBUG
