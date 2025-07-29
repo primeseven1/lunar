@@ -123,7 +123,7 @@ __diag_ignore("-Wmissing-prototypes");
 void __ubsan_handle_type_mismatch_v1(struct type_mismatch_info* mismatch, const void* ptr) {
 	size_t align = 1 << mismatch->log_alignment;
 	int err_type;
-	if (ptr == 0)
+	if (!ptr)
 		err_type = mismatch->type_check_kind == NONNULL_ASSIGN ? NULL_POINTER_USE_WITH_NULLABILITY : NULL_POINTER_USE;
 	else
 		err_type = (uintptr_t)ptr & (align - 1) ? MISALIGNED_POINTER_USE : INSUFFICIENT_OBJECT_SIZE;
