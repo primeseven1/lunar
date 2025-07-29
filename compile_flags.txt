@@ -18,6 +18,7 @@
 -Walloca
 -Wstrict-prototypes
 -Wmissing-prototypes
+-Wno-unknown-attributes
 -mno-red-zone
 -mgeneral-regs-only
 
