@@ -199,6 +199,37 @@ void __ubsan_handle_shift_out_of_bounds(struct shift_out_of_bounds_info* oob, co
 	ubsan_end(false);
 }
 
+void __ubsan_handle_add_overflow(struct overflow_info* overflow, size_t lhs, size_t rhs) {
+	(void)lhs;
+	(void)rhs;
+	printk(PRINTK_CRIT "ubsan: %s:%u Add overflow", 
+			overflow->source.file_name, overflow->source.line);
+	ubsan_end(false);
+}
+
+void __ubsan_handle_sub_overflow(struct overflow_info* overflow, size_t lhs, size_t rhs) {
+	(void)lhs;
+	(void)rhs;
+	printk(PRINTK_CRIT "ubsan: %s:%u Subtract overflow",
+			overflow->source.file_name, overflow->source.line);
+	ubsan_end(false);
+}
+
+void __ubsan_handle_mul_overflow(struct overflow_info* overflow, size_t lhs, size_t rhs) {
+	(void)lhs;
+	(void)rhs;
+	printk(PRINTK_CRIT "ubsan: %s:%u Multipy overflow",
+			overflow->source.file_name, overflow->source.line);
+	ubsan_end(false);
+}
+
+void __ubsan_handle_negate_overflow(struct overflow_info* overflow, size_t old) {
+	(void)old;
+	printk(PRINTK_CRIT "ubsan: %s:%u Negate overflow",
+			overflow->source.file_name, overflow->source.line);
+	ubsan_end(false);
+}
+
 void __ubsan_handle_divrem_overflow(struct overflow_info* overflow, size_t lhs, size_t rhs) {
 	(void)lhs;
 	const char* msg = rhs == 0 ? "division by zero" : "divrem overflow";
