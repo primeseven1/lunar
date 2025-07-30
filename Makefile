@@ -4,11 +4,10 @@ ASMFLAGS = -c -MMD -MP -I./include \
 	   -include ./include/generated/autoconf.h
 CFLAGS = -c -MMD -MP -std=c11 -I./include \
 	 -include ./include/generated/autoconf.h \
-	 -ffreestanding -fno-stack-protector \
-	 -fno-omit-frame-pointer -fwrapv \
-	 -Wall -Wextra -Wshadow -Wpointer-arith \
-	 -Winline -Wimplicit-fallthrough -Wvla -Walloca \
-	 -Wstrict-prototypes -Wmissing-prototypes -Wno-attributes \
+	 -ffreestanding -fno-stack-protector -fno-omit-frame-pointer \
+	 -Wall -Wextra -Wshadow -Wpointer-arith -Winline \
+	 -Wimplicit-fallthrough -Wvla -Walloca -Wstrict-prototypes \
+	 -Wmissing-prototypes -Wno-attributes \
 	 -mno-red-zone -mgeneral-regs-only \
 	 -O$(CONFIG_OPTIMIZATION)
 LDFLAGS = -static -nostdlib --no-dynamic-linker \
