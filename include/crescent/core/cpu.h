@@ -7,9 +7,7 @@ struct cpu {
 	struct cpu* self;
 	u32 processor_id, lapic_id, sched_processor_id;
 	struct mm* mm_struct;
-	struct thread* current_thread;
-	struct thread* thread_queue;
-	atomic(unsigned long) thread_count;
+	struct thread* current_thread, *thread_queue;
 	spinlock_t thread_lock;
 };
 
