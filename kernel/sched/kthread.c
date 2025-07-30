@@ -26,34 +26,34 @@ struct thread* kthread_create(int sched_flags, int kthread_flags, void* (*func)(
 	thread->stack = stack;
 	thread->stack_size = KSTACK_SIZE;
 
-	thread->ctx.rip = asm_kthread_start;
-	thread->ctx.cs = SEGMENT_KERNEL_CODE;
-	thread->ctx.rflags = RFLAGS_DEFAULT;
-	thread->ctx.ss = SEGMENT_KERNEL_DATA;
-	thread->ctx.rsp = stack;
-	thread->ctx.rdi = (long)func;
-	thread->ctx.rsi = (long)arg;
+	thread->ctx.general.rip = asm_kthread_start;
+	thread->ctx.general.cs = SEGMENT_KERNEL_CODE;
+	thread->ctx.general.rflags = RFLAGS_DEFAULT;
+	thread->ctx.general.ss = SEGMENT_KERNEL_DATA;
+	thread->ctx.general.rsp = stack;
+	thread->ctx.general.rdi = (long)func;
+	thread->ctx.general.rsi = (long)arg;
 
-	atomic_store(&thread->refcount, kthread_flags & KTHREAD_JOIN ? 1 : 0, ATOMIC_SEQ_CST);
+	atomic_store(&thread->refcount, kthread_flags & KTHREAD_JOIN ? 1 : 0, ATOMIC_RELAXED);
 	schedule_thread(thread, NULL, sched_flags);
 
 	return thread;
 }
 
 void* kthread_join(struct thread* thread) {
-	while (atomic_load(&thread->state, ATOMIC_SEQ_CST) != THREAD_STATE_ZOMBIE)
+	while (atomic_load(&thread->state, ATOMIC_ACQUIRE) != THREAD_STATE_ZOMBIE)
 		cpu_relax();
 
-	void* ret = (void*)thread->ctx.rax;
-	atomic_sub_fetch(&thread->refcount, 1, ATOMIC_SEQ_CST);
+	void* ret = (void*)thread->ctx.general.rax;
+	atomic_sub_fetch(&thread->refcount, 1, ATOMIC_RELEASE);
 	return ret;
 }
 
 _Noreturn void kthread_exit(void* ret) {
 	struct thread* thread = current_cpu()->current_thread;
 
-	thread->ctx.rax = (long)ret;
-	atomic_store(&thread->state, THREAD_STATE_ZOMBIE, ATOMIC_SEQ_CST);
+	thread->ctx.general.rax = (long)ret;
+	atomic_store(&thread->state, THREAD_STATE_ZOMBIE, ATOMIC_RELEASE);
 
 	/* TODO: add sched_yeild when implemented */
 	while (1)

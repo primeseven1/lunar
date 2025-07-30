@@ -11,7 +11,7 @@
 #include <crescent/mm/vmm.h>
 #include "sched.h"
 
-#define WAIT_LENGTH 5000u
+#define WAIT_LENGTH 10000u
 
 static u32 lapic_timer_get_ticks_for_preempt(void) {
 	lapic_write(LAPIC_REG_TIMER_DIVIDE, 0x03); /* Set the divisor to 16 */
@@ -23,39 +23,33 @@ static u32 lapic_timer_get_ticks_for_preempt(void) {
 	return U32_MAX - lapic_read(LAPIC_REG_TIMER_CURRENT); 
 }
 
+/* Needs to be as simple as possible, don't want to stay too long in this interrupt */
 static void do_preempt(struct context* context) {
 	struct cpu* cpu = current_cpu();
-	spinlock_lock(&cpu->thread_lock);
-
 	struct thread* current = cpu->current_thread;
-	if (atomic_load(&current->state, ATOMIC_SEQ_CST) == THREAD_STATE_RUNNING)
-		atomic_store(&current->state, THREAD_STATE_RUNNABLE, ATOMIC_SEQ_CST);
 
-	struct thread* new_thread = select_new_thread(current);
-	if (!new_thread) {
-		new_thread = select_new_thread(cpu->thread_queue);
-		if (unlikely(!new_thread))
-			panic("no runnable threads! (idle thread died?)");
-	}
+	struct thread* next = get_next_thread();
+	if (!next)
+		panic("no runnable threads!");
 
-	if (new_thread == current)
-		goto out;
+	/* 
+	 * Will add extended states later, we can just let the interrupt 
+	 * handler restore the general purpose registers for us.
+	 */
+	current->ctx.general = *context;
+	*context = next->ctx.general;
 
-	/* This will allow the interrupt handler to restore the general purpose registers for us */
-	current->ctx = *context;
-	*context = new_thread->ctx;
-	if (current->proc != new_thread->proc)
-		vmm_switch_mm_struct(new_thread->proc->mm_struct);
+	if (current->proc != next->proc)
+		vmm_switch_mm_struct(next->proc->mm_struct);
 
-	cpu->current_thread = new_thread;
-out:
-	atomic_store(&new_thread->state, THREAD_STATE_RUNNING, ATOMIC_SEQ_CST);
-	spinlock_unlock(&cpu->thread_lock);
+	atomic_store(&current->state, THREAD_STATE_RUNNABLE, ATOMIC_RELEASE);
+	atomic_store(&next->state, THREAD_STATE_RUNNING, ATOMIC_RELEASE);
+
+	cpu->current_thread = next;
 }
 
 static void lapic_timer(const struct isr* isr, struct context* ctx) {
 	(void)isr;
-	(void)ctx;
 	do_preempt(ctx);
 }
 
@@ -66,7 +60,7 @@ static struct irq timer_irq = {
 
 static const struct isr* lapic_timer_isr = NULL;
 
-void sched_preempt_init(void) {
+void preempt_init(void) {
 	if (!lapic_timer_isr) {
 		lapic_timer_isr = interrupt_register(&timer_irq, lapic_timer);
 		assert(lapic_timer_isr != NULL);

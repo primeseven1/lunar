@@ -1,134 +1,71 @@
 #include <crescent/common.h>
 #include <crescent/sched/sched.h>
 #include <crescent/sched/kthread.h>
-#include <crescent/core/cpu.h>
+#include <crescent/mm/slab.h>
 #include <crescent/core/panic.h>
-#include <crescent/lib/string.h>
-#include <crescent/mm/heap.h>
+#include <crescent/core/cpu.h>
+#include <crescent/core/printk.h>
+#include <crescent/core/trace.h>
 #include "sched.h"
 
 static struct proc* kernel_proc;
-static struct cpu** cpus = NULL;
-static u64 cpu_count = 1;
 
-struct thread* select_new_thread(struct thread* start) {
-	struct thread* thread = start->sched_info.next;
-	if (!thread)
-		thread = start;
-
-	while (thread) {
-		unsigned int state = atomic_load(&thread->state, ATOMIC_SEQ_CST);
-		if (state == THREAD_STATE_RUNNABLE)
+static inline struct thread* __get_next_thread(struct thread* start) {
+	while (start) {
+		if (atomic_load(&start->state, ATOMIC_ACQUIRE) == THREAD_STATE_RUNNABLE)
 			break;
-		
-		thread = thread->sched_info.next;
+		start = start->next;
 	}
 
-	return thread;
+	return start;
 }
 
-static struct cpu* sched_pick_cpu(const u8* affinity) {
-	if (cpu_count == 1 || !cpus)
-		return current_cpu();
+/* Must be very simple, can be called from a task preemption */
+struct thread* get_next_thread(void) {
+	struct cpu* cpu = current_cpu();
+	spinlock_lock(&cpu->thread_lock);
 
-	struct cpu* best = NULL;
-	u64 i;
+	struct thread* current = cpu->current_thread;
+	assert(current != NULL);
+	struct thread* ret = current->next;
 
-	/* Find the first allowed CPU */
-	for (i = 0; i < cpu_count; i++) {
-		size_t byte = i / 8;
-		unsigned int bit  = i % 8;
-		if (affinity[byte] & (1 << bit)) {
-			best = cpus[i];
-			break;
-		}
-	}
+	ret = __get_next_thread(ret);
+	if (!ret && current != cpu->thread_queue)
+		ret = __get_next_thread(cpu->thread_queue);
 
-	/* pick the allowed CPU with fewest threads */
-	for (i = i + 1; i < cpu_count; i++) {
-		size_t byte = i / 8;
-		unsigned int bit  = i % 8;
-		u64 current_thread_count = atomic_load(&cpus[i]->thread_count, ATOMIC_SEQ_CST);
-		u64 best_thread_count = atomic_load(&best->thread_count, ATOMIC_SEQ_CST);
-		if ((affinity[byte] & (1 << bit)) && current_thread_count < best_thread_count)
-			best = cpus[i];
-	}
-
-	/* 
-	 * thread affinity doesn't want any CPU to run this thread, 
-	 * but at least one CPU must run this thread 
-	 */
-	return best ? best : current_cpu();
-}
-
-static int new_thread_init(struct thread* thread, struct proc* proc, int flags) {
-	size_t affinity_size = (cpu_count + 7) / 8;
-	thread->sched_info.affinity = kzalloc(affinity_size, MM_ZONE_NORMAL);
-	if (!thread->sched_info.affinity)
-		return -ENOMEM;
-
-	if (flags & SCHED_THIS_CPU) {
-		u32 sched_id = current_cpu()->sched_processor_id;
-		size_t byte = sched_id / 8;
-		unsigned int bit = sched_id % 8;
-		thread->sched_info.affinity[byte] |= (1 << bit);
-	} else {
-		memset(thread->sched_info.affinity, INT_MAX, affinity_size);
-	}
-
-	struct cpu* target_cpu = sched_pick_cpu(thread->sched_info.affinity);
-	thread->target_cpu = target_cpu;
-	thread->proc = proc;
-	int state = flags & THREAD_STATE_RUNNING ? THREAD_STATE_RUNNING : THREAD_STATE_RUNNABLE;
-	atomic_store(&thread->state, state, ATOMIC_SEQ_CST);
-
-	return 0;
-}
-
-static void thread_add_to_proc(struct proc* proc, struct thread* thread) {
-	spinlock_lock(&proc->threadinfo.lock);
-
-	if (proc->threadinfo.threads) {
-		struct thread* tail = proc->threadinfo.threads;
-		while (tail->proc_info.next)
-			tail = tail->proc_info.next;
-		tail->proc_info.next = thread;
-		thread->proc_info.prev = tail;
-		thread->proc_info.next = NULL;
-	} else {
-		proc->threadinfo.threads = thread;
-		thread->proc_info.prev = NULL;
-		thread->proc_info.next = NULL;
-	}
-
-	proc->threadinfo.thread_count++;
-	spinlock_unlock(&proc->threadinfo.lock);
+	spinlock_unlock(&cpu->thread_lock);
+	return ret;
 }
 
 static void thread_add_to_queue(struct thread* thread) {
-	struct cpu* target_cpu = thread->target_cpu;
-	spinlock_lock(&target_cpu->thread_lock);
+	struct cpu* cpu = current_cpu();
+	spinlock_lock(&cpu->thread_lock);
 
-	if (target_cpu->thread_queue) {
-		struct thread* tail = target_cpu->thread_queue;
-		while (tail->sched_info.next)
-			tail = tail->sched_info.next;
-		tail->sched_info.next = thread;
-		thread->sched_info.prev = tail;
-		thread->sched_info.next = NULL;
+	if (cpu->thread_queue) {
+		struct thread* tail = cpu->thread_queue;
+		while (tail->next)
+			tail = tail->next;
+		tail->next = thread;
+		thread->prev = tail;
+		thread->next = NULL;
 	} else {
-		target_cpu->thread_queue = thread;
-		thread->sched_info.prev = NULL;
-		thread->sched_info.next = NULL;
+		cpu->thread_queue = thread;
+		thread->prev = NULL;
+		thread->next = NULL;
 	}
 
-	atomic_add_fetch(&target_cpu->thread_count, 1, ATOMIC_SEQ_CST);
-	spinlock_unlock(&target_cpu->thread_lock);
+	atomic_add_fetch(&thread->proc->thread_count, 1, ATOMIC_RELEASE);
+	spinlock_unlock(&cpu->thread_lock);
+}
+
+static int new_thread_init(struct thread* thread, struct proc* proc, int flags) {
+	(void)flags;
+	thread->proc = proc;
+	atomic_store(&thread->state, THREAD_STATE_RUNNABLE, ATOMIC_RELEASE);
+	return 0;
 }
 
 int schedule_thread(struct thread* thread, struct proc* proc, int flags) {
-	if (!cpus && !(flags & SCHED_THIS_CPU))
-		return -EAGAIN;
 	if (!proc)
 		proc = kernel_proc;
 
@@ -137,22 +74,56 @@ int schedule_thread(struct thread* thread, struct proc* proc, int flags) {
 	if (err)
 		goto out;
 
-	thread_add_to_proc(proc, thread);
 	thread_add_to_queue(thread);
 out:
 	local_irq_restore(irq_flags);
 	return err;
 }
 
-static _Noreturn void* idle(void* _unused) {
-	(void)_unused;
+static void switch_thread(struct thread* next) {
+	struct cpu* cpu = current_cpu();
+	struct thread* current = cpu->current_thread;
+
+	if (atomic_load(&current->state, ATOMIC_ACQUIRE) == THREAD_STATE_RUNNING)
+		atomic_store(&current->state, THREAD_STATE_RUNNABLE, ATOMIC_RELEASE);
+	atomic_store(&next->state, THREAD_STATE_RUNNING, ATOMIC_RELEASE);
+	cpu->current_thread = next;
+	if (current->proc != next->proc)
+		vmm_switch_mm_struct(next->proc->mm_struct);
+
+	/* Once this returns (if it does), we are running the current thread again */
+	asm_context_switch(&current->ctx.general, &next->ctx.general);
+
+	if (current->proc != next->proc)
+		vmm_switch_mm_struct(current->proc->mm_struct);
+	atomic_store(&current->state, THREAD_STATE_RUNNING, ATOMIC_RELEASE);
+	if (atomic_load(&next->state, ATOMIC_ACQUIRE) == THREAD_STATE_RUNNING)
+		atomic_store(&next->state, THREAD_STATE_RUNNABLE, ATOMIC_RELEASE);
+	cpu->current_thread = current;
+}
+
+void sched_yield(void) {
+	unsigned long flags = local_irq_save();
+	if (!(flags & CPU_FLAG_INTERRUPT))
+		panic("sched_yield called with interrupts disabled");
+
+	struct thread* next = get_next_thread();
+	if (!next)
+		panic("no runnable threads!");
+	switch_thread(next);
+
+	local_irq_enable();
+}
+
+static _Noreturn void* idle(void* arg) {
+	(void)arg;
 	while (1)
 		__asm__ volatile("hlt");
 }
 
 void sched_init(void) {
 	sched_create_init();
-	sched_preempt_init();
+	preempt_init();
 
 	kernel_proc = sched_proc_alloc();
 	assert(kernel_proc != NULL);
@@ -161,12 +132,12 @@ void sched_init(void) {
 
 	struct thread* this_thread = sched_thread_alloc();
 	assert(this_thread != NULL);
-	schedule_thread(this_thread, kernel_proc, SCHED_RUNNING | SCHED_THIS_CPU);
+	assert(schedule_thread(this_thread, kernel_proc, 0) == 0);
+	atomic_store(&this_thread->state, THREAD_STATE_RUNNING, ATOMIC_RELAXED);
 
 	struct cpu* cpu = current_cpu();
-	cpu->thread_queue = this_thread;
 	cpu->current_thread = this_thread;
 
-	struct thread* idle_thread = kthread_create(SCHED_THIS_CPU | SCHED_IDLE, 0, idle, NULL);
+	struct thread* idle_thread = kthread_create(0, 0, idle, NULL);
 	assert(idle_thread != NULL);
 }
