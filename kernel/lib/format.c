@@ -12,6 +12,10 @@ union arg {
 	void* p;
 };
 
+struct va_wrap {
+	va_list va;
+};
+
 enum fmt_flags {
 	FMT_PLUS = (1 << 0),
 	FMT_LEFT = (1 << 1),
@@ -63,10 +67,10 @@ static unsigned int get_flags(const char** fmt) {
 	}
 }
 
-static int get_int(const char** fmt, va_list va) {
+static int get_int(const char** fmt, struct va_wrap* va) {
 	if (**fmt == '*') {
 		(*fmt)++;
-		return va_arg(va, int);
+		return va_arg(va->va, int);
 	}
 
 	int ret = 0;
@@ -77,7 +81,7 @@ static int get_int(const char** fmt, va_list va) {
 	return ret;
 }
 
-static void parse_fmt(const char** fmt, va_list va, struct fmt* spec) {
+static void parse_fmt(const char** fmt, struct va_wrap* va, struct fmt* spec) {
 	spec->flags = get_flags(fmt);
 
 	spec->field_width = get_int(fmt, va);
@@ -118,22 +122,22 @@ static void parse_fmt(const char** fmt, va_list va, struct fmt* spec) {
 	}
 }
 
-static int get_arg(struct fmt* spec, va_list va, char c, union arg* arg) {
+static int get_arg(struct fmt* spec, struct va_wrap* va, char c, union arg* arg) {
 	switch (c) {
 	case 'c':
 		if (spec->qualifier == 'l') {
-			arg->ll = va_arg(va, wchar_t);
+			arg->ll = va_arg(va->va, wchar_t);
 		} else {
-			arg->ll = (char)va_arg(va, int);
+			arg->ll = (char)va_arg(va->va, int);
 		}
 		spec->flags |= FMT_TYPE_CHAR;
 		break;
 	case 's':
-		arg->p = va_arg(va, void*);
+		arg->p = va_arg(va->va, void*);
 		spec->flags |= FMT_TYPE_STR;
 		break;
 	case 'p':
-		arg->p = va_arg(va, void*);
+		arg->p = va_arg(va->va, void*);
 		spec->flags |= FMT_SPECIAL | FMT_INT_B16;
 		spec->precision = sizeof(void*) * 2;
 		spec->qualifier = 'z'; /* Make sure do_int doesn't cast the pointer to a lower size */
@@ -160,22 +164,22 @@ static int get_arg(struct fmt* spec, va_list va, char c, union arg* arg) {
 
 		switch (spec->qualifier) {
 		case 'h':
-			arg->ll = (short)va_arg(va, int);
+			arg->ll = (short)va_arg(va->va, int);
 			break;
 		case 'H':
-			arg->ll = (char)va_arg(va, int);
+			arg->ll = (char)va_arg(va->va, int);
 			break;
 		case 'l':
-			arg->ll = va_arg(va, long);
+			arg->ll = va_arg(va->va, long);
 			break;
 		case 'L':
-			arg->ll = va_arg(va, long long);
+			arg->ll = va_arg(va->va, long long);
 			break;
 		case 'z':
-			arg->ll = va_arg(va, ssize_t);
+			arg->ll = va_arg(va->va, ssize_t);
 			break;
 		default:
-			arg->ll = va_arg(va, int);
+			arg->ll = va_arg(va->va, int);
 			break;
 		}
 		break;
@@ -450,6 +454,9 @@ static inline long long do_output(struct fmt* spec, char** dest, size_t* dsize, 
 }
 
 int vsnprintf(char* dest, size_t dsize, const char* fmt, va_list va) {
+	struct va_wrap va_wrap;
+	va_copy(va_wrap.va, va);
+
 	int char_count = 0;
 	while (*fmt) {
 		if (*fmt != '%') {
@@ -467,23 +474,25 @@ int vsnprintf(char* dest, size_t dsize, const char* fmt, va_list va) {
 		struct fmt spec;
 		union arg arg;
 
-		parse_fmt(&fmt, va, &spec);
-		if (get_arg(&spec, va, *fmt++, &arg))
-			return -1;
+		parse_fmt(&fmt, &va_wrap, &spec);
+		if (get_arg(&spec, &va_wrap, *fmt++, &arg))
+			goto fail;
 
 		/* Now for writing to output, if the value is negative it's an error */
 		long long add = do_output(&spec, &dest, &dsize, &arg);
 		if (add < 0)
-			return -1;
+			goto fail;
 		if (__builtin_add_overflow(char_count, add, &char_count))
-			return -1;
+			goto fail;
 	}
 
-	/* dsize being zero can only happen if zero is passed in */
-	if (dsize)
+	va_end(va_wrap.va);
+	if (dsize) /* Only fails if 0 is passed in */
 		*dest = '\0';
-
 	return char_count;
+fail:
+	va_end(va_wrap.va);
+	return -1;
 }
 
 __attribute__((format(printf, 3, 4)))
