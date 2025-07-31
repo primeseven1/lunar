@@ -12,7 +12,7 @@ struct term_hook {
 };
 
 static struct term_hook* term_hook_head = NULL;
-static spinlock_t hooks_lock = SPINLOCK_STATIC_INITIALIZER;
+static spinlock_t hooks_lock = SPINLOCK_INITIALIZER;
 
 static int __term_driver_register(void (*write)(const char*, size_t)) {
 	if (!term_hook_head)

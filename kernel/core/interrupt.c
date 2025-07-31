@@ -57,7 +57,7 @@ static void idt_init(void) {
 }
 
 static struct isr isr_handlers[INTERRUPT_COUNT] = { 0 };
-static spinlock_t isr_handlers_lock = SPINLOCK_STATIC_INITIALIZER;
+static spinlock_t isr_handlers_lock = SPINLOCK_INITIALIZER;
 
 const struct isr* interrupt_register(struct irq* irq, void (*handler)(const struct isr*, struct context*)) {
 	unsigned long flags;
