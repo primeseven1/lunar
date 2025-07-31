@@ -245,7 +245,7 @@ struct slab_cache* slab_cache_create(size_t obj_size, size_t align,
 	cache->obj_count = cache->obj_size < SLAB_SIZE_CUTOFF ? (PAGE_SIZE * 2) / cache->obj_size : SLAB_AFTER_CUTOFF_OBJ_COUNT;
 	cache->align = align;
 	cache->mm_flags = mm_flags;
-	atomic_store(&cache->lock, SPINLOCK_INITIALIZER, ATOMIC_RELAXED);
+	spinlock_init(&cache->lock);
 
 	return cache;
 }

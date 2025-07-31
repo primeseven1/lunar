@@ -19,7 +19,7 @@ struct mempool {
 static struct mempool* mempool_head = NULL;
 
 /* Protects the linked list, not the mempools */
-static spinlock_t mempool_spinlock = SPINLOCK_STATIC_INITIALIZER;
+static spinlock_t mempool_spinlock = SPINLOCK_INITIALIZER;
 
 /* Find a suitable mempool for an allocation, increases the refcount */
 static struct mempool* walk_mempools(size_t size, mm_t mm_flags) {

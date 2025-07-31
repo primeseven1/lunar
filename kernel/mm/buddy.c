@@ -595,7 +595,7 @@ static int init_area(struct mem_area* area, mm_t free_list_zone, physaddr_t base
 	area->total_4k_blocks = 1 << (layer_count - 1);
 	atomic_store(&area->used_4k_blocks, 0, ATOMIC_RELAXED);
 	area->pages.free_list = hhdm_virtual(free_list);
-	atomic_store(&area->pages.lock, SPINLOCK_INITIALIZER, ATOMIC_RELAXED);
+	spinlock_init(&area->pages.lock);
 	memset(area->pages.free_list, 0, free_list_size);
 
 	/* Allocate the invalid area, if there is one */
