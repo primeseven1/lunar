@@ -34,7 +34,7 @@ struct hashtable* hashtable_create(size_t head_count, size_t value_size) {
 	table->head_count = head_count;
 	table->size = 0;
 	table->value_size = value_size;
-	atomic_store(&table->lock, SPINLOCK_INITIALIZER, ATOMIC_RELAXED);
+	spinlock_init(&table->lock);
 
 	return table;
 }
