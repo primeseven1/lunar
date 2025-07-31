@@ -12,7 +12,7 @@ static struct slab_cache* proc_cache;
 static struct slab_cache* thread_cache;
 
 static u8* pid_map = NULL;
-static spinlock_t pid_map_lock = SPINLOCK_STATIC_INITIALIZER;
+static spinlock_t pid_map_lock = SPINLOCK_INITIALIZER;
 static const pid_t max_pid_count = 0x100000;
 
 static pid_t alloc_pid(void) {
