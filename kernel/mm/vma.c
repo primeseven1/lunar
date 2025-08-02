@@ -179,7 +179,6 @@ int vma_protect(struct mm* mm, void* address, size_t size, mmuflags_t prot) {
 		if (u->next)
 			u->next->prev = end_split;
 		u->next = end_split;
-		u->top = end;
 	}
 
 	/* Apply protection flags */

@@ -102,6 +102,8 @@ struct alloc_info {
 void* kmalloc(size_t size, mm_t mm_flags) {
 	if (!size)
 		return NULL;
+	if (size >= SIZE_MAX - HEAP_ALIGN)
+		return NULL;
 	size = ROUND_UP(size, HEAP_ALIGN);
 
 	size_t total_size;
