@@ -50,7 +50,10 @@ int vma_map(struct mm* mm, void* hint, size_t size, mmuflags_t prot, int flags, 
 	if (size == 0 || ((!hint || (uintptr_t)hint % align) && flags & VMM_FIXED))
 		return -EINVAL;
 
+	if (size >= SIZE_MAX - align)
+		return -ERANGE;
 	size = ROUND_UP(size, align);
+
 	struct vma* vma = vma_alloc();
 	if (!vma)
 		return -ENOMEM;
@@ -58,11 +61,20 @@ int vma_map(struct mm* mm, void* hint, size_t size, mmuflags_t prot, int flags, 
 	vma->flags = flags;
 
 	uintptr_t base = (uintptr_t)hint;
+	if (base >= SIZE_MAX - align) {
+		vma_free(vma);
+		return -ERANGE;
+	}
 	base = ROUND_UP(base, align);
 	if (!(flags & VMM_FIXED) && (base < (uintptr_t)mm->mmap_start || base + size > (uintptr_t)mm->mmap_end))
 		base = (uintptr_t)mm->mmap_start;
-	if (flags & VMM_FIXED && !(flags & VMM_NOREPLACE))
+	if (flags & VMM_FIXED && !(flags & VMM_NOREPLACE)) {
+		if (__builtin_add_overflow(base, size, &vma->top)) {
+			vma_free(vma);
+			return -ERANGE;
+		}
 		vma_rip(mm, hint, size);
+	}
 
 	/* Skip VMA's that end at or before the hint */
 	struct vma* prev = NULL;
@@ -99,10 +111,13 @@ int vma_map(struct mm* mm, void* hint, size_t size, mmuflags_t prot, int flags, 
 		addr = ROUND_UP(addr, HUGEPAGE_2M_SIZE);
 
 	vma->start = addr;
-	vma->top = addr + size;
+	if (__builtin_add_overflow(addr, size, &vma->top)) {
+		vma_free(vma);
+		return -ERANGE;
+	}
+
 	vma->prev = prev;
 	vma->next = iter;
-
 	if (prev)
 		prev->next = vma;
 	else
@@ -134,10 +149,19 @@ int vma_protect(struct mm* mm, void* address, size_t size, mmuflags_t prot) {
 	bool start_split_needed = false;
 	bool end_split_needed = false;
 
-	uintptr_t start = ROUND_DOWN((uintptr_t)address, PAGE_SIZE);
-	uintptr_t end = ROUND_UP(start + size, PAGE_SIZE);
-
 	int err = 0;
+
+	uintptr_t start = (uintptr_t)address;
+	uintptr_t end;
+	if (__builtin_add_overflow(start, size, &end)) {
+		err = -ERANGE;
+		goto out;
+	}
+	if (end >= UINTPTR_MAX - PAGE_SIZE) {
+		err = -ERANGE;
+		goto out;
+	}
+	end = ROUND_UP(end, PAGE_SIZE);
 
 	struct vma* v = mm->vma_list;
 	while (v && v->top <= start)
@@ -217,9 +241,18 @@ int vma_unmap(struct mm* mm, void* address, size_t size) {
 	bool split_needed = false;
 	bool overlap_found = false;
 
-	uintptr_t start = ROUND_DOWN((uintptr_t)address, PAGE_SIZE);
-	uintptr_t end = ROUND_UP((uintptr_t)address + size, PAGE_SIZE);
 	int err = 0;
+
+	uintptr_t start = (uintptr_t)address;
+	uintptr_t end;
+	if (__builtin_add_overflow(start, size, &end)) {
+		err = -ERANGE;
+		goto out;
+	}
+	if (end >= UINTPTR_MAX - PAGE_SIZE) {
+		err = -ERANGE;
+		goto out;
+	}
 
 	struct vma* v = mm->vma_list;
 	while (v) {
