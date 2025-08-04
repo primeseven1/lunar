@@ -4,6 +4,7 @@
 #include <crescent/mm/vmm.h>
 #include <crescent/core/printk.h>
 #include <crescent/core/trace.h>
+#include <crescent/core/panic.h>
 #include <crescent/lib/string.h>
 
 /* The maximum size a slab can be before the object count goes to SLAB_AFTER_CUTOFF_COUNT */
@@ -22,11 +23,7 @@ static int slab_init(struct slab_cache* cache, struct slab* slab) {
 	/* Allocate a virtual address for the slab base */
 	slab->base = vmap(NULL, slab_size, MMU_READ | MMU_WRITE, VMM_ALLOC, &cache->mm_flags);
 	if (!slab->base) {
-		int err = vunmap(slab->free, map_size, 0);
-		if (unlikely(err)) {
-			printk(PRINTK_CRIT "mm: Failed to unmap free list in %s (%i)\n", __func__, err);
-			dump_stack();
-		}
+		assert(vunmap(slab->free, map_size, 0) == 0);
 		return -ENOMEM;
 	}
 
@@ -41,11 +38,7 @@ static int slab_cache_grow(struct slab_cache* cache) {
 
 	int err = slab_init(cache, slab);
 	if (err) {
-		int verr = vunmap(slab, sizeof(*slab), 0);
-		if (unlikely(verr)) {
-			printk(PRINTK_CRIT "mm: Failed to unmap new slab: %i\n", verr);
-			dump_stack();
-		}
+		assert(vunmap(slab, sizeof(*slab), 0) == 0);
 		return err;
 	}
 
@@ -141,10 +134,7 @@ void* slab_cache_alloc(struct slab_cache* cache) {
 	}
 
 	ret = slab_take(cache, slab);
-	if (unlikely(!ret)) {
-		printk(PRINTK_ERR "mm: slab_take failed even though the slab should have been big enough\n");
-		goto out;
-	}
+	assert(ret != NULL); /* Successfuly grew the cache, this should never happen */
 
 	/* 
 	 * If the slab was empty (slab == cache->empty), move it to the partial list.
@@ -187,7 +177,10 @@ void slab_cache_free(struct slab_cache* cache, void* obj) {
 		goto out;
 	}
 
-	/* If this happens, the slab is now empty, so move it to the empty list */
+	/* 
+	 * If the slab was previously partial, move it to the empty list.
+	 * and if the slab was previously full, move it to the partial list.
+	 */
 	if (slab->in_use == 0) {
 		if (slab->prev == NULL)
 			cache->partial = slab->next;
@@ -202,10 +195,7 @@ void slab_cache_free(struct slab_cache* cache, void* obj) {
 		if (slab->next)
 			slab->next->prev = slab;
 		cache->empty = slab;
-	}
-
-	/* If the slab was previously full, then move it back to the partial list */
-	if (slab->in_use == cache->obj_count - 1) {
+	} else if (slab->in_use == cache->obj_count - 1) {
 		if (slab->prev == NULL)
 			cache->full = slab->next;
 		else
@@ -252,9 +242,7 @@ struct slab_cache* slab_cache_create(size_t obj_size, size_t align,
 
 int slab_cache_destroy(struct slab_cache* cache) {
 	if (cache->partial || cache->full)
-		return -EEXIST;
-
-	int err;
+		return -EBUSY;
 
 	struct slab* slab = cache->empty;
 	while (slab) {
@@ -262,24 +250,13 @@ int slab_cache_destroy(struct slab_cache* cache) {
 		if (next)
 			next->prev = NULL;
 
-		int base_err = vunmap(slab->base, cache->obj_size * cache->obj_count, 0);
-		int free_list_err = vunmap(slab->free, (cache->obj_count + 7) / 8, 0);
-		int slab_err = vunmap(slab, sizeof(*slab), 0);
-		if (unlikely(base_err))
-			err = base_err;
-		if (unlikely(free_list_err))
-			err = free_list_err;
-		if (unlikely(slab_err))
-			err = slab_err;
-
-		if (!(base_err == free_list_err && free_list_err == slab_err)) {
-			printk(PRINTK_WARN "mm: Different error codes in %s, base_err: %i, free_list_err: %i, slab_err: %i, choosing %i\n",
-					__func__, base_err, free_list_err, slab_err, err);
-		}
+		assert(vunmap(slab->base, cache->obj_size * cache->obj_count, 0) == 0);
+		assert(vunmap(slab->free, (cache->obj_count + 7) / 8, 0) == 0);
+		assert(vunmap(slab, sizeof(*slab), 0) == 0);
 
 		slab = next;
 	}
 
-	err = vunmap(cache, sizeof(*cache), 0);
-	return err;
+	assert(vunmap(cache, sizeof(*cache), 0) == 0);
+	return 0;
 }

@@ -48,7 +48,7 @@ struct slab_cache* slab_cache_create(size_t obj_size, size_t align,
  * @param cache The cache to destroy
  *
  * @retval 0 Success
- * @retval -EEXIST There are still partial or full slabs
+ * @retval -EBUSY There are still active allocations in the cache
  */
 int slab_cache_destroy(struct slab_cache* cache);
 
