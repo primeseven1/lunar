@@ -8,6 +8,7 @@
 #include <crescent/mm/mm.h>
 #include <crescent/lib/string.h>
 #include "hhdm.h"
+#include "oom.h"
 
 /* Must be volatile, so that way the null check doesn't get optimized away */
 static volatile struct limine_mmap_request __limine_request mmap_request = {
@@ -462,14 +463,19 @@ physaddr_t alloc_pages(mm_t mm_flags, unsigned int order) {
 		return 0;
 	}
 
-	unsigned int retries = 20;
-	while (retries) {
+	/* Have retries here, so that way we can see if another thread frees any memory */
+	const unsigned int max_retries = 10;
+	unsigned int retries = max_retries;
+	do {
 		physaddr_t physical = __alloc_pages(zone, order);
 		if (physical)
 			return physical;
 
-		/* Clearly the current zone isn't working, so try other ones */
-		if (retries < 10) {
+		if (mm_flags & MM_NOFAIL && retries == 0) {
+			out_of_memory();
+			retries = max_retries;
+			continue;
+		} else if (retries < max_retries / 2) {
 			switch (zone->zone_type) {
 			case MM_ZONE_NORMAL:
 				zone = dma32_zone;
@@ -481,8 +487,8 @@ physaddr_t alloc_pages(mm_t mm_flags, unsigned int order) {
 				break;
 			}
 		}
-		retries--;
-	}
+
+	} while (retries--);
 
 	return 0;
 }

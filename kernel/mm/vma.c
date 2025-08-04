@@ -11,9 +11,7 @@
 #include "hhdm.h"
 
 static struct vma* vma_alloc(void) {
-	physaddr_t vma = alloc_pages(MM_ZONE_NORMAL, get_order(sizeof(struct vma)));
-	if (!vma)
-		return NULL;
+	physaddr_t vma = alloc_pages(MM_ZONE_NORMAL | MM_NOFAIL, get_order(sizeof(struct vma)));
 	return hhdm_virtual(vma);
 }
 
@@ -55,8 +53,6 @@ int vma_map(struct mm* mm, void* hint, size_t size, mmuflags_t prot, int flags, 
 	size = ROUND_UP(size, align);
 
 	struct vma* vma = vma_alloc();
-	if (!vma)
-		return -ENOMEM;
 	vma->prot = prot;
 	vma->flags = flags;
 
@@ -133,18 +129,8 @@ int vma_protect(struct mm* mm, void* address, size_t size, mmuflags_t prot) {
 	if (!address || size == 0 || (uintptr_t)address % PAGE_SIZE)
 		return -EINVAL;
 
-	/* 
-	 * Prepare before attempting to do surgery on the VMA's, so we don't have to attempt to 
-	 * reverse the changes and have the VMA's blow up if done wrong.
-	 */
 	struct vma* start_split = vma_alloc();
-	if (!start_split)
-		return -ENOMEM;
 	struct vma* end_split = vma_alloc();
-	if (!end_split) {
-		vma_free(start_split);
-		return -ENOMEM;
-	}
 
 	bool start_split_needed = false;
 	bool end_split_needed = false;
@@ -234,10 +220,7 @@ int vma_unmap(struct mm* mm, void* address, size_t size) {
 	if (size == 0 || !address || (uintptr_t)address % PAGE_SIZE)
 		return -EINVAL;
 
-	/* Prepare for a potential split before doing surgery on the VMA's */
 	struct vma* split = vma_alloc();
-	if (!split)
-		return -ENOMEM;
 	bool split_needed = false;
 	bool overlap_found = false;
 
