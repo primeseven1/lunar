@@ -6,10 +6,12 @@
 struct list_node {
 	struct list_node* prev, *next;
 };
+#define LIST_NODE_INITIALIZER { .prev = NULL, .next = NULL }
 
 struct list_head {
 	struct list_node node;
 };
+#define DEFINE_LIST_HEAD(n) struct list_head n = { .node.prev = &n.node, .node.next = &n.node }
 
 static inline void list_head_init(struct list_head* head) {
 	head->node.prev = &head->node;
