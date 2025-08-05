@@ -4,18 +4,19 @@
 #include <crescent/core/locking.h>
 #include <crescent/asm/errno.h>
 #include <crescent/mm/mm.h>
+#include <crescent/lib/list.h>
 
 struct slab {
 	void* base;
 	u8* free;
 	size_t in_use;
-	struct slab* prev, *next;
+	struct list_node link;
 };
 
 struct slab_cache {
 	void (*ctor)(void*);
 	void (*dtor)(void*);
-	struct slab* full, *partial, *empty;
+	struct list_head full, partial, empty;
 	size_t obj_size;
 	unsigned long obj_count;
 	size_t align;
@@ -49,6 +50,7 @@ struct slab_cache* slab_cache_create(size_t obj_size, size_t align,
  *
  * @retval 0 Success
  * @retval -EBUSY There are still active allocations in the cache
+ * @retval -EWOULDBLOCK The lock is acquired on the cache
  */
 int slab_cache_destroy(struct slab_cache* cache);
 

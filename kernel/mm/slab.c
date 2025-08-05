@@ -12,7 +12,7 @@
 #define SLAB_AFTER_CUTOFF_OBJ_COUNT 16
 
 static int slab_init(struct slab_cache* cache, struct slab* slab) {
-	size_t map_size = (cache->obj_count + 7) / 8;
+	size_t map_size = (cache->obj_count + 7) >> 3;
 	size_t slab_size = cache->obj_size * cache->obj_count;
 
 	/* Allocate free list bitmap */
@@ -28,6 +28,7 @@ static int slab_init(struct slab_cache* cache, struct slab* slab) {
 	}
 
 	slab->in_use = 0;
+	list_node_init(&slab->link);
 	return 0;
 }
 
@@ -42,13 +43,7 @@ static int slab_cache_grow(struct slab_cache* cache) {
 		return err;
 	}
 
-	/* Add the slab into the list of empty slabs */
-	slab->next = cache->empty;
-	if (slab->next)
-		slab->next->prev = slab;
-
-	slab->prev = NULL;
-	cache->empty = slab;
+	list_add(&cache->empty, &slab->link);
 	return 0;
 }
 
@@ -57,8 +52,8 @@ static void* slab_take(struct slab_cache* cache, struct slab* slab) {
 
 	/* Simply find a free block within the bitmap */
 	for (size_t i = 0; i < cache->obj_count; i++) {
-		size_t byte_index = i / 8;
-		unsigned int bit_index = i % 8;
+		size_t byte_index = i >> 3;
+		unsigned int bit_index = i & 7;
 
 		if (!(slab->free[byte_index] & (1 << bit_index))) {
 			slab->free[byte_index] |= (1 << bit_index);
@@ -79,31 +74,40 @@ static void* slab_take(struct slab_cache* cache, struct slab* slab) {
 	return obj;
 }
 
-static struct slab* slab_release(struct slab_cache* cache, void* obj) {
-	bool partial = !cache->full;
-
-	/* First find the slab that the block is in */
-	struct slab* slab = partial ? cache->partial : cache->full;
-	while (slab) {
-		void* top = (void*)((uintptr_t)slab->base + cache->obj_count * cache->obj_size);
-		if (obj >= slab->base && obj < top)
-			break;
-		if (!slab->next && !partial) {
-			slab = cache->partial;
-			partial = true;
-		} else {
-			slab = slab->next;
-		}
+static struct slab* __slab_find(struct list_head* slabs, unsigned long obj_count, size_t obj_size, void* obj) {
+	struct slab* pos;
+	list_for_each_entry(pos, slabs, link) {
+		void* top = (u8*)pos->base + obj_count * obj_size;
+		if (obj >= pos->base && obj < top)
+			return pos;
 	}
 
-	/* This means a valid address wasn't passed to the function */
+	return NULL;
+}
+
+/* Find a slab within a cache */
+static struct slab* slab_find(struct slab_cache* cache, void* obj) {
+	struct slab* slab = __slab_find(&cache->partial, cache->obj_count, cache->obj_size, obj);
+	if (slab)
+		return slab;
+	slab = __slab_find(&cache->full, cache->obj_count, cache->obj_size, obj);
+	if (slab)
+		return slab;
+	return __slab_find(&cache->empty, cache->obj_count, cache->obj_size, obj);
+}
+
+static struct slab* slab_release(struct slab_cache* cache, void* obj) {
+	struct slab* slab = slab_find(cache, obj);
 	if (!slab)
-		return NULL;
+		return NULL; /* Let the caller do what it wants */
 
 	/* Get the object number and then mark it as free */
 	size_t obj_num = ((uintptr_t)obj - (uintptr_t)slab->base) / cache->obj_size;
-	size_t byte_index = obj_num / 8;
-	size_t bit_index = obj_num % 8;
+	size_t byte_index = obj_num >> 3;
+	size_t bit_index = obj_num & 7;
+
+	/* Check for a double free here since the caller can't check directly */
+	assert((slab->free[byte_index] & (1 << bit_index)) != 0);
 	slab->free[byte_index] &= ~(1 << bit_index);
 
 	/* Now call the destructor and return the slab the free happened on */
@@ -117,48 +121,33 @@ void* slab_cache_alloc(struct slab_cache* cache) {
 	unsigned long flags;
 	spinlock_lock_irq_save(&cache->lock, &flags);
 
-	/* See if we have any partial or empty caches */
-	struct slab* slab = NULL;
-	if (cache->partial)
-		slab = cache->partial;
-	else if (cache->empty)
-		slab = cache->empty;
+	/* Allocate from partial slabs first */
+	struct list_head* list = NULL;
+	if (!list_empty(&cache->partial))
+		list = &cache->partial;
+	else if (!list_empty(&cache->empty))
+		list = &cache->empty;
 
 	void* ret = NULL;
 	/* If no slabs are available, try growing the cache */
-	if (!slab) {
+	if (!list) {
 		if (slab_cache_grow(cache) == 0)
-			slab = cache->empty;
+			list = &cache->empty;
 		else
 			goto out;
 	}
 
+	struct slab* slab = list_entry(list->node.next, struct slab, link);
 	ret = slab_take(cache, slab);
-	assert(ret != NULL); /* Successfuly grew the cache, this should never happen */
+	assert(ret != NULL); /* Since we've already grown the cache, if this happens something bad has happened */
 
-	/* 
-	 * If the slab was empty (slab == cache->empty), move it to the partial list.
-	 * If the slab is now full (slab->in_use == cache->obj_count), move it to the full list.
-	 */
-	if (slab == cache->empty) {
-		cache->empty = slab->next;
-		if (slab->next)
-			slab->next->prev = NULL;
-		if (cache->partial)
-			cache->partial->prev = slab;
-
-		slab->next = cache->partial;
-		slab->prev = NULL;
-		cache->partial = slab;
+	/* Check to see if the slab is in the appropriate list. If not, move it. */
+	if (slab->in_use == 1) {
+		list_remove(&slab->link);
+		list_add(&cache->partial, &slab->link);
 	} else if (slab->in_use == cache->obj_count) {
-		cache->partial = slab->next;
-		if (slab->next)
-			slab->next->prev = NULL;
-		if (cache->full)
-			cache->full->prev = slab;
-		slab->next = cache->full;
-		slab->prev = NULL;
-		cache->full = slab;
+		list_remove(&slab->link);
+		list_add(&cache->full, &slab->link);
 	}
 
 out:
@@ -177,38 +166,13 @@ void slab_cache_free(struct slab_cache* cache, void* obj) {
 		goto out;
 	}
 
-	/* 
-	 * If the slab was previously partial, move it to the empty list.
-	 * and if the slab was previously full, move it to the partial list.
-	 */
+	/* Make sure the slab is in the appropriate list */
 	if (slab->in_use == 0) {
-		if (slab->prev == NULL)
-			cache->partial = slab->next;
-		else
-			slab->prev->next = slab->next;
-
-		if (slab->next)
-			slab->next->prev = slab->prev;
-
-		slab->next = cache->empty;
-		slab->prev = NULL;
-		if (slab->next)
-			slab->next->prev = slab;
-		cache->empty = slab;
+		list_remove(&slab->link);
+		list_add(&cache->empty, &slab->link);
 	} else if (slab->in_use == cache->obj_count - 1) {
-		if (slab->prev == NULL)
-			cache->full = slab->next;
-		else
-			slab->prev->next = slab->next;
-
-		if (slab->next)
-			slab->next->prev = slab->prev;
-
-		slab->next = cache->partial;
-		slab->prev = NULL;
-		if (slab->next)
-			slab->next->prev = slab;
-		cache->partial = slab;
+		list_remove(&slab->link);
+		list_add(&cache->partial, &slab->link);
 	}
 
 out:
@@ -228,9 +192,9 @@ struct slab_cache* slab_cache_create(size_t obj_size, size_t align,
 
 	cache->ctor = ctor;
 	cache->dtor = dtor;
-	cache->full = NULL;
-	cache->partial = NULL;
-	cache->empty = NULL;
+	list_head_init(&cache->full);
+	list_head_init(&cache->partial);
+	list_head_init(&cache->empty);
 	cache->obj_size = ROUND_UP(obj_size, align);
 	cache->obj_count = cache->obj_size < SLAB_SIZE_CUTOFF ? (PAGE_SIZE * 2) / cache->obj_size : SLAB_AFTER_CUTOFF_OBJ_COUNT;
 	cache->align = align;
@@ -241,22 +205,24 @@ struct slab_cache* slab_cache_create(size_t obj_size, size_t align,
 }
 
 int slab_cache_destroy(struct slab_cache* cache) {
-	if (cache->partial || cache->full)
+	unsigned long irq;
+	if (!spinlock_try_irq_save(&cache->lock, &irq))
+		return -EWOULDBLOCK;
+	if (!list_empty(&cache->partial) || !list_empty(&cache->full)) {
+		spinlock_unlock_irq_restore(&cache->lock, &irq);
 		return -EBUSY;
-
-	struct slab* slab = cache->empty;
-	while (slab) {
-		struct slab* next = slab->next;
-		if (next)
-			next->prev = NULL;
-
-		assert(vunmap(slab->base, cache->obj_size * cache->obj_count, 0) == 0);
-		assert(vunmap(slab->free, (cache->obj_count + 7) / 8, 0) == 0);
-		assert(vunmap(slab, sizeof(*slab), 0) == 0);
-
-		slab = next;
 	}
 
+	struct slab* slab, *tmp;
+	list_for_each_entry_safe(slab, tmp, &cache->empty, link) {
+		list_remove(&slab->link);
+		assert(vunmap(slab->base, cache->obj_size * cache->obj_count, 0) == 0);
+		assert(vunmap(slab->free, (cache->obj_count + 7) >> 3, 0) == 0);
+		assert(vunmap(slab, sizeof(*slab), 0) == 0);
+	}
+
+	/* No need to release the lock here, but this also acts as a memory fence */
+	spinlock_unlock_irq_restore(&cache->lock, &irq);
 	assert(vunmap(cache, sizeof(*cache), 0) == 0);
 	return 0;
 }
