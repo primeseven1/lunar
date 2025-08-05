@@ -8,18 +8,21 @@
 
 #define HEAP_CANARY_VALUE 0xdecafc0ffeeUL
 #define HEAP_ALIGN 16
+#define OBJ_SIZE_SLACK 128
 
 struct mempool {
 	struct slab_cache* cache;
-	struct mempool* prev, *next;
 	atomic(unsigned long) refcount;
+	struct list_node link;
 };
 
-/* The cache for other mempools, initialized by heap_init */
-static struct mempool* mempool_head = NULL;
-
-/* Protects the linked list, not the mempools */
+static DEFINE_LIST_HEAD(mempool_head);
 static spinlock_t mempool_spinlock = SPINLOCK_INITIALIZER;
+static struct mempool self_mempool = {
+	.cache = NULL,
+	.refcount = atomic_static_init(1),
+	.link = LIST_NODE_INITIALIZER
+};
 
 /* Find a suitable mempool for an allocation, increases the refcount */
 static struct mempool* walk_mempools(size_t size, mm_t mm_flags) {
@@ -28,37 +31,33 @@ static struct mempool* walk_mempools(size_t size, mm_t mm_flags) {
 	unsigned long lock_flags;
 	spinlock_lock_irq_save(&mempool_spinlock, &lock_flags);
 
-	struct mempool* pool = mempool_head;
-	while (1) {
-		if (pool->cache->obj_size >= size && pool->cache->obj_size <= size + 128 && pool->cache->mm_flags == mm_flags) {
-			atomic_add_fetch(&pool->refcount, 1, ATOMIC_SEQ_CST);
+	struct list_node* pos;
+	list_for_each(pos, &mempool_head) {
+		struct mempool* p = list_entry(pos, struct mempool, link);
+		if (p->cache->obj_size >= size && 
+				p->cache->obj_size <= size + OBJ_SIZE_SLACK && 
+				p->cache->mm_flags == mm_flags) {
+			atomic_add_fetch(&p->refcount, 1, ATOMIC_RELEASE);
 			spinlock_unlock_irq_restore(&mempool_spinlock, &lock_flags);
-			return pool;
+			return p;
 		}
-
-		if (!pool->next)
-			break;
-		pool = pool->next;
 	}
 
 	/* Either there is not enough space in the current pools, or no pool matches mm_flags */
-	struct mempool* new_pool = slab_cache_alloc(mempool_head->cache);
+	struct mempool* new_pool = slab_cache_alloc(self_mempool.cache);
 	if (!new_pool)
 		goto leave;
 
 	/* Create a new slab cache for the new pool */
 	new_pool->cache = slab_cache_create(size, HEAP_ALIGN, mm_flags, NULL, NULL);
 	if (!new_pool->cache) {
-		slab_cache_free(mempool_head->cache, new_pool);
+		slab_cache_free(self_mempool.cache, new_pool);
 		new_pool = NULL;
 		goto leave;
 	}
 
-	new_pool->prev = pool;
-	new_pool->next = NULL;
-	atomic_store(&new_pool->refcount, 1, ATOMIC_SEQ_CST);
-
-	pool->next = new_pool;
+	list_add(&mempool_head, &new_pool->link);
+	atomic_store(&new_pool->refcount, 1, ATOMIC_RELEASE);
 leave:
 	spinlock_unlock_irq_restore(&mempool_spinlock, &lock_flags);
 	if (new_pool)
@@ -71,24 +70,18 @@ static void attempt_delete_mempool(struct mempool* pool) {
 	unsigned long lock_flags;
 	spinlock_lock_irq_save(&mempool_spinlock, &lock_flags);
 
-	if (atomic_load(&pool->refcount, ATOMIC_SEQ_CST))
+	if (atomic_load(&pool->refcount, ATOMIC_ACQUIRE))
 		goto leave;
 
 	size_t obj_size = pool->cache->obj_size;
 	int err = slab_cache_destroy(pool->cache);
-	if (unlikely(err))
+	if (unlikely(err)) {
+		assert(err != -EWOULDBLOCK);
 		goto leave;
+	}
 
-	if (pool->next)
-		pool->next->prev = pool->prev;
-
-	/* 
-	 * We know this isn't the head because the refcount on the head is never zero, 
-	 * so no need to check the prev pointer in this context.
-	 */
-	pool->prev->next = pool->next;
-
-	slab_cache_free(mempool_head->cache, pool);
+	list_remove(&pool->link);
+	slab_cache_free(self_mempool.cache, pool);
 	printk(PRINTK_DBG "mm: Successfully destroyed heap pool with a size of %zu\n", obj_size);
 leave:
 	spinlock_unlock_irq_restore(&mempool_spinlock, &lock_flags);
@@ -118,7 +111,7 @@ void* kmalloc(size_t size, mm_t mm_flags) {
 			return NULL;
 		alloc_info = slab_cache_alloc(pool->cache);
 		if (!alloc_info) {
-			if (atomic_sub_fetch(&pool->refcount, 1, ATOMIC_SEQ_CST) == 0)
+			if (atomic_sub_fetch(&pool->refcount, 1, ATOMIC_ACQ_REL) == 0)
 				attempt_delete_mempool(pool);
 			return NULL;
 		}
@@ -154,7 +147,7 @@ void kfree(void* ptr) {
 	}
 
 	slab_cache_free(pool->cache, alloc_info);
-	if (atomic_sub_fetch(&pool->refcount, 1, ATOMIC_SEQ_CST) == 0)
+	if (atomic_sub_fetch(&pool->refcount, 1, ATOMIC_ACQ_REL) == 0)
 		attempt_delete_mempool(alloc_info->pool);
 }
 
@@ -185,15 +178,6 @@ void* krealloc(void* old, size_t new_size, mm_t mm_flags) {
 }
 
 void heap_init(void) {
-	/* First map a single page for the mempool */
-	mempool_head = vmap(NULL, sizeof(*mempool_head), MMU_READ | MMU_WRITE, VMM_ALLOC, NULL);
-	assert(mempool_head != NULL);
-
-	/* Create a cache for creating mempools */
-	mempool_head->cache = slab_cache_create(sizeof(struct mempool), HEAP_ALIGN, MM_ZONE_NORMAL, NULL, NULL);
-	assert(mempool_head->cache != NULL);
-
-	mempool_head->next = NULL;
-	mempool_head->prev = NULL;
-	atomic_store(&mempool_head->refcount, 1, ATOMIC_RELAXED);
+	self_mempool.cache = slab_cache_create(sizeof(struct mempool), HEAP_ALIGN, MM_ZONE_NORMAL, NULL, NULL);
+	assert(self_mempool.cache != NULL);
 }
