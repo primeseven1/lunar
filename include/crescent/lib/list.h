@@ -1,43 +1,66 @@
 #pragma once
 
 #include <crescent/common.h>
+#include <crescent/types.h>
 
-#define list_node_init(node, prev, next) \
-	do { \
-		(node)->prev = NULL; \
-		(node)->next = NULL; \
-	} while (0)
+struct list_node {
+	struct list_node* prev, *next;
+};
 
-#define list_insert_head(head, node, prev, next) \
-	do { \
-		__typeof__(head)* __h   = &(head); \
-		__typeof__(*(__h)) __old = *(__h); \
-		(node)->next = __old; \
-		(node)->prev = NULL; \
-		if (__old) \
-			__old->prev = (node); \
-		*(__h) = (node); \
-	} while (0)
+struct list_head {
+	struct list_node node;
+};
 
-#define list_insert_after(pos, node, prev, next) \
-	do { \
-		__typeof__(pos) __p = (pos); \
-		(node)->next = __p->next; \
-		(node)->prev = __p; \
-		if (__p->next) \
-			__p->next->prev = (node); \
-		__p->next = (node); \
-	} while (0)
+static inline void list_head_init(struct list_head* head) {
+	head->node.prev = &head->node;
+	head->node.next = &head->node;
+}
 
-#define list_remove(head, node, prev, next) \
-	do { \
-		__typeof__(head)* __h  = &(head); \
-		__typeof__(node) __n   = (node); \
-		if (__n->prev) \
-			__n->prev->next = __n->next; \
-		else \
-			*(__h) = __n->next; \
-		if (__n->next) \
-			__n->next->prev = __n->prev; \
-		__n->prev = __n->next = NULL; \
-	} while (0)
+static inline void list_node_init(struct list_node* node) {
+	node->prev = NULL;
+	node->next = NULL;
+}
+
+static inline void __list_add(struct list_node* node, struct list_node* prev, struct list_node* next) {
+	next->prev = node;
+	node->next = next;
+	node->prev = prev;
+	prev->next = node;
+}
+
+static inline void list_add(struct list_head* head, struct list_node* node) {
+	__list_add(node, &head->node, head->node.next);
+}
+
+static inline void list_add_tail(struct list_head* head, struct list_node* node) {
+	__list_add(node, head->node.prev, &head->node);
+}
+
+static inline void __list_remove(struct list_node* prev, struct list_node* next) {
+	next->prev = prev;
+	prev->next = next;
+}
+
+static inline void list_remove(struct list_node* node) {
+	__list_remove(node->prev, node->next);
+	node->prev = NULL;
+	node->next = NULL;
+}
+
+static inline bool list_empty(const struct list_head* head) {
+	return head->node.next == &head->node;
+}
+
+#define list_for_each(pos, head) for (pos = (head)->node.next; pos != &(head)->node; pos = pos->next)
+#define list_for_each_safe(pos, n, head) for (pos = (head)->node.next, n = pos->next; pos != &(head)->node; pos = n, n = pos->next)
+#define list_entry(ptr, type, member) ((type *)((char *)(ptr) - offsetof(type, member)))
+#define list_for_each_entry(pos, head, member) \
+	for (pos = list_entry((head)->node.next, typeof(*pos), member); \
+			&pos->member != &(head)->node; \
+			pos = list_entry(pos->member.next, typeof(*pos), member))
+#define list_for_each_entry_safe(pos, n, head, member) \
+	for (pos = list_entry((head)->node.next, typeof(*pos), member), \
+			n = list_entry(pos->member.next, typeof(*pos), member); \
+			&pos->member != &(head)->node; \
+			pos = n, \
+			n = list_entry(n->member.next, typeof(*pos), member))
