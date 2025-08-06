@@ -145,24 +145,3 @@ static inline u64 readq(const u64 __iomem* ptr) {
 static inline void io_wait(void) {
 	outb(0x80, 0);
 }
-
-/**
- * @brief Set a block of I/O memory to a specified value
- *
- * This function only writes 8 bit values at a time
- *
- * @param val The value to write
- * @param count The number of bytes to write
- */
-void __iomem* memset_io(void __iomem* dest, int val, size_t count);
-
-/**
- * @brief Copy a block of memory from one location to another
- *
- * This function only writes 8 bits at a time
- *
- * @param dest Where to copy the block to
- * @param src Where to copy the block from
- * @param count The number of bytes to write
- */
-void __iomem* memmove_io(void __iomem* dest, const void __iomem* src, size_t count);
