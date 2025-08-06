@@ -3,6 +3,7 @@
 #include <crescent/asm/errno.h>
 #include <crescent/core/locking.h>
 #include <crescent/mm/vmm.h>
+#include <crescent/lib/list.h>
 
 struct mm;
 
@@ -10,7 +11,7 @@ struct vma {
 	uintptr_t start, top;
 	mmuflags_t prot;
 	int flags;
-	struct vma* prev, *next;
+	struct list_node link;
 };
 
 /**

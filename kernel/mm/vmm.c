@@ -480,6 +480,7 @@ void vmm_init(void) {
 	cpu->mm_struct = &kernel_mm_struct;
 	pte_t* cr3 = hhdm_virtual(ctl3_read());
 	cpu->mm_struct->pagetable = cr3;
+	list_head_init(&cpu->mm_struct->vma_list);
 
 	int best = 0;
 	int best_len = 0;

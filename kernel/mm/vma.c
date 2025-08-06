@@ -11,8 +11,10 @@
 #include "hhdm.h"
 
 static struct vma* vma_alloc(void) {
-	physaddr_t vma = alloc_pages(MM_ZONE_NORMAL | MM_NOFAIL, get_order(sizeof(struct vma)));
-	return hhdm_virtual(vma);
+	physaddr_t _vma = alloc_pages(MM_ZONE_NORMAL | MM_NOFAIL, get_order(sizeof(struct vma)));
+	struct vma* vma = hhdm_virtual(_vma);
+	list_node_init(&vma->link);
+	return vma;
 }
 
 static void vma_free(struct vma* vma) {
@@ -20,11 +22,12 @@ static void vma_free(struct vma* vma) {
 }
 
 struct vma* vma_find(struct mm* mm, const void* address) {
-	for (struct vma* vma = mm->vma_list; vma; vma = vma->next) {
+	struct list_node* pos;
+	list_for_each(pos, &mm->vma_list) {
+		struct vma* vma = list_entry(pos, struct vma, link);
 		if ((uintptr_t)address >= vma->start && (uintptr_t)address < vma->top)
 			return vma;
 	}
-
 	return NULL;
 }
 
@@ -74,15 +77,16 @@ int vma_map(struct mm* mm, void* hint, size_t size, mmuflags_t prot, int flags, 
 
 	/* Skip VMA's that end at or before the hint */
 	struct vma* prev = NULL;
-	struct vma* iter = mm->vma_list;
-	while (iter && iter->top <= base) {
+	struct vma* iter;
+	list_for_each_entry(iter, &mm->vma_list, link) {
+		if (iter->top > base)
+			break;
 		prev = iter;
-		iter = iter->next;
 	}
 
 	/* Find a memory hole large enough for the size */
 	uintptr_t addr = base;
-	while (iter) {
+	list_for_each_entry_cont(iter, &mm->vma_list, link) {
 		if (flags & VMM_HUGEPAGE_2M) {
 			if (iter->start - addr >= size + HUGEPAGE_2M_SIZE)
 				break;
@@ -92,7 +96,6 @@ int vma_map(struct mm* mm, void* hint, size_t size, mmuflags_t prot, int flags, 
 
 		addr = iter->top;
 		prev = iter;
-		iter = iter->next;
 	}
 
 	if (flags & VMM_FIXED && addr != (uintptr_t)hint) {
@@ -112,14 +115,10 @@ int vma_map(struct mm* mm, void* hint, size_t size, mmuflags_t prot, int flags, 
 		return -ERANGE;
 	}
 
-	vma->prev = prev;
-	vma->next = iter;
-	if (prev)
-		prev->next = vma;
+	if (likely(prev))
+		list_add_between(&prev->link, &iter->link, &vma->link);
 	else
-		mm->vma_list = vma;
-	if (iter)
-		iter->prev = vma;
+		list_add(&mm->vma_list, &vma->link);
 
 	*ret = (void*)vma->start;
 	return 0;
@@ -149,10 +148,15 @@ int vma_protect(struct mm* mm, void* address, size_t size, mmuflags_t prot) {
 	}
 	end = ROUND_UP(end, PAGE_SIZE);
 
-	struct vma* v = mm->vma_list;
-	while (v && v->top <= start)
-		v = v->next;
-	if (!v || v->start >= end) {
+	struct vma* v = NULL;
+	struct vma* pos;
+	list_for_each_entry(pos, &mm->vma_list, link) {
+		if (pos->top > start) {
+			v = pos;
+			break;
+		}
+	}
+	if (!v) {
 		err = -ENOENT;
 		goto out;
 	}
@@ -164,48 +168,48 @@ int vma_protect(struct mm* mm, void* address, size_t size, mmuflags_t prot) {
 		start_split->top = v->top;
 		start_split->prot = v->prot;
 		start_split->flags = v->flags;
-		start_split->prev = v;
-		start_split->next = v->next;
-		if (v->next)
-			v->next->prev = start_split;
-		v->next = start_split;
 		v->top = start;
-		v = start_split;
+		list_add_between(&v->link, v->link.next, &start_split->link);
 	}
 
 	/* Handle end split */
-	struct vma* u = v;
-	while (u->top < end)
-		u = u->next;
+	struct vma* u = NULL;
+	list_for_each_entry_cont(pos, &mm->vma_list, link) {
+		if (pos->top >= end) {
+			u = pos;
+			break;
+		}
+	}
+	assert(u != NULL);
 	if (end < u->top) {
 		end_split_needed = true;
 		end_split->start = end;
 		end_split->top = u->top;
 		end_split->prot = u->prot;
 		end_split->flags = u->flags;
-		end_split->prev = u;
-		end_split->next = u->next;
 		u->top = end;
-		if (u->next)
-			u->next->prev = end_split;
-		u->next = end_split;
+		list_add_between(&u->link, u->link.next, &end_split->link);
 	}
 
 	/* Apply protection flags */
-	for (struct vma* adj = v; adj && adj->start < end; adj = adj->next)
-		adj->prot = prot;
+	struct vma* adj;
+	list_for_each_entry(adj, &mm->vma_list, link) {
+		if (adj->start >= start && adj->start < end)
+			adj->prot = prot;
+	}
 
 	/* Merge adjecent VMA's with the same protection flags */
-	for (struct vma* adj = mm->vma_list; adj && adj->next;) {
-		struct vma* n = adj->next;
-		if (adj->top == n->start && adj->prot == n->prot && adj->flags == n->flags) {
-			adj->top = n->top;
-			adj->next = n->next;
-			if (n->next)
-				n->next->prev = adj;
-			vma_free(n);
-		} else {
-			adj = n;
+	struct vma* next;
+	list_for_each_entry_safe(pos, next, &mm->vma_list, link) {
+		if (list_is_tail(&mm->vma_list, &next->link))
+			break;
+		if (pos->top == next->start && pos->prot == next->prot && pos->flags == next->flags) {
+			pos->top = next->top;
+			list_remove(&next->link);
+			vma_free(next);
+
+			/* Since we removed the next link, we need to reassign it so we don't set pos to the removed link */
+			next = list_entry(pos->link.next, struct vma, link);
 		}
 	}
 out:
@@ -237,44 +241,30 @@ int vma_unmap(struct mm* mm, void* address, size_t size) {
 		goto out;
 	}
 
-	struct vma* v = mm->vma_list;
-	while (v) {
-		if (v->top <= start || v->start >= end) {
-			v = v->next;
+	struct vma* v, *n;
+	list_for_each_entry_safe(v, n, &mm->vma_list, link) {
+		if (v->top <= start || v->start >= end)
 			continue;
-		}
 
 		overlap_found = true;
 
 		/* Handle full overlap, head chop, and tail chop, and middle splitting respectively */
 		if (start <= v->start && end >= v->top) {
-			struct vma* free = v;
-			v = v->next;
-			if (free->prev)
-				free->prev->next = free->next;
-			else
-				mm->vma_list = free->next;
-			if (free->next)
-				free->next->prev = free->prev;
-			vma_free(free);
+			list_remove(&v->link);
+			vma_free(v);
 		} else if (start <= v->start) {
 			v->start = end;
 			goto out;
 		} else if (end >= v->top) {
 			v->top = start;
-			v = v->next;
 		} else {
 			split_needed = true;
 			split->start = end;
 			split->flags = v->flags;
 			split->prot = v->prot;
 			split->top = v->top;
-			split->next = v->next;
-			split->prev = v;
-			if (v->next)
-				v->next->prev = split;
-			v->next = split;
 			v->top = start;
+			list_add_between(&v->link, v->link.next, &split->link);
 			goto out;
 		}
 	}
