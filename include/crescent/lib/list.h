@@ -38,6 +38,10 @@ static inline void list_add_tail(struct list_head* head, struct list_node* node)
 	__list_add(node, head->node.prev, &head->node);
 }
 
+static inline void list_add_between(struct list_node* prev, struct list_node* next, struct list_node* node) {
+	__list_add(node, prev, next);
+}
+
 static inline void __list_remove(struct list_node* prev, struct list_node* next) {
 	next->prev = prev;
 	prev->next = next;
@@ -47,6 +51,10 @@ static inline void list_remove(struct list_node* node) {
 	__list_remove(node->prev, node->next);
 	node->prev = NULL;
 	node->next = NULL;
+}
+
+static inline bool list_is_tail(const struct list_head* head, const struct list_node* node) {
+	return node->next == &head->node;
 }
 
 static inline bool list_empty(const struct list_head* head) {
@@ -66,3 +74,6 @@ static inline bool list_empty(const struct list_head* head) {
 			&pos->member != &(head)->node; \
 			pos = n, \
 			n = list_entry(n->member.next, typeof(*pos), member))
+#define list_for_each_cont(pos, head) for (; pos != &(head)->node; pos = pos->next)
+#define list_for_each_entry_cont(pos, head, member) \
+	for (; &pos->member != &(head)->node; pos = list_entry(pos->member.next, typeof(*pos), member))
