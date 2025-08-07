@@ -79,7 +79,7 @@ _Noreturn __asmlinkage void kernel_main(void) {
 	if (unlikely(err))
 		panic("Failed to initialize APIC, err: %i", err);
 	timekeeper_init();
-	sched_init(); /* After this, this thread can now be treated as a kthread */
+	scheduler_init(); /* After this, this thread can now be treated as a kthread */
 	init_status = INIT_STATUS_SCHED;
 
 	printk(PRINTK_CRIT "init: kernel_main thread ended!\n");
