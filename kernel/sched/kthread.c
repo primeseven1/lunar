@@ -4,6 +4,7 @@
 #include <crescent/mm/vmm.h>
 #include <crescent/core/cpu.h>
 #include <crescent/core/trace.h>
+#include <crescent/core/panic.h>
 #include <crescent/common.h>
 #include <crescent/core/printk.h>
 #include <crescent/asm/wrap.h>
@@ -33,7 +34,6 @@ struct thread* kthread_create(int sched_flags, int kthread_flags, void* (*func)(
 	thread->ctx.general.rsp = stack;
 	thread->ctx.general.rdi = (long)func;
 	thread->ctx.general.rsi = (long)arg;
-
 	atomic_store(&thread->refcount, kthread_flags & KTHREAD_JOIN ? 1 : 0, ATOMIC_RELAXED);
 	schedule_thread(thread, NULL, sched_flags);
 
@@ -41,8 +41,8 @@ struct thread* kthread_create(int sched_flags, int kthread_flags, void* (*func)(
 }
 
 void* kthread_join(struct thread* thread) {
-	while (atomic_load(&thread->state, ATOMIC_ACQUIRE) != THREAD_STATE_ZOMBIE)
-		cpu_relax();
+	while (thread_state_get(thread) != THREAD_STATE_ZOMBIE)
+		schedule();
 
 	void* ret = (void*)thread->ctx.general.rax;
 	atomic_sub_fetch(&thread->refcount, 1, ATOMIC_RELEASE);
@@ -51,13 +51,10 @@ void* kthread_join(struct thread* thread) {
 
 _Noreturn void kthread_exit(void* ret) {
 	struct thread* thread = current_cpu()->current_thread;
-
 	thread->ctx.general.rax = (long)ret;
-	atomic_store(&thread->state, THREAD_STATE_ZOMBIE, ATOMIC_RELEASE);
-
-	/* TODO: add sched_yeild when implemented */
-	while (1)
-		cpu_halt();
+	thread_state_set(thread, THREAD_STATE_ZOMBIE);
+	schedule();
+	__builtin_unreachable();
 }
 
 __diag_push();

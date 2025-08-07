@@ -31,6 +31,8 @@ static void do_preempt(struct context* context) {
 	struct thread* next = get_next_thread();
 	if (!next)
 		panic("no runnable threads!");
+	if (next == current)
+		return;
 
 	/* 
 	 * Will add extended states later, we can just let the interrupt 
@@ -42,8 +44,9 @@ static void do_preempt(struct context* context) {
 	if (current->proc != next->proc)
 		vmm_switch_mm_struct(next->proc->mm_struct);
 
-	atomic_store(&current->state, THREAD_STATE_RUNNABLE, ATOMIC_RELEASE);
-	atomic_store(&next->state, THREAD_STATE_RUNNING, ATOMIC_RELEASE);
+	if (thread_state_get(current) == THREAD_STATE_RUNNING)
+		thread_state_set(current, THREAD_STATE_READY);
+	thread_state_set(next, THREAD_STATE_RUNNING);
 
 	cpu->current_thread = next;
 }
