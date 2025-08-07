@@ -2,12 +2,14 @@
 
 #include <crescent/asm/msr.h>
 #include <crescent/sched/sched.h>
+#include <crescent/lib/list.h>
 
 struct cpu {
 	struct cpu* self;
 	u32 processor_id, lapic_id, sched_processor_id;
 	struct mm* mm_struct;
-	struct thread* current_thread, *thread_queue;
+	struct thread* current_thread;
+	struct list_head thread_queue;
 	spinlock_t thread_lock;
 };
 
@@ -23,5 +25,5 @@ static inline struct cpu* current_cpu(void) {
 	return cpu;
 }
 
-void cpu_startup_aps(void);
+void startup_ap_cpus(void);
 void bsp_cpu_init(void);
