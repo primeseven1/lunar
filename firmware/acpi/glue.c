@@ -25,7 +25,7 @@ void uacpi_kernel_log(uacpi_log_level level, const uacpi_char* str) {
 	printk("%sacpi: %s", _level, str);
 }
 
-void* uacpi_kernel_map(uacpi_phys_addr physical, size_t size) {
+void* uacpi_kernel_map(uacpi_phys_addr physical, uacpi_size size) {
 	size_t page_offset = physical % PAGE_SIZE;
 	physaddr_t _physical = physical - page_offset;
 	void* virtual = vmap(NULL, size + page_offset, MMU_READ | MMU_WRITE, VMM_PHYSICAL, &_physical);
@@ -34,7 +34,7 @@ void* uacpi_kernel_map(uacpi_phys_addr physical, size_t size) {
 	return (u8*)virtual + page_offset;
 }
 
-void uacpi_kernel_unmap(void* virtual, size_t size) {
+void uacpi_kernel_unmap(void* virtual, uacpi_size size) {
 	size_t page_offset = (uintptr_t)virtual % PAGE_SIZE;
 	void* _virtual = (u8*)virtual - page_offset;
 	int err = vunmap(_virtual, size + page_offset, 0);
