@@ -1,6 +1,6 @@
 #pragma once
 
-#include <crescent/core/locking.h>
+#include <crescent/core/spinlock.h>
 #include <crescent/core/interrupt.h>
 #include <crescent/core/timekeeper.h>
 #include <crescent/lib/list.h>
