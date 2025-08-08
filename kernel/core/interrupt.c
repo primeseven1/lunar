@@ -3,7 +3,7 @@
 #include <crescent/compiler.h>
 #include <crescent/asm/segment.h>
 #include <crescent/core/panic.h>
-#include <crescent/core/locking.h>
+#include <crescent/core/spinlock.h>
 #include <crescent/core/printk.h>
 #include <crescent/core/cpu.h>
 #include <crescent/core/interrupt.h>

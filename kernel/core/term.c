@@ -3,7 +3,7 @@
 #include <crescent/core/cmdline.h>
 #include <crescent/core/panic.h>
 #include <crescent/core/printk.h>
-#include <crescent/core/locking.h>
+#include <crescent/core/spinlock.h>
 #include <crescent/mm/heap.h>
 #include <crescent/lib/list.h>
 

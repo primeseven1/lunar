@@ -1,6 +1,6 @@
 #include <crescent/common.h>
 #include <crescent/core/printk.h>
-#include <crescent/core/locking.h>
+#include <crescent/core/spinlock.h>
 #include <crescent/core/term.h>
 #include <crescent/core/timekeeper.h>
 #include <crescent/lib/format.h>

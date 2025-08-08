@@ -1,7 +1,7 @@
 #pragma once
 
 #include <crescent/asm/flags.h>
-#include <crescent/core/locking.h>
+#include <crescent/core/spinlock.h>
 
 #define INTERRUPT_EXCEPTION_COUNT 32
 

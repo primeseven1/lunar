@@ -1,7 +1,7 @@
 #pragma once
 
 #include <crescent/lib/list.h>
-#include <crescent/core/locking.h>
+#include <crescent/core/spinlock.h>
 #include <crescent/core/timekeeper.h>
 
 struct semaphore {

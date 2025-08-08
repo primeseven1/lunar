@@ -1,5 +1,5 @@
 #include <crescent/asm/wrap.h>
-#include <crescent/core/locking.h>
+#include <crescent/core/spinlock.h>
 #include <crescent/core/interrupt.h>
 
 void spinlock_lock(spinlock_t* lock) {
