@@ -2,7 +2,7 @@
 #include <crescent/compiler.h>
 #include <crescent/asm/ctl.h>
 #include <crescent/core/cpu.h>
-#include <crescent/core/locking.h>
+#include <crescent/core/spinlock.h>
 #include <crescent/core/limine.h>
 #include <crescent/core/panic.h>
 #include <crescent/core/trace.h>

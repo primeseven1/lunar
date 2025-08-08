@@ -1,7 +1,7 @@
 #include <crescent/common.h>
 #include <crescent/compiler.h>
 #include <crescent/asm/errno.h>
-#include <crescent/core/locking.h>
+#include <crescent/core/spinlock.h>
 #include <crescent/core/printk.h>
 #include <crescent/core/panic.h>
 #include <crescent/core/trace.h>

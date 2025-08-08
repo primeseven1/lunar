@@ -1,7 +1,7 @@
 #pragma once
 
 #include <crescent/asm/errno.h>
-#include <crescent/core/locking.h>
+#include <crescent/core/spinlock.h>
 #include <crescent/mm/vmm.h>
 #include <crescent/lib/list.h>
 

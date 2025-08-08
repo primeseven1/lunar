@@ -1,7 +1,7 @@
 #pragma once
 
 #include <crescent/compiler.h>
-#include <crescent/core/locking.h>
+#include <crescent/core/spinlock.h>
 
 #define KSTACK_SIZE 0x4000
 

@@ -1,5 +1,5 @@
 #include <crescent/common.h>
-#include <crescent/core/locking.h>
+#include <crescent/core/spinlock.h>
 #include <crescent/core/limine.h>
 #include <crescent/core/printk.h>
 #include <crescent/core/trace.h>
