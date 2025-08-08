@@ -1,7 +1,7 @@
 #pragma once
 
 #include <crescent/types.h>
-#include <crescent/core/locking.h>
+#include <crescent/core/spinlock.h>
 
 struct hashtable_node {
 	void* key;
