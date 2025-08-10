@@ -15,7 +15,7 @@
 #include <crescent/mm/buddy.h>
 #include <crescent/mm/heap.h>
 #include <crescent/asm/segment.h>
-#include <crescent/sched/sched.h>
+#include <crescent/sched/scheduler.h>
 #include <crescent/sched/kthread.h>
 
 #include <acpi/acpi_init.h>
