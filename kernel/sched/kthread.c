@@ -1,4 +1,4 @@
-#include <crescent/sched/sched.h>
+#include <crescent/sched/scheduler.h>
 #include <crescent/sched/kthread.h>
 #include <crescent/asm/segment.h>
 #include <crescent/mm/vmm.h>
@@ -11,22 +11,22 @@
 #include <crescent/asm/flags.h>
 #include "sched.h"
 
-/* Bit 1 is reserved, and must always be set */
-#define RFLAGS_DEFAULT ((1 << 1) | CPU_FLAG_INTERRUPT)
+static struct proc* kproc;
 
-struct thread* kthread_create(int sched_flags, int kthread_flags, void* (*func)(void*), void* arg) {
-	struct thread* thread = sched_thread_alloc();
+struct thread* kthread_create(int kthread_flags, void* (*func)(void*), void* arg) {
+	struct thread* thread = thread_alloc();
 	if (!thread)
 		return NULL;
 
 	void* stack = vmap_kstack();
 	if (!stack) {
-		sched_thread_free(thread);
+		thread_free(thread);
 		return NULL;
 	}
 	thread->stack = stack;
 	thread->stack_size = KSTACK_SIZE;
 
+	thread->proc = kproc;
 	thread->ctx.general.rip = asm_kthread_start;
 	thread->ctx.general.cs = SEGMENT_KERNEL_CODE;
 	thread->ctx.general.rflags = RFLAGS_DEFAULT;
@@ -34,14 +34,17 @@ struct thread* kthread_create(int sched_flags, int kthread_flags, void* (*func)(
 	thread->ctx.general.rsp = stack;
 	thread->ctx.general.rdi = (long)func;
 	thread->ctx.general.rsi = (long)arg;
-	atomic_store(&thread->refcount, kthread_flags & KTHREAD_JOIN ? 1 : 0, ATOMIC_RELAXED);
-	schedule_thread(thread, NULL, sched_flags);
+	thread->preempt_count = 0;
+
+	unsigned long refcount = kthread_flags & KTHREAD_JOIN ? 1 : 0;
+	atomic_store(&thread->refcount, refcount, ATOMIC_RELAXED);
+	schedule_thread(thread, 0);
 
 	return thread;
 }
 
 void* kthread_join(struct thread* thread) {
-	while (thread_state_get(thread) != THREAD_STATE_ZOMBIE)
+	while (atomic_load(&thread->state, ATOMIC_ACQUIRE) != THREAD_ZOMBIE)
 		schedule();
 
 	void* ret = (void*)thread->ctx.general.rax;
@@ -50,9 +53,9 @@ void* kthread_join(struct thread* thread) {
 }
 
 _Noreturn void kthread_exit(void* ret) {
-	struct thread* thread = current_cpu()->current_thread;
+	struct thread* thread = current_cpu()->runqueue.current;
 	thread->ctx.general.rax = (long)ret;
-	thread_state_set(thread, THREAD_STATE_ZOMBIE);
+	atomic_store(&thread->state, THREAD_ZOMBIE, ATOMIC_RELEASE);
 	schedule();
 	__builtin_unreachable();
 }
@@ -68,3 +71,7 @@ __asmlinkage _Noreturn void __kthread_start(void* (*func)(void*), void* arg) {
 }
 
 __diag_pop();
+
+void kthread_init(struct proc* kernel_proc) {
+	kproc = kernel_proc;
+}

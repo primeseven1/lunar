@@ -1,5 +1,5 @@
 #include <crescent/common.h>
-#include <crescent/sched/sched.h>
+#include <crescent/sched/scheduler.h>
 #include <crescent/core/panic.h>
 #include <crescent/core/printk.h>
 #include <crescent/core/cpu.h>
@@ -49,7 +49,7 @@ static void free_pid(pid_t pid) {
 	spinlock_unlock_irq_restore(&pid_map_lock, &flags);
 }
 
-struct proc* sched_proc_alloc(void) {
+struct proc* proc_alloc(void) {
 	struct proc* proc = slab_cache_alloc(proc_cache);
 	if (!proc)
 		return NULL;
@@ -69,12 +69,12 @@ struct proc* sched_proc_alloc(void) {
 	return proc;
 }
 
-void sched_proc_free(struct proc* proc) {
+void proc_free(struct proc* proc) {
 	slab_cache_free(proc_cache, proc);
 	free_pid(proc->pid);
 }
 
-struct thread* sched_thread_alloc(void) {
+struct thread* thread_alloc(void) {
 	struct thread* thread = slab_cache_alloc(thread_cache);
 	if (!thread)
 		return NULL;
@@ -83,11 +83,11 @@ struct thread* sched_thread_alloc(void) {
 	return thread;
 }
 
-void sched_thread_free(struct thread* thread) {
+void thread_free(struct thread* thread) {
 	slab_cache_free(thread_cache, thread);
 }
 
-void sched_create_init(void) {
+void proc_thread_alloc_init(void) {
 	proc_cache = slab_cache_create(sizeof(struct proc), _Alignof(struct proc), MM_ZONE_NORMAL, NULL, NULL);
 	assert(proc_cache != NULL);
 	const size_t pid_map_size = (max_pid_count + 7) / 8;

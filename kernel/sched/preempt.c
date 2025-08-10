@@ -11,12 +11,10 @@
 #include <crescent/mm/vmm.h>
 #include "sched.h"
 
-#define WAIT_LENGTH 10000u
-
 static u32 lapic_timer_get_ticks_for_preempt(void) {
 	lapic_write(LAPIC_REG_TIMER_DIVIDE, 0x03); /* Set the divisor to 16 */
 	lapic_write(LAPIC_REG_TIMER_INITIAL, U32_MAX); /* Set the initial count to the maximum */
-	timekeeper_stall(WAIT_LENGTH);
+	timekeeper_stall(TIMER_TRIGGER_TIME_USEC);
 	lapic_write(LAPIC_REG_LVT_TIMER, 1 << 16); /* Stop timer */
 
 	/* Now just return the difference of the initial count and the current count */
@@ -24,36 +22,41 @@ static u32 lapic_timer_get_ticks_for_preempt(void) {
 }
 
 /* Needs to be as simple as possible, don't want to stay too long in this interrupt */
-static void do_preempt(struct context* context) {
+static void do_preempt(void) {
 	struct cpu* cpu = current_cpu();
-	struct thread* current = cpu->current_thread;
-
-	struct thread* next = get_next_thread();
-	if (!next)
-		panic("no runnable threads!");
-	if (next == current)
+	struct thread* current = cpu->runqueue.current;
+	if (current == cpu->runqueue.idle)
 		return;
-
-	/* 
-	 * Will add extended states later, we can just let the interrupt 
-	 * handler restore the general purpose registers for us.
-	 */
-	current->ctx.general = *context;
-	*context = next->ctx.general;
-
-	if (current->proc != next->proc)
-		vmm_switch_mm_struct(next->proc->mm_struct);
-
-	if (thread_state_get(current) == THREAD_STATE_RUNNING)
-		thread_state_set(current, THREAD_STATE_READY);
-	thread_state_set(next, THREAD_STATE_RUNNING);
-
-	cpu->current_thread = next;
+	if (current->preempt_count > 0)
+		return;
+	if (current->time_slice && --current->time_slice == 0)
+		cpu->need_resched = true;
 }
 
 static void lapic_timer(const struct isr* isr, struct context* ctx) {
 	(void)isr;
-	do_preempt(ctx);
+	(void)ctx;
+
+	struct cpu* cpu = current_cpu();
+	time_t now = timekeeper_get_nsec();
+
+	spinlock_lock(&cpu->runqueue.lock);
+
+	do_preempt();
+
+	/* Wake up threads that are sleeping */
+	struct thread* pos, *tmp;
+	list_for_each_entry_safe(pos, tmp, &cpu->runqueue.sleeping, sleep_link) {
+		if (now >= pos->wakeup_time) {
+			atomic_store(&pos->state, THREAD_READY, ATOMIC_RELEASE);
+			list_remove(&pos->sleep_link);
+			rr_enqueue_thread(pos);
+			if (cpu->runqueue.current == cpu->runqueue.idle)
+				cpu->need_resched = true;
+		}
+	}
+
+	spinlock_unlock(&cpu->runqueue.lock);
 }
 
 static struct irq timer_irq = {
@@ -75,5 +78,5 @@ void preempt_init(void) {
 	lapic_write(LAPIC_REG_TIMER_INITIAL, ticks);
 
 	printk(PRINTK_DBG "sched: LAPIC timer calibrated at %u ticks per %u us on CPU %u\n", 
-			ticks, WAIT_LENGTH, current_cpu()->processor_id);
+			ticks, TIMER_TRIGGER_TIME_USEC, current_cpu()->processor_id);
 }

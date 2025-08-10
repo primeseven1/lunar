@@ -1,25 +1,32 @@
 #pragma once
 
 #include <crescent/compiler.h>
-#include <crescent/sched/sched.h>
+#include <crescent/sched/scheduler.h>
 
-void sched_create_init(void);
+/* Bit 1 is reserved, and must always be set */
+#define RFLAGS_DEFAULT ((1 << 1) | CPU_FLAG_INTERRUPT)
+
+#define TIMER_TRIGGER_TIME_USEC 1000u
+#define PREEMPTION_TIME_USEC 10000u
+#define PREEMPT_TICKS (PREEMPTION_TIME_USEC / TIMER_TRIGGER_TIME_USEC)
+
 void preempt_init(void);
+void proc_thread_alloc_init(void);
 
-struct thread* sched_thread_alloc(void);
-void sched_thread_free(struct thread* thread);
-struct proc* sched_proc_alloc(void);
-void sched_proc_free(struct proc* proc);
+struct thread* rr_pick_next(struct runqueue* rq);
+void rr_enqueue_thread(struct thread* thread);
+void rr_dequeue_thread(struct thread* thread);
 
-/**
- * @brief Get the next runnable thread
- *
- * Interrupts must be disabled before calling this function.
- *
- * @return NULL if there is no other runnable thread, otherwise you get a runnable thread
- */
-struct thread* get_next_thread(void);
-int schedule_thread(struct thread* thread, struct proc* proc, int flags);
+static inline bool deadline_less(time_t a, time_t b) {
+	return (long long)(a - b) <= 0;
+}
 
 __asmlinkage void asm_context_switch(struct context* current, struct context* next);
 __asmlinkage _Noreturn void asm_kthread_start(void);
+
+struct proc* proc_alloc(void);
+void proc_free(struct proc* proc);
+struct thread* thread_alloc(void);
+void thread_free(struct thread* thread);
+
+void kthread_init(struct proc* kernel_proc);
