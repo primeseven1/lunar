@@ -9,6 +9,7 @@
 #include <crescent/core/interrupt.h>
 #include <crescent/core/apic.h>
 #include <crescent/mm/vmm.h>
+#include <crescent/sched/scheduler.h>
 #include <crescent/lib/string.h>
 #include "traps.h"
 
@@ -106,8 +107,21 @@ __asmlinkage void __isr_entry(struct context* ctx) {
 		isr->irq->eoi(isr->irq);
 	}
 
-	if (unlikely(bad_cpu))
+	if (unlikely(bad_cpu)) {
 		swap_cpu();
+		return;
+	}
+
+	struct cpu* cpu = current_cpu();
+	if (cpu->need_resched) {
+		struct thread* current = current_cpu()->runqueue.current;
+		struct thread* next = __schedule_noswap(current);
+		if (next != current) {
+			current->ctx.general = *ctx;
+			*ctx = next->ctx.general;
+		}
+		cpu->need_resched = false;
+	}
 }
 
 __diag_pop();

@@ -6,9 +6,9 @@ void semaphore_wait(struct semaphore* sem) {
 	spinlock_lock_irq_save(&sem->lock, &flags);
 
 	if (--sem->count < 0) {
-		struct thread* current_thread = current_cpu()->current_thread;
-		list_add_tail(&sem->wait_queue, &current_thread->sleep_link);
-		thread_state_set(current_thread, THREAD_STATE_BLOCKED);
+		struct thread* current_thread = current_cpu()->runqueue.current;
+		list_add_tail(&sem->wait_queue, &current_thread->external_blocked_link);
+		schedule_block_current_thread_noschedule();
 		spinlock_unlock_irq_restore(&sem->lock, &flags);
 		schedule();
 		return;
@@ -39,9 +39,9 @@ void semaphore_signal(struct semaphore* sem) {
 	spinlock_lock_irq_save(&sem->lock, &irq);
 
 	if (++sem->count <= 0 && !list_empty(&sem->wait_queue)) {
-		struct thread* thread = list_entry(sem->wait_queue.node.next, struct thread, sleep_link);
-		list_remove(&thread->sleep_link);
-		thread_state_set(thread, THREAD_STATE_READY);
+		struct thread* thread = list_entry(sem->wait_queue.node.next, struct thread, external_blocked_link);
+		list_remove(&thread->external_blocked_link);
+		schedule_unblock_thread(thread);
 	}
 
 	spinlock_unlock_irq_restore(&sem->lock, &irq);

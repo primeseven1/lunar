@@ -23,7 +23,7 @@ struct cpu** get_cpu_structs(u64* count) {
 void bsp_cpu_init(void) {
 	static struct cpu bsp_cpu = {
 		.self = &bsp_cpu,
-		.sched_processor_id = 0
+		.sched_processor_id = 0,
 	};
 
 	struct limine_mp_response* mp = mp_request.response;

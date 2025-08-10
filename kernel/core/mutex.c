@@ -3,7 +3,7 @@
 #include <crescent/core/printk.h>
 
 void mutex_lock(mutex_t* lock) {
-	struct thread* current_thread = current_cpu()->current_thread;
+	struct thread* current_thread = current_cpu()->runqueue.current;
 	if (unlikely(!current_thread)) {
 		spinlock_lock(&lock->spinlock);
 		return;
@@ -16,7 +16,7 @@ void mutex_lock(mutex_t* lock) {
 }
 
 int mutex_lock_timed(mutex_t* lock, time_t timeout_ms) {
-	struct thread* current_thread = current_cpu()->current_thread;
+	struct thread* current_thread = current_cpu()->runqueue.current;
 	if (unlikely(!current_thread)) {
 		spinlock_lock(&lock->spinlock);
 		return 0;
@@ -34,7 +34,7 @@ int mutex_lock_timed(mutex_t* lock, time_t timeout_ms) {
 }
 
 bool mutex_try_lock(mutex_t* lock) {
-	struct thread* current_thread = current_cpu()->current_thread;
+	struct thread* current_thread = current_cpu()->runqueue.current;
 	if (unlikely(!current_thread))
 		return spinlock_try(&lock->spinlock);
 
@@ -50,7 +50,7 @@ bool mutex_try_lock(mutex_t* lock) {
 }
 
 void mutex_unlock(mutex_t* lock) {
-	struct thread* current_thread = current_cpu()->current_thread;
+	struct thread* current_thread = current_cpu()->runqueue.current;
 	if (unlikely(!current_thread)) {
 		spinlock_unlock(&lock->spinlock);
 		return;
