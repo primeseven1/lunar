@@ -3,6 +3,7 @@
 #include <crescent/core/panic.h>
 #include <crescent/core/printk.h>
 #include <crescent/core/cpu.h>
+#include <crescent/core/trace.h>
 #include <crescent/lib/string.h>
 #include <crescent/mm/slab.h>
 #include <crescent/mm/heap.h>
@@ -15,37 +16,48 @@ static u8* pid_map = NULL;
 static spinlock_t pid_map_lock = SPINLOCK_INITIALIZER;
 static const pid_t max_pid_count = 0x100000;
 
-static pid_t alloc_pid(void) {
-	unsigned long flags;
-	spinlock_lock_irq_save(&pid_map_lock, &flags);
-
-	pid_t ret = max_pid_count;
-	for (pid_t pid = 0; pid < max_pid_count; pid++) {
-		size_t byte_index = pid / 8;
-		unsigned int bit_index = pid % 8;
-		if ((pid_map[byte_index] & (1 << bit_index)) == 0) {
-			pid_map[byte_index] |= (1 << bit_index);
-			ret = pid;
-			break;
+static long long alloc_id(u8* map, long long max) {
+	for (long long id = 0; id < max; id++) {
+		size_t byte = id >> 3;
+		unsigned int bit = id & 7;
+		if ((map[byte] & (1 << bit)) == 0) {
+			map[byte] |= (1 << bit);
+			return id;
 		}
 	}
 
+	return max;
+}
+
+static inline void free_id(u8* map, long long id) {
+	size_t byte = id >> 3;
+	unsigned int bit = id & 7;
+	map[byte] &= ~(1 << bit);
+}
+
+static inline bool check_id_max(long long id, long long max) {
+	if (unlikely(id > max)) {
+		printk(PRINTK_ERR "sched: id %llu > %llu\n", id, max);
+		return false;
+	}
+	return true;
+}
+
+static pid_t alloc_pid(void) {
+	unsigned long flags;
+	spinlock_lock_irq_save(&pid_map_lock, &flags);
+	pid_t ret = alloc_id(pid_map, max_pid_count);
 	spinlock_unlock_irq_restore(&pid_map_lock, &flags);
 	return ret;
 }
 
 static void free_pid(pid_t pid) {
-	if (pid >= max_pid_count || pid <= 0) {
-		printk(PRINTK_ERR "sched: %s bad PID value %i\n", __func__, pid);
+	if (!check_id_max(pid, max_pid_count))
 		return;
-	}
-
-	size_t byte_index = pid / 8;
-	unsigned int bit_index = pid % 8;
 
 	unsigned long flags;
 	spinlock_lock_irq_save(&pid_map_lock, &flags);
-	pid_map[byte_index] &= ~(1 << bit_index);
+	free_id(pid_map, pid);
 	spinlock_unlock_irq_restore(&pid_map_lock, &flags);
 }
 
@@ -90,7 +102,7 @@ void thread_free(struct thread* thread) {
 void proc_thread_alloc_init(void) {
 	proc_cache = slab_cache_create(sizeof(struct proc), _Alignof(struct proc), MM_ZONE_NORMAL, NULL, NULL);
 	assert(proc_cache != NULL);
-	const size_t pid_map_size = (max_pid_count + 7) / 8;
+	const size_t pid_map_size = (max_pid_count + 7) >> 3;
 	pid_map = vmap(NULL, pid_map_size, MMU_READ | MMU_WRITE, VMM_ALLOC, NULL);
 	assert(pid_map != NULL);
 

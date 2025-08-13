@@ -70,7 +70,7 @@ void schedule(void) {
 }
 
 void schedule_sleep(time_t ms) {
-	if (ms == 0)
+	if (ms == 0 || ms < 0)
 		return;
 
 	unsigned long irq = local_irq_save();
@@ -175,4 +175,5 @@ void scheduler_init(void) {
 	kthread_init(kernel_proc);
 
 	scheduler_init_cpu();
+	deferred_init();
 }

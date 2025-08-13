@@ -13,7 +13,7 @@
 
 static struct proc* kproc;
 
-struct thread* kthread_create(int kthread_flags, void* (*func)(void*), void* arg) {
+struct thread* kthread_create(int sched_flags, void* (*func)(void*), void* arg) {
 	struct thread* thread = thread_alloc();
 	if (!thread)
 		return NULL;
@@ -36,9 +36,8 @@ struct thread* kthread_create(int kthread_flags, void* (*func)(void*), void* arg
 	thread->ctx.general.rsi = (long)arg;
 	thread->preempt_count = 0;
 
-	unsigned long refcount = kthread_flags & KTHREAD_JOIN ? 1 : 0;
-	atomic_store(&thread->refcount, refcount, ATOMIC_RELAXED);
-	schedule_thread(thread, 0);
+	atomic_store(&thread->refcount, 1, ATOMIC_RELAXED);
+	schedule_thread(thread, sched_flags);
 
 	return thread;
 }

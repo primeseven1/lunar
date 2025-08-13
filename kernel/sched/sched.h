@@ -12,14 +12,11 @@
 
 void preempt_init(void);
 void proc_thread_alloc_init(void);
+void deferred_init(void);
 
 struct thread* rr_pick_next(struct runqueue* rq);
 void rr_enqueue_thread(struct thread* thread);
 void rr_dequeue_thread(struct thread* thread);
-
-static inline bool deadline_less(time_t a, time_t b) {
-	return (long long)(a - b) <= 0;
-}
 
 __asmlinkage void asm_context_switch(struct context* current, struct context* next);
 __asmlinkage _Noreturn void asm_kthread_start(void);

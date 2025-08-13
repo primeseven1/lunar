@@ -21,7 +21,6 @@ static u32 lapic_timer_get_ticks_for_preempt(void) {
 	return U32_MAX - lapic_read(LAPIC_REG_TIMER_CURRENT); 
 }
 
-/* Needs to be as simple as possible, don't want to stay too long in this interrupt */
 static void do_preempt(void) {
 	struct cpu* cpu = current_cpu();
 	struct thread* current = cpu->runqueue.current;
