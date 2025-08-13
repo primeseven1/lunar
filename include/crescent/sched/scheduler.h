@@ -5,6 +5,7 @@
 #include <crescent/core/timekeeper.h>
 #include <crescent/lib/list.h>
 
+struct cpu;
 typedef int pid_t;
 typedef int tid_t;
 
@@ -21,9 +22,15 @@ enum sched_flags {
 	SCHED_CPU0 = (1 << 1),
 };
 
+struct work {
+	void (*fn)(void*);
+	void* arg;
+};
+
 struct proc {
 	pid_t pid;
 	struct mm* mm_struct;
+	u8* tid_map;
 	struct list_head threads;
 	atomic(unsigned long) thread_count;
 	spinlock_t thread_lock;
@@ -63,6 +70,8 @@ struct runqueue {
 };
 
 void schedule_thread(struct thread* thread, int flags);
+int schedule_work(void (*fn)(void*), void* arg, int flags);
+void deferred_init_cpu(void);
 
 /**
  * @brief Swap to a new task but without actually swapping
