@@ -41,6 +41,8 @@ _Noreturn __asmlinkage void kernel_main(void) {
 	int err_trace = tracing_init(); /* Enable stack traces */
 
 	buddy_init();
+	cpu_structs_init();
+	cpu_register();
 	vmm_init();
 	segments_init();
 	interrupts_init();
