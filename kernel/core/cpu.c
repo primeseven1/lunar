@@ -5,6 +5,7 @@
 #include <crescent/lib/string.h>
 #include <crescent/mm/buddy.h>
 #include <crescent/mm/vmm.h>
+#include "../mm/hhdm.h"
 
 /* Must be marked as volatile, otherwise checking the response pointer will be optimized away */
 static volatile struct limine_mp_request __limine_request mp_request = {
@@ -15,9 +16,20 @@ static volatile struct limine_mp_request __limine_request mp_request = {
 
 static struct cpu** cpus = NULL;
 
+void cpu_structs_init(void) {
+	size_t size = mp_request.response->cpu_count * sizeof(*cpus);
+	physaddr_t address = alloc_pages(MM_ZONE_NORMAL | MM_NOFAIL, get_order(size));
+	cpus = hhdm_virtual(address);
+}
+
 struct cpu** get_cpu_structs(u64* count) {
 	*count = mp_request.response->cpu_count;
 	return cpus;
+}
+
+void cpu_register(void) {
+	struct cpu* cpu = current_cpu();
+	cpus[cpu->sched_processor_id] = cpu;
 }
 
 void bsp_cpu_init(void) {

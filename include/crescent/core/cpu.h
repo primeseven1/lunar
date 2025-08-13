@@ -3,17 +3,24 @@
 #include <crescent/asm/msr.h>
 #include <crescent/sched/scheduler.h>
 #include <crescent/lib/list.h>
+#include <crescent/lib/ringbuffer.h>
 #include <crescent/core/panic.h>
+#include <crescent/core/semaphore.h>
 
 struct cpu {
 	struct cpu* self;
 	u32 processor_id, lapic_id, sched_processor_id;
 	struct mm* mm_struct;
 	struct runqueue runqueue;
+	struct ringbuffer deferred_ringbuffer;
+	struct semaphore deferred_sem;
+	spinlock_t deferred_lock;
 	bool need_resched;
 };
 
+void cpu_structs_init(void);
 struct cpu** get_cpu_structs(u64* count);
+void cpu_register(void);
 
 /**
  * @brief Get the current CPU's CPU struct
