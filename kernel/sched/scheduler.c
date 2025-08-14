@@ -49,10 +49,11 @@ void schedule_thread(struct thread* thread, int flags) {
 
 	unsigned long irq;
 	spinlock_lock_irq_save(&thread->target_cpu->runqueue.lock, &irq);
-	rr_enqueue_thread(thread);
-	spinlock_unlock_irq_restore(&thread->target_cpu->runqueue.lock, &irq);
 
 	atomic_add_fetch(&thread->target_cpu->runqueue.thread_count, 1, ATOMIC_RELEASE);
+	rr_enqueue_thread(thread);
+
+	spinlock_unlock_irq_restore(&thread->target_cpu->runqueue.lock, &irq);
 }
 
 void schedule(void) {
