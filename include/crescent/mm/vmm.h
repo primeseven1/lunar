@@ -29,16 +29,6 @@ enum vmm_flags {
 	VMM_HUGEPAGE_2M = (1 << 5)
 };
 
-static inline void tlb_flush_single(void* virtual) {
-	__asm__ volatile("invlpg (%0)" : : "r"(virtual) : "memory");
-}
-
-static inline void tlb_flush_range(void* virtual, size_t size) {
-	unsigned long count = (size + PAGE_SIZE - 1) >> PAGE_SHIFT;
-	for (unsigned long i = 0; i < count; i++)
-		tlb_flush_single((u8*)virtual + (PAGE_SIZE * i));
-}
-
 typedef unsigned long pte_t;
 
 /**
