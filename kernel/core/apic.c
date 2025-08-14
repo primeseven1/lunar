@@ -1,5 +1,6 @@
 #include <crescent/common.h>
 #include <crescent/asm/msr.h>
+#include <crescent/asm/wrap.h>
 #include <crescent/core/cpu.h>
 #include <crescent/core/panic.h>
 #include <crescent/core/apic.h>
@@ -172,6 +173,22 @@ int apic_set_irq(u8 irq, u8 vector, u8 processor, bool masked) {
 	ioapic_redtbl_write(desc->address, irq, vector, 0, 0, polarity, trigger, masked, processor);
 
 	return 0;
+}
+
+#define APIC_REG_ICR_LOW_STATUS (1 << 12)
+#define APIC_IPIMODE_NMI (1 << 2)
+
+static void lapic_send_ipi(u32 cpu, u8 vector, u8 dest, u8 mode, u8 level) {
+	lapic_write(LAPIC_REG_ICR_HIGH, cpu << 24);
+	lapic_write(LAPIC_REG_ICR_LOW, vector | (level << 8) | (mode << 11) | (dest << 18) | (1 << 14));
+	while (lapic_read(LAPIC_REG_ICR_LOW) & APIC_REG_ICR_LOW_STATUS)
+		cpu_relax();
+}
+
+void apic_send_ipi(struct cpu* target_cpu, const struct isr* isr, int targets, bool maskable) {
+	u32 id = target_cpu ? target_cpu->processor_id : 0;
+	u8 mode = maskable ? 0 : APIC_IPIMODE_NMI;
+	lapic_send_ipi(id, isr->vector, targets, mode, 0);
 }
 
 void apic_ap_init(void) {

@@ -2,6 +2,7 @@
 
 #include <crescent/core/io.h>
 #include <crescent/core/interrupt.h>
+#include <crescent/core/cpu.h>
 
 enum ioapic_regs { 
 	IOAPIC_REG_ID = 0,
@@ -29,14 +30,24 @@ enum lapic_regs {
 	LAPIC_REG_LVT_TIMER = 0x320,
 	LAPIC_REG_LVT_LINT0 = 0x350,
 	LAPIC_REG_LVT_LINT1 = 0x360,
+	LAPIC_REG_ICR_LOW = 0x300,
+	LAPIC_REG_ICR_HIGH = 0x310,
 	LAPIC_REG_TIMER_INITIAL = 0x380,
 	LAPIC_REG_TIMER_CURRENT = 0x390,
 	LAPIC_REG_TIMER_DIVIDE = 0x3E0
 };
 
+enum apic_ipitargets {
+	APIC_IPITARGET_TARGET = 0,
+	APIC_IPITARGET_SELF = 1,
+	APIC_IPITARGET_ALL = 2,
+	APIC_IPITARGET_OTHERS = 3
+};
+
 u32 lapic_read(unsigned int reg);
 void lapic_write(unsigned int reg, u32 x);
 
+void apic_send_ipi(struct cpu* target_cpu, const struct isr* isr, int targets, bool maskable);
 int apic_set_irq(u8 irq, u8 vector, u8 processor, bool masked);
 void apic_ap_init(void);
 int apic_bsp_init(void);
