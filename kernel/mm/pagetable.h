@@ -19,6 +19,19 @@ enum pt_flags {
 	PT_NX = (1ul << 63)
 };
 
+static inline void tlb_flush_single(void* virtual) {
+	__asm__ volatile("invlpg (%0)" : : "r"(virtual) : "memory");
+}
+
+static inline void tlb_flush_range(void* virtual, size_t size) {
+	unsigned long count = (size + PAGE_SIZE - 1) >> PAGE_SHIFT;
+	for (unsigned long i = 0; i < count; i++)
+		tlb_flush_single((u8*)virtual + (PAGE_SIZE * i));
+}
+
+void tlb_invalidate(void* address, size_t size);
+void tlb_init(void);
+
 /**
  * @brief Map an entry into a page table
  *
