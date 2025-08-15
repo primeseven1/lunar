@@ -16,7 +16,7 @@ struct mempool {
 	struct list_node link;
 };
 
-static DEFINE_LIST_HEAD(mempool_head);
+static LIST_HEAD_DEFINE(mempool_head);
 static spinlock_t mempool_spinlock = SPINLOCK_INITIALIZER;
 static struct mempool self_mempool = {
 	.cache = NULL,
