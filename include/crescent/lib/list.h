@@ -11,8 +11,9 @@ struct list_node {
 struct list_head {
 	struct list_node node;
 };
-#define DEFINE_LIST_HEAD(n) struct list_head n = { .node.prev = &n.node, .node.next = &n.node }
 
+#define LIST_HEAD_DEFINE(n) struct list_head n = { .node.prev = &n.node, .node.next = &n.node }
+#define LIST_HEAD_INITIALIZER(n) { .node.prev = &n.node, .node.next = &n.node }
 static inline void list_head_init(struct list_head* head) {
 	head->node.prev = &head->node;
 	head->node.next = &head->node;
