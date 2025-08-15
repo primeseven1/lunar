@@ -12,7 +12,7 @@ struct term_hook {
 	struct list_node link;
 };
 
-static DEFINE_LIST_HEAD(term_hook_head);
+static LIST_HEAD_DEFINE(term_hook_head);
 static spinlock_t hooks_lock = SPINLOCK_INITIALIZER;
 
 int term_driver_register(void (*write)(const char*, size_t)) {

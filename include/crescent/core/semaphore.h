@@ -10,6 +10,12 @@ struct semaphore {
 	spinlock_t lock;
 };
 
+#define SEMAPHORE_DEFINE(n, c) struct semaphore n = { .count = c, \
+	.wait_queue = LIST_HEAD_INITIALIZER(n.wait_queue), \
+	.lock = SPINLOCK_INITIALIZER \
+}
+#define SEMAPHORE_INITIALIZER(n, c) \
+	{ .count = c, .wait_queue = LIST_HEAD_INITIALIZER(n.wait_queue), .lock = SPINLOCK_INITIALIZER }
 static inline void semaphore_init(struct semaphore* sem, long count) {
 	sem->count = count;
 	list_head_init(&sem->wait_queue);
