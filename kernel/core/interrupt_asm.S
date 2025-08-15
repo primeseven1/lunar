@@ -50,8 +50,8 @@ asm_isr_common:
 	 */
 	cld
 
-	mfence /* Speculative execution barrier */
 	swapgs_if_needed
+	lfence /* Speculative execution barrier */
 
 	pushq %r15
 	pushq %r14
