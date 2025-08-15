@@ -28,6 +28,29 @@ static inline void pagetable_get_indexes(const void* virtual, unsigned int* inde
 	indexes[3] = (uintptr_t)virtual >> 12 & 0x01FF;
 }
 
+unsigned long pagetable_mmu_to_pt(mmuflags_t mmu_flags) {
+	if (mmu_flags & MMU_CACHE_DISABLE && mmu_flags & MMU_WRITETHROUGH)
+		return ULONG_MAX;
+
+	unsigned long pt_flags = 0;
+	if (mmu_flags & MMU_READ)
+		pt_flags |= PT_PRESENT;
+	if (mmu_flags & MMU_WRITE)
+		pt_flags |= PT_READ_WRITE;
+	if (mmu_flags & MMU_USER)
+		pt_flags |= PT_USER_SUPERVISOR;
+
+	if (mmu_flags & MMU_WRITETHROUGH)
+		pt_flags |= PT_WRITETHROUGH;
+	else if (mmu_flags & MMU_CACHE_DISABLE)
+		pt_flags |= PT_CACHE_DISABLE;
+
+	if (!(mmu_flags & MMU_EXEC))
+		pt_flags |= PT_NX;
+
+	return pt_flags;
+}
+
 static int walk_pagetable(pte_t* pagetable, const void* virtual, bool create, size_t* page_size, pte_t** ret) {
 	*ret = NULL;
 

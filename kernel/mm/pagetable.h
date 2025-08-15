@@ -1,6 +1,7 @@
 #pragma once
 
 #include <crescent/mm/vmm.h>
+#include <crescent/mm/mm.h>
 
 #define PTE_COUNT 512
 
@@ -28,6 +29,8 @@ static inline void tlb_flush_range(void* virtual, size_t size) {
 	for (unsigned long i = 0; i < count; i++)
 		tlb_flush_single((u8*)virtual + (PAGE_SIZE * i));
 }
+
+unsigned long pagetable_mmu_to_pt(mmuflags_t mmu_flags);
 
 void tlb_invalidate(void* address, size_t size);
 void tlb_init(void);
@@ -103,3 +106,37 @@ physaddr_t pagetable_get_physical(pte_t* pagetable, const void* virtual);
 void* pagetable_get_base_address_from_top_index(unsigned int index);
 
 void pagetable_init(void);
+
+struct prevpage {
+	void* start;
+	physaddr_t physical;
+	size_t page_size;
+	mmuflags_t mmu_flags;
+	int vmm_flags;
+	struct prevpage* next;
+};
+
+/**
+ * @brief Save any info about any pages typically before overwriting them
+ *
+ * @param mm_struct The mm struct to use
+ * @param virtual The virtual address of the pages
+ * @param size The size of the region
+ *
+ * @return NULL on no memory, otherwise you get a single linked list to the info about the pages
+ */
+struct prevpage* prevpage_save(struct mm* mm_struct, u8* virtual, size_t size);
+
+/**
+ * @brief Restore the previous state on a failure
+ *
+ * @param mm_struct The mm struct to use
+ * @param head The previous pages
+ */
+void prevpage_fail(struct mm* mm_struct, struct prevpage* head);
+
+/**
+ * @brief Free the previous pages allocated with VMM_ALLOC
+ * @param head The previous pages
+ */
+void prevpage_success(struct prevpage* head);
