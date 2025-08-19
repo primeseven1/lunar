@@ -82,6 +82,8 @@ void dump_stack(void) {
 		const char* name = trace_kernel_symbol_name(ret);
 		if (name) {
 			ssize_t offset = trace_kernel_symbol_offset(ret);
+			if (offset == 0)
+				question = "? ";
 			printk(PRINTK_CRIT " [%p] %s%s+%#zx\n", ret, question, name, (size_t)offset);
 			question = "";
 		} else {
