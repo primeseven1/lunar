@@ -1,6 +1,6 @@
 #include <crescent/sched/scheduler.h>
 #include <crescent/core/cpu.h>
-#include "sched.h"
+#include "internal.h"
 
 static inline void enqueue_thread(struct runqueue* rq, struct thread* thread) {
 	list_add_tail(&rq->queue, &thread->queue_link);

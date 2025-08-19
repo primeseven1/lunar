@@ -9,34 +9,22 @@
 #include <crescent/core/printk.h>
 #include <crescent/asm/wrap.h>
 #include <crescent/asm/flags.h>
-#include "sched.h"
+#include "internal.h"
 
 static struct proc* kproc;
 
 struct thread* kthread_create(int sched_flags, void* (*func)(void*), void* arg) {
-	struct thread* thread = thread_alloc();
+	struct thread* thread = thread_create(kproc, KSTACK_SIZE);
 	if (!thread)
 		return NULL;
 
-	void* stack = vmap_kstack();
-	if (!stack) {
-		thread_free(thread);
-		return NULL;
-	}
-	thread->stack = stack;
-	thread->stack_size = KSTACK_SIZE;
+	thread_set_ring(thread, THREAD_RING_KERNEL);
+	thread_set_exec(thread, asm_kthread_start);
 
 	thread->proc = kproc;
-	thread->ctx.general.rip = asm_kthread_start;
-	thread->ctx.general.cs = SEGMENT_KERNEL_CODE;
-	thread->ctx.general.rflags = RFLAGS_DEFAULT;
-	thread->ctx.general.ss = SEGMENT_KERNEL_DATA;
-	thread->ctx.general.rsp = stack;
 	thread->ctx.general.rdi = (long)func;
 	thread->ctx.general.rsi = (long)arg;
-	thread->preempt_count = 0;
-
-	atomic_store(&thread->refcount, 1, ATOMIC_RELAXED);
+	atomic_add_fetch(&thread->refcount, 1, ATOMIC_RELEASE);
 	schedule_thread(thread, sched_flags);
 
 	return thread;
@@ -54,9 +42,7 @@ void* kthread_join(struct thread* thread) {
 _Noreturn void kthread_exit(void* ret) {
 	struct thread* thread = current_cpu()->runqueue.current;
 	thread->ctx.general.rax = (long)ret;
-	atomic_store(&thread->state, THREAD_ZOMBIE, ATOMIC_RELEASE);
-	schedule();
-	__builtin_unreachable();
+	thread_exit();
 }
 
 __diag_push();

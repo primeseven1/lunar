@@ -5,7 +5,7 @@
 #include <crescent/sched/kthread.h>
 #include <crescent/core/semaphore.h>
 #include <crescent/core/cpu.h>
-#include "sched.h"
+#include "internal.h"
 
 static struct ringbuffer deferred_ringbuffer;
 static spinlock_t deferred_lock = SPINLOCK_INITIALIZER;

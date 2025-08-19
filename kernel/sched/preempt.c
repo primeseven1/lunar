@@ -9,7 +9,7 @@
 #include <crescent/core/timekeeper.h>
 #include <crescent/mm/mm.h>
 #include <crescent/mm/vmm.h>
-#include "sched.h"
+#include "internal.h"
 
 static u32 lapic_timer_get_ticks_for_preempt(void) {
 	lapic_write(LAPIC_REG_TIMER_DIVIDE, 0x03); /* Set the divisor to 16 */
