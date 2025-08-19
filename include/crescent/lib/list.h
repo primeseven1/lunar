@@ -24,6 +24,10 @@ static inline void list_node_init(struct list_node* node) {
 	node->next = NULL;
 }
 
+static inline bool list_node_in_list(struct list_node* node) {
+	return node->prev == NULL && node->next == NULL;
+}
+
 static inline void __list_add(struct list_node* node, struct list_node* prev, struct list_node* next) {
 	next->prev = node;
 	node->next = next;
