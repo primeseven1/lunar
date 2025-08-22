@@ -144,9 +144,9 @@ int thread_wakeup(struct thread* thread, int errno) {
 	struct cpu* cpu = current_cpu();
 	spinlock_lock(&cpu->runqueue.lock);
 
-	if (list_node_in_list(&thread->sleep_link))
+	if (list_node_linked(&thread->sleep_link))
 		list_remove(&thread->sleep_link);
-	else if (list_node_in_list(&thread->blocked_link))
+	else if (list_node_linked(&thread->blocked_link))
 		list_remove(&thread->blocked_link);
 	atomic_store(&thread->wakeup_err, errno, ATOMIC_RELEASE);
 	rr_enqueue_thread(thread);
