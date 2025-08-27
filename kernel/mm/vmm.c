@@ -154,6 +154,8 @@ void* vmap(void* hint, size_t size, mmuflags_t mmu_flags, int flags, void* optio
 	}
 
 	tlb_invalidate(virtual, size);
+	if (flags & VMM_ALLOC)
+		memset(virtual, 0, page_size * page_count);
 	if (prev_pages)
 		prevpage_success(prev_pages);
 	spinlock_unlock_irq_restore(&kernel_mm_struct.vma_list_lock, &irq);
