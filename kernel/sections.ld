@@ -13,6 +13,12 @@ _ld_kernel_start = .;
 .rodata : {
 	_ld_kernel_rodata_start = .;
 	*(.rodata .rodata.*)
+
+	. = ALIGN(8);
+	_ld_kernel_schedpolicies_start = .;
+	KEEP(*(.schedpolicies .schedpolicies.*))
+	_ld_kernel_schedpolicies_end = .;
+
 	_ld_kernel_rodata_end = .;
 } :rodata
 
@@ -26,6 +32,7 @@ _ld_kernel_start = .;
 	_ld_kernel_modules_start = .;
 	KEEP(*(.modules .modules.*))
 	_ld_kernel_modules_end = .;
+
 	. = ALIGN(8);
 	_ld_kernel_timekeepers_start = .;
 	KEEP(*(.timekeepers .timekeepers.*))
