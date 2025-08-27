@@ -32,19 +32,5 @@ static inline struct cpu* current_cpu(void) {
 	return cpu;
 }
 
-static inline void preempt_disable(void) {
-	unsigned long flags = local_irq_save();
-	current_cpu()->runqueue.current->preempt_count++;
-	local_irq_restore(flags);
-}
-
-static inline void preempt_enable(void) {
-	unsigned long flags = local_irq_save();
-	struct thread* current_thread = current_cpu()->runqueue.current;
-	assert(current_thread->preempt_count > 0);
-	current_thread->preempt_count--;
-	local_irq_restore(flags);
-}
-
 void startup_ap_cpus(void);
 void bsp_cpu_init(void);
