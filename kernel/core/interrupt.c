@@ -112,14 +112,8 @@ __asmlinkage void __isr_entry(struct context* ctx) {
 		return;
 	}
 
-	struct cpu* cpu = current_cpu();
-	if (cpu->need_resched) {
-		struct thread* current = current_cpu()->runqueue.current;
-		struct thread* next = atomic_schedule();
-		if (next != current)
-			context_switch(next);
-		cpu->need_resched = false;
-	}
+	if (current_cpu()->need_resched)
+		schedule();
 }
 
 __diag_pop();
