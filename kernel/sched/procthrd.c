@@ -9,9 +9,12 @@
 #include <crescent/lib/string.h>
 #include <crescent/mm/slab.h>
 #include <crescent/mm/heap.h>
+#include "crescent/core/spinlock.h"
+#include "crescent/types.h"
 #include "internal.h"
 
 #define THREAD_STACK_GUARD_SIZE PAGE_SIZE
+#define RFLAGS_DEFAULT 0x202
 
 static struct slab_cache* proc_cache;
 static struct slab_cache* thread_cache;
@@ -53,11 +56,7 @@ struct thread* thread_create(struct proc* proc, size_t stack_size) {
 	thread->target_cpu = NULL; /* Let the scheduler decide what CPU to schedule on */
 	thread->proc = proc;
 	thread->cpu_mask = ULONG_MAX;
-	thread->time_slice = PREEMPT_TICKS;
-	thread->wakeup_time = 0;
-	atomic_store(&thread->wakeup_err, 0, ATOMIC_RELAXED);
 	atomic_store(&thread->state, THREAD_NEW, ATOMIC_RELAXED);
-	atomic_store(&thread->interruptable, true, ATOMIC_RELAXED);
 
 	if (stack_size & (PAGE_SIZE - 1)) {
 		printk(PRINTK_WARN "sched: stack size not a multiple of page size!\n");
@@ -77,12 +76,10 @@ struct thread* thread_create(struct proc* proc, size_t stack_size) {
 
 	thread->preempt_count = 0;
 	
-	list_node_init(&thread->queue_link);
 	list_node_init(&thread->proc_link);
 	list_node_init(&thread->sleep_link);
 	list_node_init(&thread->zombie_link);
-	list_node_init(&thread->blocked_link);
-	list_node_init(&thread->external_blocked_link);
+	list_node_init(&thread->block_link);
 
 	thread->ctx.general.rflags = RFLAGS_DEFAULT;
 	thread->ctx.general.rsp = (u8*)thread->stack + stack_total;
@@ -95,6 +92,16 @@ err_stack:
 	free_id(proc->tid_map, thread->id, tid_max);
 err_id:
 	return NULL;
+}
+
+void thread_add_to_proc(struct proc* proc, struct thread* thread) {
+	unsigned long irq;
+	spinlock_lock_irq_save(&proc->thread_lock, &irq);
+
+	list_add(&proc->threads, &thread->proc_link);
+	atomic_add_fetch(&proc->thread_count, 1, ATOMIC_ACQUIRE);
+
+	spinlock_unlock_irq_restore(&proc->thread_lock, &irq);
 }
 
 int thread_destroy(struct thread* thread) {
@@ -172,7 +179,7 @@ int proc_destroy(struct proc* proc) {
 	return 0;
 }
 
-void proc_thread_alloc_init(void) {
+void procthrd_init(void) {
 	proc_cache = slab_cache_create(sizeof(struct proc), _Alignof(struct proc), MM_ZONE_NORMAL, NULL, NULL);
 	assert(proc_cache != NULL);
 	const size_t pid_map_size = (pid_max + 7) >> 3;

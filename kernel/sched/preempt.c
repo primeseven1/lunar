@@ -11,6 +11,8 @@
 #include <crescent/mm/vmm.h>
 #include "internal.h"
 
+#define TIMER_TRIGGER_TIME_USEC 1000u
+
 static u32 lapic_timer_get_ticks_for_preempt(void) {
 	lapic_write(LAPIC_REG_TIMER_DIVIDE, 0x03); /* Set the divisor to 16 */
 	lapic_write(LAPIC_REG_TIMER_INITIAL, U32_MAX); /* Set the initial count to the maximum */
@@ -21,41 +23,10 @@ static u32 lapic_timer_get_ticks_for_preempt(void) {
 	return U32_MAX - lapic_read(LAPIC_REG_TIMER_CURRENT); 
 }
 
-static void do_preempt(void) {
-	struct cpu* cpu = current_cpu();
-	struct thread* current = cpu->runqueue.current;
-	if (current == cpu->runqueue.idle)
-		return;
-	if (current->preempt_count > 0)
-		return;
-	if (current->time_slice && --current->time_slice == 0)
-		cpu->need_resched = true;
-}
-
 static void lapic_timer(const struct isr* isr, struct context* ctx) {
 	(void)isr;
 	(void)ctx;
-
-	struct cpu* cpu = current_cpu();
-	time_t now = timekeeper_get_nsec();
-
-	spinlock_lock(&cpu->runqueue.lock);
-
-	do_preempt();
-
-	/* Wake up threads that are sleeping */
-	struct thread* pos, *tmp;
-	list_for_each_entry_safe(pos, tmp, &cpu->runqueue.sleeping, sleep_link) {
-		if (now >= pos->wakeup_time) {
-			atomic_store(&pos->state, THREAD_READY, ATOMIC_RELEASE);
-			list_remove(&pos->sleep_link);
-			rr_enqueue_thread(pos);
-			if (cpu->runqueue.current == cpu->runqueue.idle)
-				cpu->need_resched = true;
-		}
-	}
-
-	spinlock_unlock(&cpu->runqueue.lock);
+	sched_tick();
 }
 
 static struct irq timer_irq = {

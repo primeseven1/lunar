@@ -9,6 +9,7 @@
 #include <crescent/core/printk.h>
 #include <crescent/asm/wrap.h>
 #include <crescent/asm/flags.h>
+#include <crescent/sched/preempt.h>
 #include "internal.h"
 
 static struct proc* kproc;
@@ -20,12 +21,21 @@ struct thread* kthread_create(int sched_flags, void* (*func)(void*), void* arg) 
 
 	thread_set_ring(thread, THREAD_RING_KERNEL);
 	thread_set_exec(thread, asm_kthread_start);
+	if (sched_flags & SCHED_THIS_CPU)
+		thread->target_cpu = sched_decide_cpu(sched_flags);
 
-	thread->proc = kproc;
-	thread->ctx.general.rdi = (long)func;
-	thread->ctx.general.rsi = (long)arg;
-	atomic_add_fetch(&thread->refcount, 1, ATOMIC_RELEASE);
-	schedule_thread(thread, sched_flags);
+	int err = sched_thread_attach(&thread->target_cpu->runqueue, thread, thread->target_cpu->runqueue.policy->prio_default);
+	if (err)
+		thread_destroy(thread);
+	err = sched_enqueue(&thread->target_cpu->runqueue, thread);
+	if (unlikely(err)) {
+		sched_thread_detach(&thread->target_cpu->runqueue, thread);
+		thread_destroy(thread);
+	}
+
+	atomic_add_fetch(&thread->refcount, 1, ATOMIC_ACQUIRE);
+	thread->ctx.general.rdi = (uintptr_t)func;
+	thread->ctx.general.rsi = (uintptr_t)arg;
 
 	return thread;
 }
@@ -40,16 +50,16 @@ void* kthread_join(struct thread* thread) {
 }
 
 _Noreturn void kthread_exit(void* ret) {
-	struct thread* thread = current_cpu()->runqueue.current;
+	struct runqueue* rq = &current_cpu()->runqueue;
+	struct thread* thread = rq->current;
 	thread->ctx.general.rax = (long)ret;
-	thread_exit();
+	sched_thread_exit();
 }
 
 __diag_push();
 __diag_ignore("-Wmissing-prototypes");
 
 __asmlinkage _Noreturn void __kthread_start(void* (*func)(void*), void* arg) {
-	/* It's preferred for the thread function to call kthread_exit for clarity, but it's not a huge deal if that doesn't happen */
 	void* ret = func(arg);
 	printk(PRINTK_WARN "function at %p failed to call kthread_exit!\n", func);
 	kthread_exit(ret);

@@ -39,20 +39,10 @@ int schedule_work(void (*fn)(void*), void* arg, int flags) {
 
 	unsigned long irq = local_irq_save();
 
-	struct cpu* cpu = NULL;
+	struct cpu* cpu = sched_decide_cpu(flags);
 	struct semaphore* sem = &deferred_sem;
 	struct ringbuffer* ringbuffer = &deferred_ringbuffer;
 	spinlock_t* lock = &deferred_lock;
-	if (flags & SCHED_THIS_CPU) {
-		cpu = current_cpu();
-	} else if (flags & SCHED_CPU0) {
-		u64 count;
-		struct cpu** cpus = get_cpu_structs(&count);
-		for (u64 i = 0; i < count; i++) {
-			if (cpus[i]->sched_processor_id == 0)
-				cpu = cpus[i];
-		}
-	}
 
 	if (cpu) {
 		sem = &cpu->deferred_sem;
