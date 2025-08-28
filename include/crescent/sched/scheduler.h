@@ -9,6 +9,10 @@ struct cpu;
 typedef int pid_t;
 typedef int tid_t;
 
+#define SCHED_PRIO_MIN 1
+#define SCHED_PRIO_MAX 99
+#define SCHED_PRIO_DEFAULT 45
+
 enum thread_states {
 	THREAD_NEW,
 	THREAD_READY,
@@ -54,6 +58,7 @@ struct thread {
 	bool attached; /* Attached to the policy? */
 	struct proc* proc; /* The process struct this thread is linked to */
 	int ring; /* Kernel mode or user mode thread */
+	int prio; /* Priority of the current thread */
 	atomic(int) state; /* ready, blocked, running, etc.. */
 	time_t wakeup_time; /* When the thread should wake up in nanoseconds */
 	atomic(int) wakeup_err; /* Wakeup error code (eg. -ETIMEDOUT, -EINTR)*/
@@ -138,6 +143,16 @@ void sched_prepare_sleep(time_t ms, int flags);
  * @retval 0 Successful
  */
 int sched_wakeup(struct thread* thread, int wakeup_err);
+
+/**
+ * @brief Change the priority of a thread
+ *
+ * @param thread The thread to change the priority of
+ * @param The priority
+ *
+ * @return -errno on failure
+ */
+int sched_change_prio(struct thread* thread, int prio);
 
 /**
  * @breif Stop the current thread and make it a zombie.

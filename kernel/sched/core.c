@@ -125,6 +125,32 @@ int sched_wakeup(struct thread* thread, int wakeup_err) {
 	return ret;
 }
 
+int sched_change_prio(struct thread* thread, int prio) {
+	if (prio < SCHED_PRIO_MIN)
+		prio = SCHED_PRIO_MIN;
+	if (prio > SCHED_PRIO_MAX)
+		prio = SCHED_PRIO_MAX;
+
+	struct runqueue* rq = &thread->target_cpu->runqueue;
+
+	unsigned long irq;
+	spinlock_lock_irq_save(&rq->lock, &irq);
+
+	struct cpu* this_cpu = current_cpu();
+
+	thread->prio = prio;
+	int ret = rq->policy->ops->change_prio(rq, thread, prio);
+
+	if (ret == 0 && rq->current->prio > thread->prio) {
+		if (thread->target_cpu == this_cpu)
+			this_cpu->need_resched = true;
+		/* TODO: Send resched IPI to other CPU */
+	}
+
+	spinlock_unlock_irq_restore(&rq->lock, &irq);
+	return ret;
+}
+
 void sched_tick(void) {
 	struct cpu* cpu = current_cpu();
 	struct runqueue* rq = &cpu->runqueue;

@@ -3,10 +3,10 @@
 #include <crescent/core/cpu.h>
 #include "internal.h"
 
-#define MIN_PRIO 0
-#define MAX_PRIO ((int)(sizeof(int) * 8))
-#define PRIO_GROUP_SHIFT 3
-#define DEFAULT_PRIO (MAX_PRIO / 2)
+#define PBRR_PRIO_COUNT 32
+#define PBRR_MIN_PRIO 0
+#define PBRR_MAX_PRIO 31
+#define PBRR_PRIO_GROUP_SHIFT 3
 #define DEFAULT_SLICE_TICKS 10
 
 struct rr_thread {
@@ -17,27 +17,30 @@ struct rr_thread {
 };
 
 struct rr_runqueue {
-	struct list_head queues[MAX_PRIO];
+	struct list_head queues[PBRR_PRIO_COUNT];
 	unsigned long active_bitmap;
-	int prio_budget[MAX_PRIO];
+	int prio_budget[PBRR_PRIO_COUNT];
 };
 
+/* Sanity check */
+_Static_assert(PBRR_PRIO_COUNT <= (sizeof(((struct rr_runqueue*)0)->active_bitmap)) * 8, "pbrr bitmap too small");
+
 static inline int prio_weight(int p) {
-	int w = 1ul << (p >> PRIO_GROUP_SHIFT);
+	int w = 1ul << (p >> PBRR_PRIO_GROUP_SHIFT);
 	return w;
 }
 
 static inline void reset_budgets(struct rr_runqueue* rrq) {
-	for (int p = 0; p < MAX_PRIO; p++)
+	for (int p = 0; p < PBRR_PRIO_COUNT; p++)
 		rrq->prio_budget[p] = prio_weight(p);
 }
 
 static void pbrr_thread_attach(struct runqueue* rq, struct thread* thread, int prio) {
 	(void)rq;
-	if (prio > MAX_PRIO)
-		prio = MAX_PRIO;
-	if (prio < MIN_PRIO)
-		prio = DEFAULT_PRIO;
+	if (prio > PBRR_MAX_PRIO)
+		prio = PBRR_MAX_PRIO;
+	if (prio < PBRR_MIN_PRIO)
+		prio = PBRR_MIN_PRIO;
 
 	struct rr_thread* rrt = thread->policy_priv;
 	rrt->prio = prio;
@@ -54,6 +57,7 @@ static int pbrr_init(struct runqueue* rq) {
 	for (size_t i = 0; i < ARRAY_SIZE(pbrq->queues); i++)
 		list_head_init(&pbrq->queues[i]);
 	pbrq->active_bitmap = 0;
+	reset_budgets(pbrq);
 	return 0;
 }
 
@@ -154,6 +158,35 @@ static struct thread* pbrr_pick_next(struct runqueue* rq) {
 	return next_rrt->thread;
 }
 
+static int scale_prio(int posix) {
+	int span_posix = (SCHED_PRIO_MAX - SCHED_PRIO_MIN);
+	int span_pbrr = (PBRR_MAX_PRIO - PBRR_MIN_PRIO);
+	int scaled0 = ((posix - SCHED_PRIO_MIN) * span_pbrr + span_posix / 2) / span_posix;
+	int scaled = PBRR_MIN_PRIO + scaled0;
+	assert(scaled >= PBRR_MIN_PRIO && scaled <= PBRR_MAX_PRIO);
+	return scaled;
+}
+
+static int pbrr_change_prio(struct runqueue* rq, struct thread* thread, int prio) {
+	prio = scale_prio(prio);
+
+	struct rr_runqueue* rrq = rq->policy_priv;
+	struct rr_thread* rrt = thread->policy_priv;
+
+	if (rrt->prio == prio)
+		return 0;
+	if (list_node_linked(&rrt->link)) {
+		if (list_empty(&rrq->queues[prio]))
+			rrq->active_bitmap &= ~(1ul << prio);
+		list_remove(&rrt->link);
+	}
+	rrt->prio = prio;
+	list_add_tail(&rrq->queues[prio], &rrt->link);
+	rrq->active_bitmap |= (1ul << prio);
+
+	return 0;
+}
+
 static bool pbrr_on_tick(struct runqueue* rq, struct thread* current) {
 	struct rr_thread* rr_current = current->policy_priv;
 	if (current != rq->idle) {
@@ -172,13 +205,14 @@ static void pbrr_on_yield(struct runqueue* rq, struct thread* current) {
 	rr_current->slice_left = DEFAULT_SLICE_TICKS;
 }
 
-static const struct sched_policy_ops ops = {
+static const struct sched_policy_ops pbrr_ops = {
 	.init = pbrr_init,
 	.thread_attach = pbrr_thread_attach,
 	.thread_detach = NULL,
 	.enqueue = pbrr_enqueue,
 	.dequeue = pbrr_dequeue,
 	.pick_next = pbrr_pick_next,
+	.change_prio = pbrr_change_prio,
 	.on_tick = pbrr_on_tick,
 	.on_yield = pbrr_on_yield
 };
@@ -186,7 +220,6 @@ static const struct sched_policy_ops ops = {
 static struct sched_policy __sched_policy pbrr = {
 	.name = "pbrr",
 	.desc = "Priority-based round robin",
-	.ops = &ops,
-	.prio_default = DEFAULT_PRIO, .prio_min = 0, .prio_max = MAX_PRIO,
+	.ops = &pbrr_ops,
 	.thread_priv_size = sizeof(struct rr_thread)
 };

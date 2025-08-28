@@ -24,7 +24,7 @@ struct thread* kthread_create(int sched_flags, void* (*func)(void*), void* arg) 
 	if (sched_flags & SCHED_THIS_CPU)
 		thread->target_cpu = sched_decide_cpu(sched_flags);
 
-	int err = sched_thread_attach(&thread->target_cpu->runqueue, thread, thread->target_cpu->runqueue.policy->prio_default);
+	int err = sched_thread_attach(&thread->target_cpu->runqueue, thread, SCHED_PRIO_DEFAULT);
 	if (err)
 		thread_destroy(thread);
 	err = sched_enqueue(&thread->target_cpu->runqueue, thread);

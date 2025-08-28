@@ -15,6 +15,7 @@ struct sched_policy_ops {
 	int (*enqueue)(struct runqueue*, struct thread*); /* Add a new thread to the queue */
 	int (*dequeue)(struct runqueue*, struct thread*); /* Remove a thread from the queue */
 	struct thread* (*pick_next)(struct runqueue*); /* Add the current thread to the queue only if running, and return the next thread */
+	int (*change_prio)(struct runqueue*, struct thread*, int); /* Change the priority of a thread, returns -errno on failure */
 	bool (*on_tick)(struct runqueue*, struct thread*); /* Happens on a timer interrupt, returns true if should reschedule */
 	void (*on_yield)(struct runqueue*, struct thread*); /* Called when yielding (but not for sleeping/blocking) */
 };
@@ -22,7 +23,6 @@ struct sched_policy_ops {
 struct sched_policy {
 	const char* name, *desc;
 	const struct sched_policy_ops* ops;
-	int prio_default, prio_min, prio_max;
 	size_t thread_priv_size; /* Size of thread->policy_priv, allocated by the core */
 };
 
