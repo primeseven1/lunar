@@ -22,6 +22,11 @@ int sched_thread_attach(struct runqueue* rq, struct thread* thread, int prio) {
 	atomic_store(&thread->state, THREAD_READY, ATOMIC_RELEASE);
 	thread->policy_priv = priv;
 
+	if (prio < SCHED_PRIO_MIN)
+		prio = SCHED_PRIO_MIN;
+	if (prio > SCHED_PRIO_MAX)
+		prio = SCHED_PRIO_MAX;
+
 	unsigned long irq;
 	spinlock_lock_irq_save(&rq->lock, &irq);
 	if (rq->policy->ops->thread_attach)
@@ -126,29 +131,31 @@ int sched_wakeup(struct thread* thread, int wakeup_err) {
 }
 
 int sched_change_prio(struct thread* thread, int prio) {
+	struct runqueue* rq = &thread->target_cpu->runqueue;
+	if (!rq->policy->ops->change_prio)
+		return -ENOSYS;
+
 	if (prio < SCHED_PRIO_MIN)
 		prio = SCHED_PRIO_MIN;
 	if (prio > SCHED_PRIO_MAX)
 		prio = SCHED_PRIO_MAX;
 
-	struct runqueue* rq = &thread->target_cpu->runqueue;
-
 	unsigned long irq;
 	spinlock_lock_irq_save(&rq->lock, &irq);
 
-	struct cpu* this_cpu = current_cpu();
-
-	thread->prio = prio;
-	int ret = rq->policy->ops->change_prio(rq, thread, prio);
-
-	if (ret == 0 && rq->current->prio > thread->prio) {
-		if (thread->target_cpu == this_cpu)
-			this_cpu->need_resched = true;
-		/* TODO: Send resched IPI to other CPU */
+	int err = rq->policy->ops->change_prio(rq, thread, prio);
+	if (likely(err == 0)) {
+		thread->prio = prio;
+		if (rq->current->prio > thread->prio) {
+			struct cpu* this_cpu = current_cpu();
+			if (thread->target_cpu == this_cpu)
+				this_cpu->need_resched = true;
+			/* TODO: Send resched IPI to other CPU */
+		}
 	}
 
 	spinlock_unlock_irq_restore(&rq->lock, &irq);
-	return ret;
+	return err;
 }
 
 void sched_tick(void) {

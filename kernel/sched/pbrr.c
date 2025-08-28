@@ -35,13 +35,18 @@ static inline void reset_budgets(struct rr_runqueue* rrq) {
 		rrq->prio_budget[p] = prio_weight(p);
 }
 
-static void pbrr_thread_attach(struct runqueue* rq, struct thread* thread, int prio) {
-	(void)rq;
-	if (prio > PBRR_MAX_PRIO)
-		prio = PBRR_MAX_PRIO;
-	if (prio < PBRR_MIN_PRIO)
-		prio = PBRR_MIN_PRIO;
+static int scale_prio(int posix_prio) {
+	int span_posix = (SCHED_PRIO_MAX - SCHED_PRIO_MIN);
+	int span_pbrr = (PBRR_MAX_PRIO - PBRR_MIN_PRIO);
+	int scaled0 = ((posix_prio - SCHED_PRIO_MIN) * span_pbrr + span_posix / 2) / span_posix;
+	int scaled = PBRR_MIN_PRIO + scaled0;
+	assert(scaled >= PBRR_MIN_PRIO && scaled <= PBRR_MAX_PRIO);
+	return scaled;
+}
 
+static void pbrr_thread_attach(struct runqueue* rq, struct thread* thread, int posix_prio) {
+	(void)rq;
+	int prio = scale_prio(posix_prio);
 	struct rr_thread* rrt = thread->policy_priv;
 	rrt->prio = prio;
 	rrt->thread = thread;
@@ -158,17 +163,8 @@ static struct thread* pbrr_pick_next(struct runqueue* rq) {
 	return next_rrt->thread;
 }
 
-static int scale_prio(int posix) {
-	int span_posix = (SCHED_PRIO_MAX - SCHED_PRIO_MIN);
-	int span_pbrr = (PBRR_MAX_PRIO - PBRR_MIN_PRIO);
-	int scaled0 = ((posix - SCHED_PRIO_MIN) * span_pbrr + span_posix / 2) / span_posix;
-	int scaled = PBRR_MIN_PRIO + scaled0;
-	assert(scaled >= PBRR_MIN_PRIO && scaled <= PBRR_MAX_PRIO);
-	return scaled;
-}
-
-static int pbrr_change_prio(struct runqueue* rq, struct thread* thread, int prio) {
-	prio = scale_prio(prio);
+static int pbrr_change_prio(struct runqueue* rq, struct thread* thread, int posix_prio) {
+	int prio = scale_prio(posix_prio);
 
 	struct rr_runqueue* rrq = rq->policy_priv;
 	struct rr_thread* rrt = thread->policy_priv;
@@ -221,5 +217,34 @@ static struct sched_policy __sched_policy pbrr = {
 	.name = "pbrr",
 	.desc = "Priority-based round robin",
 	.ops = &pbrr_ops,
+	.thread_priv_size = sizeof(struct rr_thread)
+};
+
+/*
+ * Round robin no priorities. This uses PBRR, but puts every thread into the same queue,
+ * so it's effectively just round robin.
+ */
+
+static void rr_thread_attach(struct runqueue* rq, struct thread* thread, int posix_prio) {
+	(void)posix_prio;
+	pbrr_thread_attach(rq, thread, SCHED_PRIO_MAX);
+}
+
+static const struct sched_policy_ops rr_ops = {
+	.init = pbrr_init,
+	.thread_attach = rr_thread_attach,
+	.thread_detach = NULL,
+	.enqueue = pbrr_enqueue,
+	.dequeue = pbrr_dequeue,
+	.pick_next = pbrr_pick_next,
+	.change_prio = NULL,
+	.on_tick = pbrr_on_tick,
+	.on_yield = pbrr_on_yield
+};
+
+static struct sched_policy __sched_policy rr = {
+	.name = "rr",
+	.desc = "Round robin",
+	.ops = &rr_ops,
 	.thread_priv_size = sizeof(struct rr_thread)
 };
