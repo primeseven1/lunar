@@ -28,6 +28,12 @@ int init_status_get(void) {
 __diag_push();
 __diag_ignore("-Wmissing-prototypes");
 
+static inline void log_ram_usage(void) {
+	u64 total;
+	u64 mem = get_free_memory(&total);
+	printk("RAM usage: %ld KiB / %ld KiB\n", mem >> 10, total >> 10);
+}
+
 _Noreturn __asmlinkage void kernel_main(void) {
 	int base_revision = limine_base_revision();
 	if (base_revision != LIMINE_BASE_REVISION) {
@@ -84,7 +90,9 @@ _Noreturn __asmlinkage void kernel_main(void) {
 	sched_init();
 	init_status = INIT_STATUS_SCHED;
 
+	log_ram_usage();
 	printk(PRINTK_CRIT "init: kernel_main thread ended!\n");
+
 	local_irq_enable();
 	sched_thread_exit();
 }

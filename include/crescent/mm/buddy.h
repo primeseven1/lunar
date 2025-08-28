@@ -5,6 +5,13 @@
 #define MAX_ORDER 12
 
 /**
+ * @brief Get the amount of memory in use by the system
+ * @param total Where the total amount of memory will be stored
+ * @return The amount of memory in use
+ */
+u64 get_free_memory(u64* total);
+
+/**
  * @brief Allocate physical pages
  *
  * @param mm_flags The conditions for the allocation

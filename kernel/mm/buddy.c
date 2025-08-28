@@ -65,6 +65,17 @@ static physaddr_t mmap_get_last_usable(void) {
 	return ret;
 }
 
+static u64 mmap_total_usable(void) {
+	u64 ret = 0;
+	struct limine_mmap_response* mmap = mmap_request.response;
+	for (u64 i = 0; i < mmap->entry_count; i++) {
+		struct limine_mmap_entry* entry = mmap->entries[i];
+		if (entry->type == LIMINE_MMAP_USABLE)
+			ret += entry->length;
+	}
+	return ret;
+}
+
 struct mem_area {
 	physaddr_t base; /* Start of the memory area */
 	u64 size; /* The size of the area rounded to a power of two */
@@ -449,6 +460,14 @@ static struct zone* get_zone_addr(physaddr_t addr, size_t size) {
 	return NULL;
 }
 
+static u64 mem_in_use = 0;
+static u64 mem_total = 0;
+
+u64 get_free_memory(u64* total) {
+	*total = mem_total;
+	return mem_in_use;
+}
+
 physaddr_t alloc_pages(mm_t mm_flags, unsigned int order) {
 	if (order >= MAX_ORDER) {
 		printk(PRINTK_ERR "mm: order (%u) >= MAX_ORDER (%u) in %s\n", order, MAX_ORDER, __func__);
@@ -468,8 +487,10 @@ physaddr_t alloc_pages(mm_t mm_flags, unsigned int order) {
 	unsigned int retries = max_retries;
 	do {
 		physaddr_t physical = __alloc_pages(zone, order);
-		if (physical)
+		if (physical) {
+			mem_in_use += (1u << order) << PAGE_SHIFT;
 			return physical;
+		}
 
 		if (mm_flags & MM_NOFAIL && retries == 0) {
 			out_of_memory();
@@ -487,7 +508,6 @@ physaddr_t alloc_pages(mm_t mm_flags, unsigned int order) {
 				break;
 			}
 		}
-
 	} while (retries--);
 
 	return 0;
@@ -511,6 +531,7 @@ void free_pages(physaddr_t addr, unsigned int order) {
 	if (err)
 		goto err;
 
+	mem_in_use -= (1u << order) << PAGE_SHIFT;
 	return;
 err:
 	switch (err) {
@@ -665,6 +686,8 @@ static int zone_init(struct zone* zone, mm_t zone_type, mm_t alloc_zone,
 }
 
 void buddy_init(void) {
+	mem_total = mmap_total_usable();
+
 	physaddr_t last_usable = mmap_get_last_usable();
 	dma_zone_init(last_usable);
 
