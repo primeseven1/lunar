@@ -172,9 +172,9 @@ static int pbrr_change_prio(struct runqueue* rq, struct thread* thread, int posi
 	if (rrt->prio == prio)
 		return 0;
 	if (list_node_linked(&rrt->link)) {
-		if (list_empty(&rrq->queues[prio]))
-			rrq->active_bitmap &= ~(1ul << prio);
 		list_remove(&rrt->link);
+		if (list_empty(&rrq->queues[rrt->prio]))
+			rrq->active_bitmap &= ~(1ul << rrt->prio);
 	}
 	rrt->prio = prio;
 	list_add_tail(&rrq->queues[prio], &rrt->link);
