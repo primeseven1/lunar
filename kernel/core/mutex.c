@@ -11,7 +11,7 @@ void mutex_lock(mutex_t* lock) {
 
 	if (unlikely(atomic_load(&lock->owner, ATOMIC_ACQUIRE) == current_thread))
 		panic("mutex_lock deadlock");
-	semaphore_wait(&lock->sem);
+	semaphore_wait(&lock->sem, 0);
 	atomic_store(&lock->owner, current_thread, ATOMIC_RELEASE);
 }
 
@@ -27,7 +27,7 @@ int mutex_lock_timed(mutex_t* lock, time_t timeout_ms) {
 		return -ETIMEDOUT;
 	}
 
-	int res = semaphore_wait_timed(&lock->sem, timeout_ms);
+	int res = semaphore_wait_timed(&lock->sem, timeout_ms, 0);
 	if (res == 0)
 		atomic_store(&lock->owner, current_thread, ATOMIC_RELEASE);
 	return res;

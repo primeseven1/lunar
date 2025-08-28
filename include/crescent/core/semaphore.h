@@ -22,7 +22,39 @@ static inline void semaphore_init(struct semaphore* sem, long count) {
 	spinlock_init(&sem->lock);
 }
 
-int semaphore_wait(struct semaphore* sem);
-int semaphore_wait_timed(struct semaphore* sem, time_t timeout_ms);
+/**
+ * @brief Wait for an event
+ *
+ * @param sem The event to wait for
+ * @param flags Sleep flags for the thread (SCHED_SLEEP_*)
+ *
+ * @retval -EINTR Interrupted by a signal
+ * @retval 0 Successful
+ */
+int semaphore_wait(struct semaphore* sem, int flags);
+
+/**
+ * @brief Wait for an event with a timout
+ *
+ * @param sem The event to wait for
+ * @param timeout_ms The max number of milliseconds to wait for
+ * @param flags Sleep flags for the thread (SCHED_SLEEP_*)
+ *
+ * @retval -EINTR Interrupted by a signal
+ * @retval -ETIMEDOUT Wait timed out
+ * @retval 0 Successful
+ */
+int semaphore_wait_timed(struct semaphore* sem, time_t timeout_ms, int flags);
+
+/**
+ * @brief Signal an event
+ * @param sem The event to signal
+ */
 void semaphore_signal(struct semaphore* sem);
+
+/**
+ * @brief Check for an event without blocking
+ * @param sem The event to check
+ * @return true if successful
+ */
 bool semaphore_try(struct semaphore* sem);
