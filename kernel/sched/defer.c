@@ -18,7 +18,7 @@ static void* worker_thread(void* arg) {
 	struct ringbuffer* const ringbuffer = cpu ? &cpu->deferred_ringbuffer : &deferred_ringbuffer;
 	struct semaphore* const sem = cpu ? &cpu->deferred_sem : &deferred_sem;
 	while (1) {
-		semaphore_wait(sem);
+		semaphore_wait(sem, 0);
 		struct work work;
 
 		unsigned long irq;

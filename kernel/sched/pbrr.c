@@ -4,7 +4,7 @@
 #include "internal.h"
 
 #define MIN_PRIO 0
-#define MAX_PRIO ((int)(sizeof(long) * 8))
+#define MAX_PRIO ((int)(sizeof(int) * 8))
 #define PRIO_GROUP_SHIFT 3
 #define DEFAULT_PRIO (MAX_PRIO / 2)
 #define DEFAULT_SLICE_TICKS 10

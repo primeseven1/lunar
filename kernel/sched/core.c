@@ -213,7 +213,7 @@ int sched_yield(void) {
 
 void sched_prepare_sleep(time_t ms, int flags) {
 	time_t sleep_end = 0;
-	if (ms == 0 && !(flags & THREAD_BLOCKED))
+	if (ms == 0 && !(flags & SCHED_SLEEP_BLOCK))
 		return;
 	else if (ms != 0)
 		sleep_end = timekeeper_get_nsec() + (ms * 1000000);

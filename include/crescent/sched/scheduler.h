@@ -20,9 +20,12 @@ enum thread_states {
 
 enum sched_flags {
 	SCHED_THIS_CPU = (1 << 0),
-	SCHED_CPU0 = (1 << 1),
-	SCHED_SLEEP_INTERRUPTIBLE = (1 << 2),
-	SCHED_SLEEP_BLOCK = (1 << 3)
+	SCHED_CPU0 = (1 << 1)
+};
+
+enum sched_sleep_flags {
+	SCHED_SLEEP_INTERRUPTIBLE = (1 << 1),
+	SCHED_SLEEP_BLOCK = (1 << 2)
 };
 
 enum thread_rings {
@@ -118,10 +121,22 @@ int sched_yield(void);
  * Do NOT use sched_yield() after preparing for sleep. Use schedule() instead.
  *
  * @param ms The number of milliseconds to sleep for (or a timeout if flags & SCHED_SLEEP_BLOCK is set and ms is not zero).
- * @param flags Flags for the sleep (SCHED_SLEEP_BLOCK, SCHED_SLEEP_INTERRUPTABLE)
+ * @param flags Flags for the sleep (SCHED_SLEEP_*)
  */
 void sched_prepare_sleep(time_t ms, int flags);
 
+/**
+ * @brief Wake up a thread
+ *
+ * NOTES:
+ * If the thread is already woken up, this is a no-op
+ *
+ * @param thread The thread to wake up
+ * @param wakeup_err The reason the thread is waking up
+ *
+ * @retval -EINVAL wakeup_err is not 0, -EINTR, or -ETIMEDOUT
+ * @retval 0 Successful
+ */
 int sched_wakeup(struct thread* thread, int wakeup_err);
 
 /**
