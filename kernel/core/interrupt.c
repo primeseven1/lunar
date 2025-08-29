@@ -95,7 +95,7 @@ void __asmlinkage __isr_entry(struct context* ctx) {
 		}
 	}
 
-	assert(ctx->vector < INTERRUPT_COUNT);
+	bug(ctx->vector >= INTERRUPT_COUNT);
 	struct isr* isr = &isr_handlers[ctx->vector];
 	if (likely(isr->handler))
 		isr->handler(isr, ctx);

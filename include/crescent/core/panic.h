@@ -16,3 +16,9 @@ _Noreturn void panic(const char* fmt, ...);
 		if (unlikely(!(c))) \
 			panic("%s:%d: %s failed!", __FILE__, __LINE__, #c); \
 	} while (0)
+
+#define bug(c) \
+	do { \
+		if (unlikely(!!(c))) \
+			panic("%s:%d: %s bug!", __FILE__, __LINE__, #c); \
+	} while (0)
