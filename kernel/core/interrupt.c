@@ -156,5 +156,6 @@ void interrupts_init(void) {
 	isr_handlers[i8259_irq].irq = &irq15;
 	isr_handlers[i8259_irq].handler = spurious;
 
+	isr_handlers[INTERRUPT_SPURIOUS_VECTOR].handler = spurious;
 	idt_init();
 }

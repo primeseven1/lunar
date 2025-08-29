@@ -175,20 +175,58 @@ int apic_set_irq(u8 irq, u8 vector, u8 processor, bool masked) {
 	return 0;
 }
 
-#define APIC_REG_ICR_LOW_STATUS (1 << 12)
-#define APIC_IPIMODE_NMI (1 << 2)
+#define LAPIC_ICR_DELIV_STATUS (1u << 12)
 
-static void lapic_send_ipi(u32 cpu, u8 vector, u8 dest, u8 mode, u8 level) {
-	lapic_write(LAPIC_REG_ICR_HIGH, cpu << 24);
-	lapic_write(LAPIC_REG_ICR_LOW, vector | (level << 8) | (mode << 11) | (dest << 18) | (1 << 14));
-	while (lapic_read(LAPIC_REG_ICR_LOW) & APIC_REG_ICR_LOW_STATUS)
+enum apic_delivery_modes {
+	APIC_DM_FIXED,
+	APIC_DM_NMI = 4
+};
+
+enum apic_dest_modes {
+	APIC_DEST_PHYSICAL,
+	APIC_DEST_LOGICAL
+};
+
+enum apic_triggers {
+	APIC_TRIGGER_EDGE,
+	APIC_TRIGGER_LEVEL
+};
+
+static void lapic_send_ipi(u32 cpu, u8 vector, u8 delivm, u8 trigger, u8 shorthand) {
+	while (lapic_read(LAPIC_REG_ICR_LOW) & LAPIC_ICR_DELIV_STATUS)
+		cpu_relax();
+
+	if (shorthand == APIC_IPI_CPU_TARGET)
+		lapic_write(LAPIC_REG_ICR_HIGH, (cpu & 0xFF) << 24);
+
+	u32 low = vector;
+	low |= ((u32)delivm & 7) << 8;
+	low |= ((u32)APIC_DEST_PHYSICAL) << 11;
+	low |= ((u32)trigger & 1) << 15;
+	low |= ((u32)shorthand & 3) << 18;
+	lapic_write(LAPIC_REG_ICR_LOW, low);
+
+	while (lapic_read(LAPIC_REG_ICR_LOW) & LAPIC_ICR_DELIV_STATUS)
 		cpu_relax();
 }
 
-void apic_send_ipi(struct cpu* target_cpu, const struct isr* isr, int targets, bool maskable) {
+int apic_send_ipi(struct cpu* target_cpu, const struct isr* isr, int targets, bool maskable) {
+	if (targets != APIC_IPI_CPU_TARGET && targets != APIC_IPI_CPU_ALL &&
+			targets != APIC_IPI_CPU_OTHERS && targets != APIC_IPI_CPU_SELF)
+		return -EINVAL;
+
 	u32 id = target_cpu ? target_cpu->processor_id : 0;
-	u8 mode = maskable ? 0 : APIC_IPIMODE_NMI;
-	lapic_send_ipi(id, isr->vector, targets, mode, 0);
+	u8 delivm = maskable ? APIC_DM_FIXED : APIC_DM_NMI;
+
+	u8 vector = isr ? isr->vector : 0;
+	if (maskable && vector == 0)
+		return -EINVAL;
+
+	unsigned long irq = local_irq_save();
+	lapic_send_ipi(id, vector, delivm, APIC_TRIGGER_EDGE, targets);
+	local_irq_restore(irq);
+
+	return 0;
 }
 
 void apic_ap_init(void) {

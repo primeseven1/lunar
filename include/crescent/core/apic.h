@@ -38,16 +38,27 @@ enum lapic_regs {
 };
 
 enum apic_ipitargets {
-	APIC_IPITARGET_TARGET = 0,
-	APIC_IPITARGET_SELF = 1,
-	APIC_IPITARGET_ALL = 2,
-	APIC_IPITARGET_OTHERS = 3
+	APIC_IPI_CPU_TARGET = 0,
+	APIC_IPI_CPU_SELF = 1,
+	APIC_IPI_CPU_ALL = 2,
+	APIC_IPI_CPU_OTHERS = 3
 };
 
 u32 lapic_read(unsigned int reg);
 void lapic_write(unsigned int reg, u32 x);
 
-void apic_send_ipi(struct cpu* target_cpu, const struct isr* isr, int targets, bool maskable);
+/**
+ * @brief Send an IPI to other processors
+ *
+ * @param target_cpu The target CPU to send the IPI to
+ * @param isr The ISR to send
+ * @param target A shorthand when sending to more than 1 CPU (APIC_IPI_CPU_*)
+ * @param maskable If non-maskable, ISR is ignored.
+ *
+ * @retval -EINVAL Invalid targets value
+ * @retval 0 Success
+ */
+int apic_send_ipi(struct cpu* target_cpu, const struct isr* isr, int targets, bool maskable);
 int apic_set_irq(u8 irq, u8 vector, u8 processor, bool masked);
 void apic_ap_init(void);
 int apic_bsp_init(void);
