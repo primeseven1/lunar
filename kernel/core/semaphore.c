@@ -1,4 +1,3 @@
-#include "crescent/sched/scheduler.h"
 #include <crescent/core/cpu.h>
 #include <crescent/core/semaphore.h>
 
