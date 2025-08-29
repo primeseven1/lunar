@@ -1,5 +1,6 @@
 #include <crescent/common.h>
 #include <crescent/asm/ctl.h>
+#include <crescent/asm/cpuid.h>
 #include <crescent/compiler.h>
 #include <crescent/core/cpu.h>
 #include <crescent/core/panic.h>
@@ -246,11 +247,11 @@ void* pagetable_get_base_address_from_top_index(unsigned int index) {
 }
 
 void pagetable_init(void) {
-	struct limine_paging_mode_response* response = paging_mode.response;
-	if (unlikely(!response)) {
-		unsigned long cr4 = ctl4_read();
-		assert(!(cr4 & CTL4_LA57));
-	} else {
-		assert(response->mode == LIMINE_PAGING_MODE_X86_64_4LVL);
-	}
+	u32 ecx, _unused;
+	cpuid(0x07, 0, &_unused, &_unused, &ecx, &_unused);
+
+	/* bit 16 being set means the CPU supports level 5 paging */
+	bool level4 = ecx & (1 << 16) ? !(ctl4_read() & CTL4_LA57) : true;
+	if (!level4)
+		panic("Bootloader selected wrong paging mode!\n");
 }
