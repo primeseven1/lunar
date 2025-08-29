@@ -8,7 +8,7 @@
 #include "internal.h"
 
 static struct ringbuffer deferred_ringbuffer;
-static spinlock_t deferred_lock = SPINLOCK_INITIALIZER;
+static SPINLOCK_DEFINE(deferred_lock);
 static struct semaphore deferred_sem;
 
 static void* worker_thread(void* arg) {

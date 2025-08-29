@@ -20,7 +20,7 @@ static struct slab_cache* proc_cache;
 static struct slab_cache* thread_cache;
 
 static u8* pid_map = NULL;
-static spinlock_t pid_lock = SPINLOCK_INITIALIZER;
+static SPINLOCK_DEFINE(pid_lock);
 static const pid_t pid_max = 0x10000;
 static const tid_t tid_max = 0x10000;
 
