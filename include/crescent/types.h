@@ -107,6 +107,8 @@ enum atomic_orders {
 #define atomic_load(obj, order) __atomic_load_n(&(obj)->__x, order)
 #define atomic_store(obj, v, order) __atomic_store_n(&(obj)->__x, v, order)
 #define atomic_exchange(obj, v, order) __atomic_exchange_n(&(obj)->__x, v, order)
+#define atomic_test_and_set(obj, order) __atomic_test_and_set(&(obj)->__x, order)
+#define atomic_clear(obj, order) __atomic_clear(&(obj)->__x, order)
 
 #define atomic_fetch_add(obj, n, order) __atomic_fetch_add(&(obj)->__x, n, order)
 #define atomic_add_fetch(obj, n, order) __atomic_add_fetch(&(obj)->__x, n, order)
