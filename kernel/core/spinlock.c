@@ -3,18 +3,16 @@
 #include <crescent/core/interrupt.h>
 
 void spinlock_lock(spinlock_t* lock) {
-	while (atomic_exchange(lock, 1, ATOMIC_ACQUIRE))
+	while (atomic_test_and_set(lock, ATOMIC_ACQUIRE))
 		cpu_relax();
 }
 
 void spinlock_unlock(spinlock_t* lock) {
-	atomic_store(lock, 0, ATOMIC_RELEASE);
+	atomic_clear(lock, ATOMIC_RELEASE);
 }
 
 bool spinlock_try(spinlock_t* lock) {
-	if (atomic_exchange(lock, 1, ATOMIC_ACQUIRE))
-		return false;
-	return true;
+	return !atomic_test_and_set(lock, ATOMIC_ACQUIRE);
 }
 
 void spinlock_lock_irq_save(spinlock_t* lock, unsigned long* flags) {

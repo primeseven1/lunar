@@ -7,7 +7,7 @@
 #include <crescent/lib/string.h>
 
 static char printk_buf[1024 + 1];
-static spinlock_t printk_lock = SPINLOCK_INITIALIZER;
+static SPINLOCK_DEFINE(printk_lock);
 static void (*printk_hooks[5])(const struct printk_msg*) = { 0 };
 static unsigned int printk_level = CONFIG_PRINTK_LEVEL;
 

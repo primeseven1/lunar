@@ -58,7 +58,7 @@ static void idt_init(void) {
 }
 
 static struct isr isr_handlers[INTERRUPT_COUNT] = { 0 };
-static spinlock_t isr_handlers_lock = SPINLOCK_INITIALIZER;
+static SPINLOCK_DEFINE(isr_handlers_lock);
 
 const struct isr* interrupt_register(struct irq* irq, void (*handler)(const struct isr*, struct context*)) {
 	unsigned long flags;
@@ -85,7 +85,7 @@ static inline void swap_cpu(void) {
 __diag_push();
 __diag_ignore("-Wmissing-prototypes");
 
-__asmlinkage void __isr_entry(struct context* ctx) {
+void __asmlinkage __isr_entry(struct context* ctx) {
 	bool bad_cpu = false;
 	if (ctx->vector == INTERRUPT_NMI_VECTOR || ctx->vector == INTERRUPT_MACHINE_CHECK_VECTOR) {
 		u64 gsbase = rdmsr(MSR_GS_BASE);

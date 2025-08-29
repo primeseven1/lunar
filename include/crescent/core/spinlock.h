@@ -2,9 +2,9 @@
 
 #include <crescent/types.h>
 
-typedef volatile atomic(unsigned long) spinlock_t;
+typedef volatile atomic(bool) spinlock_t;
 
-#define SPINLOCK_INITIALIZER atomic_static_init(0)
+#define SPINLOCK_DEFINE(n) spinlock_t n = atomic_static_init(false)
 
 void spinlock_lock(spinlock_t* lock);
 void spinlock_unlock(spinlock_t* lock);
@@ -14,5 +14,5 @@ void spinlock_unlock_irq_restore(spinlock_t* lock, unsigned long* flags);
 bool spinlock_try_irq_save(spinlock_t* lock, unsigned long* flags);
 
 static inline void spinlock_init(spinlock_t* lock) {
-	atomic_store(lock, 0, ATOMIC_RELAXED);
+	atomic_store(lock, false, ATOMIC_RELAXED);
 }
