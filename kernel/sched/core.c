@@ -3,6 +3,7 @@
 #include <crescent/core/cpu.h>
 #include <crescent/mm/heap.h>
 #include <crescent/core/spinlock.h>
+#include <crescent/core/printk.h>
 #include <crescent/sched/scheduler.h>
 #include <crescent/sched/preempt.h>
 #include <crescent/asm/errno.h>
@@ -20,6 +21,8 @@ int sched_thread_attach(struct runqueue* rq, struct thread* thread, int prio) {
 		return -ENOMEM;
 
 	atomic_store(&thread->state, THREAD_READY, ATOMIC_RELEASE);
+	assert(thread_attach_to_proc(thread) == 0);
+
 	thread->policy_priv = priv;
 
 	if (prio < SCHED_PRIO_MIN)
@@ -44,15 +47,15 @@ void sched_thread_detach(struct runqueue* rq, struct thread* thread) {
 		rq->policy->ops->thread_detach(rq, thread);
 	spinlock_unlock_irq_restore(&rq->lock, &irq);
 
+	assert(thread_detach_from_proc(thread) == 0);
 	size_t sz = rq->policy->thread_priv_size;
+	thread->attached = false;
 	if (sz == 0)
 		return;
 	if (thread->policy_priv) {
 		kfree(thread->policy_priv);
 		thread->policy_priv = NULL;
 	}
-
-	thread->attached = false;
 }
 
 int sched_enqueue(struct runqueue* rq, struct thread* thread) {
@@ -303,7 +306,6 @@ static void sched_bootstrap_processor(void) {
 	struct thread* current = thread_create(kproc, PAGE_SIZE);
 	assert(current != NULL);
 	thread_set_ring(current, THREAD_RING_KERNEL);
-	thread_add_to_proc(kproc, current);
 	sched_thread_attach(rq, current, 1);
 	atomic_store(&current->state, THREAD_RUNNING, ATOMIC_RELEASE);
 	rq->current = current;

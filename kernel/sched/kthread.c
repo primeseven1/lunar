@@ -27,15 +27,16 @@ struct thread* kthread_create(int sched_flags, void* (*func)(void*), void* arg) 
 	int err = sched_thread_attach(&thread->target_cpu->runqueue, thread, SCHED_PRIO_DEFAULT);
 	if (err)
 		thread_destroy(thread);
+
+	atomic_add_fetch(&thread->refcount, 1, ATOMIC_ACQUIRE);
+	thread->ctx.general.rdi = (uintptr_t)func;
+	thread->ctx.general.rsi = (uintptr_t)arg;
+
 	err = sched_enqueue(&thread->target_cpu->runqueue, thread);
 	if (unlikely(err)) {
 		sched_thread_detach(&thread->target_cpu->runqueue, thread);
 		thread_destroy(thread);
 	}
-
-	atomic_add_fetch(&thread->refcount, 1, ATOMIC_ACQUIRE);
-	thread->ctx.general.rdi = (uintptr_t)func;
-	thread->ctx.general.rsi = (uintptr_t)arg;
 
 	return thread;
 }

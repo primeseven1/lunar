@@ -9,8 +9,6 @@
 #include <crescent/lib/string.h>
 #include <crescent/mm/slab.h>
 #include <crescent/mm/heap.h>
-#include "crescent/core/spinlock.h"
-#include "crescent/types.h"
 #include "internal.h"
 
 #define THREAD_STACK_GUARD_SIZE PAGE_SIZE
@@ -94,16 +92,6 @@ err_id:
 	return NULL;
 }
 
-void thread_add_to_proc(struct proc* proc, struct thread* thread) {
-	unsigned long irq;
-	spinlock_lock_irq_save(&proc->thread_lock, &irq);
-
-	list_add(&proc->threads, &thread->proc_link);
-	atomic_add_fetch(&proc->thread_count, 1, ATOMIC_ACQUIRE);
-
-	spinlock_unlock_irq_restore(&proc->thread_lock, &irq);
-}
-
 int thread_destroy(struct thread* thread) {
 	if (atomic_load(&thread->refcount, ATOMIC_ACQUIRE) != 0)
 		return -EBUSY;
@@ -177,6 +165,45 @@ int proc_destroy(struct proc* proc) {
 
 	slab_cache_free(proc_cache, proc);
 	return 0;
+}
+
+int thread_attach_to_proc(struct thread* thread) {
+	struct proc* proc = thread->proc;
+	unsigned long irq;
+	spinlock_lock_irq_save(&proc->thread_lock, &irq);
+
+	int err = 0;
+	if (list_node_linked(&thread->proc_link)) {
+		err = -EALREADY;
+		goto err;
+	}
+
+	atomic_add_fetch(&proc->thread_count, 1, ATOMIC_RELEASE);
+	atomic_add_fetch(&thread->refcount, 1, ATOMIC_RELEASE);
+	list_add(&proc->threads, &thread->proc_link);
+
+err:
+	spinlock_unlock_irq_restore(&proc->thread_lock, &irq);
+	return err;
+}
+
+int thread_detach_from_proc(struct thread* thread) {
+	struct proc* proc = thread->proc;
+	unsigned long irq;
+	spinlock_lock_irq_save(&proc->thread_lock, &irq);
+
+	int err = 0;
+	if (!list_node_linked(&thread->proc_link)) {
+		err = -ENOENT;
+		goto err;
+	}
+
+	list_remove(&thread->proc_link);
+	atomic_sub_fetch(&proc->thread_count, 1, ATOMIC_RELEASE);
+	atomic_sub_fetch(&thread->refcount, 1, ATOMIC_RELEASE);
+err:
+	spinlock_unlock_irq_restore(&proc->thread_lock, &irq);
+	return err;
 }
 
 void procthrd_init(void) {

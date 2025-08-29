@@ -45,7 +45,8 @@ struct cpu* sched_decide_cpu(int flags);
 /**
  * @brief Attach a thread to the runqueue
  *
- * Not safe to call from an atomic context
+ * Not safe to call from an atomic context.
+ * Thread is attached to the process automatically.
  *
  * @param rq The runqueue to attach the thread to
  * @param thread The thread to attach
@@ -58,7 +59,8 @@ int sched_thread_attach(struct runqueue* rq, struct thread* thread, int prio);
 /**
  * @brief Detach a thread from a runqueue
  *
- * Not safe to call from an atomic context
+ * Not safe to call from an atomic context.
+ * Thread is detached from the process.
  *
  * @param rq The runqueue to detach from
  * @param thread The thread to detach
@@ -88,23 +90,130 @@ int sched_enqueue(struct runqueue* rq, struct thread* thread);
  * @return -errno on failure
  */
 int sched_dequeue(struct runqueue* rq, struct thread* thread);
+
+/**
+ * @brief Pick the next thread to run
+ * @param rq The runqueue to pick the thread from
+ */
 struct thread* sched_pick_next(struct runqueue* rq);
+
+/**
+ * @brief Called by the timer ISR
+ */
 void sched_tick(void);
 
+/**
+ * @brief Create a thread structure
+ *
+ * @param proc The process to associate with
+ * @param stack_size The size of the stack for this thread
+ *
+ * @return A pointer to the newly created thread
+ */
 struct thread* thread_create(struct proc* proc, size_t stack_size);
+
+/**
+ * @brief Destroy a thread
+ * @param thread The thread to destroy
+ *
+ * @reval 0 Success
+ * @retval -EBUSY Refcount is not zero
+ */
 int thread_destroy(struct thread* thread);
+
+/**
+ * @brief Set a thread either in kernel mode or user mode
+ *
+ * @param thread The thread to set
+ * @param ring THREAD_RING(USER/KERNEL)
+ *
+ * @retval 0 Success
+ * @retval -EINVAL Invalid ring
+ */
 int thread_set_ring(struct thread* thread, int ring);
+
+/**
+ * @brief Create a process struct
+ * @return A pointer to the new process
+ */
 struct proc* proc_create(void);
+
+/**
+ * @brief Destroy a process struct
+ * @param proc The process to destroy
+ *
+ * @retval 0 Success
+ * @retval -EBUSY Process still has active threads
+ */
 int proc_destroy(struct proc* proc);
-void thread_add_to_proc(struct proc* proc, struct thread* thread);
+
+/**
+ * @brief Set the address for the thread to start execution
+ * @param thread The thread
+ * @param code The pointer to where the code is located
+ */
 static inline void thread_set_exec(struct thread* thread, void* code) {
 	thread->ctx.general.rip = code;
 }
 
+/**
+ * @brief Fully attach a thread to a process
+ *
+ * Attaches to the process that was chosen when the thread was created.
+ *
+ * @param thread The thread to attach
+ * @retval -EALREADY Thread already attached
+ * @retval 0 Success
+ */
+int thread_attach_to_proc(struct thread* thread);
+
+/**
+ * @brief Fully detach a thread from a process
+ *
+ * @param thread The thread to detach
+ * @reval -ENOENT Thread not previously attached
+ * @reval 0 Success
+ */
+int thread_detach_from_proc(struct thread* thread);
+
+/**
+ * @brief Allocate an extended processor context
+ * @return A pointer to where the context should be stored
+ */
 void* ext_ctx_alloc(void);
+
+/**
+ * @brief Free an extended processor context
+ * @return The pointer to the context
+ */
 void ext_ctx_free(void* ptr);
 
-void __asmlinkage asm_context_switch(struct context* prev, struct context* next);
+/**
+ * @brief Switch to another thread
+ *
+ * @param prev The current thread (usually)
+ * @param next The thread to switch to
+ */
 void context_switch(struct thread* prev, struct thread* next);
 
+/**
+ * @brief Switch the general purpose registers and do the actual switch to the new thread
+ *
+ * NOTES:
+ * Do not call this function. Call context_switch instead.
+ *
+ * @param prev The previous context
+ * @param next The context to switch to
+ */
+void __asmlinkage asm_context_switch(struct context* prev, struct context* next);
+
+/**
+ * @brief Initial routine for kthreads
+ *
+ * NOTES:
+ * Do not call this function ever.
+ *
+ * @param func The function to call after setup
+ * @param arg The argument to pass to the function
+ */
 _Noreturn void __asmlinkage asm_kthread_start(void* (*func)(void*), void* arg);
