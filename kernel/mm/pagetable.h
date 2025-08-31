@@ -123,7 +123,7 @@ struct prevpage {
  * @param virtual The virtual address of the pages
  * @param size The size of the region
  *
- * @return NULL on no memory, otherwise you get a single linked list to the info about the pages
+ * @return NULL if there are no pages to save, or you get a singly linked list 
  */
 struct prevpage* prevpage_save(struct mm* mm_struct, u8* virtual, size_t size);
 
@@ -135,8 +135,16 @@ struct prevpage* prevpage_save(struct mm* mm_struct, u8* virtual, size_t size);
  */
 void prevpage_fail(struct mm* mm_struct, struct prevpage* head);
 
+enum prevpage_flags {
+	PREVPAGE_FREE_PREVIOUS = (1 << 0)
+};
+
 /**
- * @brief Free the previous pages allocated with VMM_ALLOC
+ * @brief Cleaup after saving pages
+ *
+ * When the PREVPAGE_FREE_PREVIOUS flag is used, it frees the physical pages that were previously saved
+ *
  * @param head The previous pages
+ * @param flags Flags for what should be cleaned up
  */
-void prevpage_success(struct prevpage* head);
+void prevpage_success(struct prevpage* head, int flags);
