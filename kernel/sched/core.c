@@ -34,6 +34,7 @@ int sched_thread_attach(struct runqueue* rq, struct thread* thread, int prio) {
 	spinlock_lock_irq_save(&rq->lock, &irq);
 	if (rq->policy->ops->thread_attach)
 		rq->policy->ops->thread_attach(rq, thread, prio);
+	atomic_add_fetch(&rq->thread_count, 1, ATOMIC_RELEASE);
 	spinlock_unlock_irq_restore(&rq->lock, &irq);
 
 	thread->attached = true;
@@ -45,6 +46,7 @@ void sched_thread_detach(struct runqueue* rq, struct thread* thread) {
 	spinlock_lock_irq_save(&rq->lock, &irq);
 	if (rq->policy->ops->thread_detach)
 		rq->policy->ops->thread_detach(rq, thread);
+	atomic_sub_fetch(&rq->thread_count, 1, ATOMIC_RELEASE);
 	spinlock_unlock_irq_restore(&rq->lock, &irq);
 
 	assert(thread_detach_from_proc(thread) == 0);
@@ -90,17 +92,32 @@ struct thread* sched_pick_next(struct runqueue* rq) {
 	return ret;
 }
 
-/* not implemented for multicore yet */
 struct cpu* sched_decide_cpu(int flags) {
 	if (flags & SCHED_CPU0) {
-		u64 count;
-		struct cpu** cpus = get_cpu_structs(&count);
-		for (u64 i = 0; i < count; i++) {
-			if (cpus[i]->processor_id == 0)
-				return cpus[i];
+		const struct smp_cpus* cpus = smp_cpus_get();
+		for (u64 i = 0; i < cpus->count; i++) {
+			if (cpus->cpus[i]->processor_id == 0)
+				return cpus->cpus[i];
+		}
+	} else if (flags & SCHED_THIS_CPU) {
+		return current_cpu();
+	}
+
+	const struct smp_cpus* smp_cpus = smp_cpus_get();
+	struct cpu* best = current_cpu();
+	unsigned long best_tc = atomic_load(&best->runqueue.thread_count, ATOMIC_ACQUIRE);
+	for (u32 i = 0; i < smp_cpus->count; i++) {
+		struct cpu* current = smp_cpus->cpus[i];
+		if (current == best)
+			continue;
+		unsigned long current_tc = atomic_load(&current->runqueue.thread_count, ATOMIC_ACQUIRE);
+		if (current_tc < best_tc) {
+			best = current;
+			best_tc = current_tc;
 		}
 	}
-	return current_cpu();
+
+	return best;
 }
 
 static int __sched_wakeup_locked(struct thread* thread, int wakeup_err) {
@@ -302,6 +319,7 @@ static void idle_thread(void) {
 
 static void sched_bootstrap_processor(void) {
 	struct runqueue* rq = &current_cpu()->runqueue;
+	spinlock_init(&rq->lock);
 
 	struct thread* current = thread_create(kproc, PAGE_SIZE);
 	assert(current != NULL);
@@ -324,9 +342,17 @@ static void sched_bootstrap_processor(void) {
 	list_head_init(&rq->zombies);
 }
 
+void sched_cpu_init(void) {
+	sched_policy_cpu_init();
+	preempt_cpu_init();
+	ext_context_cpu_init();
+	sched_bootstrap_processor();
+	deferred_cpu_init();
+}
+
 void sched_init(void) {
 	sched_policy_cpu_init();
-	preempt_init();
+	preempt_cpu_init();
 	procthrd_init();
 	ext_context_init();
 

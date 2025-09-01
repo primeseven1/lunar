@@ -85,10 +85,12 @@ struct runqueue {
 	struct thread* current, *idle;
 	struct list_head sleepers; /* Sleeping threads, may also contain blocked threads for timeouts */
 	struct list_head zombies; /* For reaper thread */
+	atomic(unsigned long) thread_count;
 	void* policy_priv; /* For scheduling algorithm */
 	spinlock_t lock;
 };
 
+void sched_cpu_init(void);
 void sched_init(void);
 
 /**

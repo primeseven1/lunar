@@ -36,7 +36,7 @@ static struct irq timer_irq = {
 
 static const struct isr* lapic_timer_isr = NULL;
 
-void preempt_init(void) {
+void preempt_cpu_init(void) {
 	if (!lapic_timer_isr) {
 		lapic_timer_isr = interrupt_register(&timer_irq, lapic_timer);
 		assert(lapic_timer_isr != NULL);

@@ -21,8 +21,7 @@ struct thread* kthread_create(int sched_flags, void* (*func)(void*), void* arg) 
 
 	thread_set_ring(thread, THREAD_RING_KERNEL);
 	thread_set_exec(thread, asm_kthread_start);
-	if (sched_flags & SCHED_THIS_CPU)
-		thread->target_cpu = sched_decide_cpu(sched_flags);
+	thread->target_cpu = sched_decide_cpu(sched_flags);
 
 	int err = sched_thread_attach(&thread->target_cpu->runqueue, thread, SCHED_PRIO_DEFAULT);
 	if (err)

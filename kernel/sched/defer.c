@@ -67,7 +67,7 @@ int schedule_work(void (*fn)(void*), void* arg, int flags) {
 	return ret;
 }
 
-void deferred_init_cpu(void) {
+void deferred_cpu_init(void) {
 	struct cpu* cpu = current_cpu();
 	semaphore_init(&cpu->deferred_sem, 0);
 	spinlock_init(&cpu->deferred_lock);
@@ -84,5 +84,5 @@ void deferred_init_cpu(void) {
 void deferred_init(void) {
 	assert(ringbuffer_init(&deferred_ringbuffer, 512, sizeof(struct work)) == 0);
 	semaphore_init(&deferred_sem, 0);
-	deferred_init_cpu();
+	deferred_cpu_init();
 }

@@ -29,11 +29,12 @@ struct sched_policy {
 #define __sched_policy __attribute__((section(".schedpolicies"), aligned(8), used))
 
 void sched_policy_cpu_init(void);
-void preempt_init(void);
+void preempt_cpu_init(void);
 void procthrd_init(void);
+void ext_context_cpu_init(void);
 void ext_context_init(void);
 void kthread_init(struct proc* kernel_proc);
-void deferred_init_cpu(void);
+void deferred_cpu_init(void);
 void deferred_init(void);
 
 /**

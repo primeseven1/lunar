@@ -46,13 +46,23 @@ static void enable_sse(void) {
 	__asm__ volatile("ldmxcsr %0" : : "m"(mxcsr) : "memory");
 }
 
-void ext_context_init(void) {
+static inline bool sse_supported(void) {
 	u32 edx, _unused;
 	cpuid(1, 0, &_unused, &_unused, &_unused, &edx);
-	if (likely(edx & (1 << 25))) {
-		fxsave = true;
-		ext_ctx_cache = slab_cache_create(512, 16, MM_ZONE_NORMAL, ext_ctx_ctor, NULL);
-		assert(ext_ctx_cache != NULL);
+	return likely(!!(edx & (1 << 25)));
+}
+
+void ext_context_cpu_init(void) {
+	if (ext_ctx_cache)
 		enable_sse();
+}
+
+void ext_context_init(void) {
+	if (!sse_supported())
+		return;
+	ext_ctx_cache = slab_cache_create(512, 16, MM_ZONE_NORMAL, ext_ctx_ctor, NULL);
+	if (ext_ctx_cache) {
+		enable_sse();
+		fxsave = true;
 	}
 }
