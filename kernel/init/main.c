@@ -1,5 +1,7 @@
 #include <crescent/compiler.h>
+#include <crescent/asm/ctl.h>
 #include <crescent/asm/wrap.h>
+#include <crescent/asm/segment.h>
 #include <crescent/init/status.h>
 #include <crescent/core/limine.h>
 #include <crescent/core/module.h>
@@ -14,7 +16,6 @@
 #include <crescent/core/timekeeper.h>
 #include <crescent/mm/buddy.h>
 #include <crescent/mm/heap.h>
-#include <crescent/asm/segment.h>
 #include <crescent/sched/scheduler.h>
 #include <crescent/sched/kthread.h>
 
@@ -25,23 +26,42 @@ int init_status_get(void) {
 	return init_status;
 }
 
-__diag_push();
-__diag_ignore("-Wmissing-prototypes");
-
 static inline void log_ram_usage(void) {
 	u64 total;
 	u64 mem = get_free_memory(&total);
 	printk("RAM usage: %ld KiB / %ld KiB\n", mem >> 10, total >> 10);
 }
 
+__diag_push();
+__diag_ignore("-Wmissing-prototypes");
+
+_Noreturn __asmlinkage void ap_kernel_main(struct limine_mp_info* mp_info) {
+	ctl3_write(ctl3_read()); /* Flush TLB */
+
+	cpu_ap_init(mp_info);
+	cpu_register();
+
+	vmm_cpu_init();
+	segments_init();
+	interrupts_cpu_init();
+	apic_ap_init();
+	sched_cpu_init();
+
+	ctl3_write(ctl3_read()); /* Flush again */
+	cpu_init_finish();
+
+	local_irq_enable();
+	sched_thread_exit();
+}
+
 _Noreturn __asmlinkage void kernel_main(void) {
 	int base_revision = limine_base_revision();
 	if (base_revision != LIMINE_BASE_REVISION) {
 		while (1)
-			__asm__ volatile("hlt");
+			cpu_halt();
 	}
 
-	bsp_cpu_init();
+	cpu_bsp_init();
 
 	int err_e9hack = module_load("e9hack"); /* Enable early debugging */
 	int err_trace = tracing_init(); /* Enable stack traces */
@@ -52,6 +72,7 @@ _Noreturn __asmlinkage void kernel_main(void) {
 	vmm_init();
 	segments_init();
 	interrupts_init();
+	vmm_tlb_init();
 	heap_init();
 
 	init_status = INIT_STATUS_MM;
@@ -88,6 +109,7 @@ _Noreturn __asmlinkage void kernel_main(void) {
 		panic("Failed to initialize APIC, err: %i", err);
 	timekeeper_init();
 	sched_init();
+	cpu_startup_aps();
 	init_status = INIT_STATUS_SCHED;
 
 	log_ram_usage();

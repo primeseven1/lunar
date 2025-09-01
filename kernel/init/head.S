@@ -25,6 +25,21 @@ asm_zero_bss:
 	ret
 .size asm_zero_bss, . - asm_zero_bss
 
+.globl _ap_start
+.type _ap_start, @function
+_ap_start:
+	cli
+	cld
+
+	andq $-16, %rsp
+
+	pushq $0
+	pushq $0
+	xorq %rbp, %rbp
+
+	call ap_kernel_main
+	ud2
+
 .globl _start
 .type _start, @function
 _start:
