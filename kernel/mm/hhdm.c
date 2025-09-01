@@ -8,7 +8,7 @@ static volatile struct limine_hhdm_request __limine_request hhdm_request = {
 	.response = NULL
 };
 
-physaddr_t hhdm_physical(void* virtual) {
+physaddr_t hhdm_physical(const void* virtual) {
 	const struct limine_hhdm_response* hhdm = hhdm_request.response;
 	return (uintptr_t)virtual - hhdm->offset;
 }

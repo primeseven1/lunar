@@ -120,4 +120,6 @@ void* vmap_kstack(void);
  */
 int vunmap_kstack(void* stack);
 
+void vmm_tlb_init(void);
+void vmm_cpu_init(void);
 void vmm_init(void);

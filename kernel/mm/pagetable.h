@@ -33,7 +33,6 @@ static inline void tlb_flush_range(void* virtual, size_t size) {
 unsigned long pagetable_mmu_to_pt(mmuflags_t mmu_flags);
 
 void tlb_invalidate(void* address, size_t size);
-void tlb_init(void);
 
 /**
  * @brief Map an entry into a page table

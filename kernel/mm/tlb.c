@@ -27,17 +27,17 @@ static void shootdown_ipi(const struct isr* isr, struct context* ctx) {
 	atomic_sub_fetch(&shootdown_remaining, 1, ATOMIC_RELEASE);
 }
 
-static void do_shootdown(struct cpu** cpus, u64 cpu_count, void* address, size_t size) {
+static void do_shootdown(const struct smp_cpus* cpus, void* address, size_t size) {
 	spinlock_lock(&shootdown_lock);
 
 	atomic_store(&shootdown_address, address, ATOMIC_RELEASE);
 	atomic_store(&shootdown_size, size, ATOMIC_RELEASE);
-	atomic_store(&shootdown_remaining, cpu_count - 1, ATOMIC_RELEASE);
+	atomic_store(&shootdown_remaining, cpus->count - 1, ATOMIC_RELEASE);
 
-	for (u64 i = 0; i < cpu_count; i++) {
-		if (cpus[i] == current_cpu())
+	for (u64 i = 0; i < cpus->count; i++) {
+		if (cpus->cpus[i] == current_cpu())
 			continue;
-		apic_send_ipi(cpus[i], shootdown_isr, APIC_IPI_CPU_TARGET, true);
+		bug(apic_send_ipi(cpus->cpus[i], shootdown_isr, APIC_IPI_CPU_TARGET, true) != 0);
 	}
 
 	while (atomic_load(&shootdown_remaining, ATOMIC_ACQUIRE))
@@ -47,22 +47,26 @@ static void do_shootdown(struct cpu** cpus, u64 cpu_count, void* address, size_t
 }
 
 void tlb_invalidate(void* address, size_t size) {
-	u64 cpu_count;
-	struct cpu** cpus = get_cpu_structs(&cpu_count);
-
+	const struct smp_cpus* cpus = smp_cpus_get();
 	unsigned long irq = local_irq_save();
 
-	/* May lock up the system, since the kernel doesn't bring up other cpu's yet. */
-	struct thread* current_thread = current_cpu()->runqueue.current;
-	int thread_count = current_thread ? atomic_load(&current_thread->proc->thread_count, ATOMIC_ACQUIRE) : 1;
-	if (likely(init_status_get() >= INIT_STATUS_SCHED) && cpu_count > 1 && thread_count > 1)
-		do_shootdown(cpus, cpu_count, address, size);
+	if (likely(init_status_get() >= INIT_STATUS_SCHED)) {
+		struct thread* current_thread = current_cpu()->runqueue.current;
+		int thread_count = atomic_load(&current_thread->proc->thread_count, ATOMIC_ACQUIRE);
+		if (cpus->count > 1 && thread_count > 1)
+			do_shootdown(cpus, address, size);
+	}
 
 	tlb_flush_range(address, size);
 	local_irq_restore(irq);
 }
 
-void tlb_init(void) {
+void vmm_tlb_init(void) {
+	u32 count = smp_cpus_get()->count;
+	if (count == 1)
+		return;
+
 	shootdown_isr = interrupt_register(&shootdown_irq, shootdown_ipi);
-	assert(shootdown_isr != NULL);
+	if (unlikely(!shootdown_isr))
+		panic("Failed to create TLB shootdown ISR\n");
 }

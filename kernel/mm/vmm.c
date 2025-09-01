@@ -354,6 +354,12 @@ int vunmap_kstack(void* stack) {
 	return vunmap(stack, total_size, 0);
 }
 
+void vmm_cpu_init(void) {
+	struct cpu* cpu = current_cpu();
+	cpu->mm_struct = &kernel_mm_struct;
+	ctl3_write(hhdm_physical(kernel_mm_struct.pagetable));
+}
+
 void vmm_init(void) {
 	pagetable_init();
 

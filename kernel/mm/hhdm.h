@@ -7,7 +7,7 @@
  * @param virtual The virtual address to convert
  * @return The physical address
  */
-physaddr_t hhdm_physical(void* virtual);
+physaddr_t hhdm_physical(const void* virtual);
 
 /**
  * @brief Get a virtual address from a physical address with HHDM
