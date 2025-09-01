@@ -12,7 +12,7 @@ void spinlock_unlock(spinlock_t* lock) {
 }
 
 bool spinlock_try(spinlock_t* lock) {
-	return !atomic_test_and_set(lock, ATOMIC_ACQUIRE);
+	return !atomic_test_and_set(lock, ATOMIC_ACQ_REL);
 }
 
 void spinlock_lock_irq_save(spinlock_t* lock, unsigned long* flags) {
