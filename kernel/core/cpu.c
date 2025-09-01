@@ -76,6 +76,7 @@ static atomic(u32) sched_ids = atomic_static_init(1);
 
 void cpu_ap_init(struct limine_mp_info* mp_info) {
 	struct cpu* cpu = hhdm_virtual(alloc_pages(MM_ZONE_NORMAL | MM_NOFAIL, get_order(sizeof(*cpu))));
+	memset(cpu, 0, sizeof(*cpu));
 
 	cpu->self = cpu;
 	cpu->lapic_id = mp_info->lapic_id;
