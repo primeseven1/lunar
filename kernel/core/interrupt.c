@@ -142,6 +142,10 @@ static struct irq irq15 = {
 	.eoi = i8259_spurious_eoi
 };
 
+void interrupts_cpu_init(void) {
+	idt_init();
+}
+
 void interrupts_init(void) {
 	for (int i = 0; i < INTERRUPT_COUNT; i++) {
 		isr_handlers[i].vector = i;

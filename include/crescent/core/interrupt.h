@@ -58,6 +58,8 @@ struct isr {
 #define INTERRUPT_COUNT 256
 
 const struct isr* interrupt_register(struct irq* irq, void (*handler)(const struct isr*, struct context*));
+
+void interrupts_cpu_init(void);
 void interrupts_init(void);
 
 /**

@@ -6,6 +6,7 @@
 #include <crescent/lib/ringbuffer.h>
 #include <crescent/core/panic.h>
 #include <crescent/core/semaphore.h>
+#include <crescent/core/limine.h>
 
 struct cpu {
 	struct cpu* self;
@@ -18,8 +19,13 @@ struct cpu {
 	bool need_resched;
 };
 
+struct smp_cpus {
+	u32 count;
+	struct cpu* cpus[];
+};
+
 void cpu_structs_init(void);
-struct cpu** get_cpu_structs(u64* count);
+const struct smp_cpus* smp_cpus_get(void);
 void cpu_register(void);
 
 /**
@@ -32,5 +38,8 @@ static inline struct cpu* current_cpu(void) {
 	return cpu;
 }
 
-void startup_ap_cpus(void);
-void bsp_cpu_init(void);
+void cpu_init_finish(void);
+void cpu_startup_aps(void);
+
+void cpu_ap_init(struct limine_mp_info* mp_info);
+void cpu_bsp_init(void);

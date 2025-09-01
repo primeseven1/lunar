@@ -18,7 +18,7 @@ _Noreturn void panic(const char* fmt, ...) {
 
 	/* 
 	 * Stop every CPU by sending an NMI, the NMI handler just panics, 
-	 * so it will end when the CPU's can't grab the lock
+	 * so it will end when the CPU's can't grab the lock.
 	 */
 	if (init_status_get() >= INIT_STATUS_SCHED)
 		apic_send_ipi(NULL, NULL, APIC_IPI_CPU_OTHERS, false);
