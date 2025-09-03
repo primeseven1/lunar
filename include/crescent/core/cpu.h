@@ -13,9 +13,9 @@ struct cpu {
 	u32 processor_id, lapic_id, sched_processor_id;
 	struct mm* mm_struct;
 	struct runqueue runqueue;
-	struct ringbuffer deferred_ringbuffer;
-	struct semaphore deferred_sem;
-	spinlock_t deferred_lock;
+	struct ringbuffer workqueue;
+	struct semaphore workqueue_sem;
+	spinlock_t workqueue_lock;
 	bool need_resched;
 };
 
