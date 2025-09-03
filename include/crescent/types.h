@@ -1,5 +1,7 @@
 #pragma once
 
+#include <crescent/common.h>
+
 /* After this, it's safe to assume the sizes of data types */
 #ifndef __LP64__
 #error "LP64 not used, cannot compile!"
@@ -46,7 +48,7 @@ typedef unsigned long u64;
 #define I64_MIN LONG_MIN
 
 /* Make sure wchar_t is signed and is 32 bit wide */
-_Static_assert((__WCHAR_TYPE__)(-1) < 0 && sizeof(__WCHAR_TYPE__) == sizeof(i32),
+static_assert((__WCHAR_TYPE__)(-1) < 0 && sizeof(__WCHAR_TYPE__) == sizeof(i32),
 		"(__WCHAR_TYPE__)(-1) < 0 && sizeof(__WCHAR_TYPE__) == sizeof(i32)");
 typedef i32 wchar_t;
 
@@ -57,7 +59,7 @@ typedef i32 wchar_t;
  * Make sure size_t is the size of a long so ssize_t can be properly defined.
  * __LP64__ is also defined, so this should not happen.
  */
-_Static_assert(sizeof(__SIZE_TYPE__) == sizeof(unsigned long),
+static_assert(sizeof(__SIZE_TYPE__) == sizeof(unsigned long),
 		"sizeof(__SIZE_TYPE__) == sizeof(unsigned long)");
 typedef long ssize_t;
 typedef unsigned long size_t;
