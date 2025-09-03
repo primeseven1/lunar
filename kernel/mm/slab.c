@@ -137,7 +137,7 @@ void* slab_cache_alloc(struct slab_cache* cache) {
 			goto out;
 	}
 
-	struct slab* slab = list_entry(list->node.next, struct slab, link);
+	struct slab* slab = list_first_entry(list, struct slab, link);
 	ret = slab_take(cache, slab);
 	assert(ret != NULL); /* Since we've already grown the cache, if this happens something bad has happened */
 
