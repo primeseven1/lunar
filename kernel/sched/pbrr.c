@@ -23,7 +23,7 @@ struct rr_runqueue {
 };
 
 /* Sanity check */
-_Static_assert(PBRR_PRIO_COUNT <= (sizeof(((struct rr_runqueue*)0)->active_bitmap)) * 8, "pbrr bitmap too small");
+static_assert(PBRR_PRIO_COUNT <= (sizeof(((struct rr_runqueue*)0)->active_bitmap)) * 8, "pbrr bitmap too small");
 
 static inline int prio_weight(int p) {
 	int w = 1ul << (p >> PBRR_PRIO_GROUP_SHIFT);
