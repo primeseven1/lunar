@@ -18,7 +18,7 @@ struct rr_thread {
 
 struct rr_runqueue {
 	struct list_head queues[PBRR_PRIO_COUNT];
-	unsigned long active_bitmap;
+	u32 active_bitmap;
 	int prio_budget[PBRR_PRIO_COUNT];
 };
 
@@ -118,7 +118,7 @@ static struct rr_thread* pop_head_and_maybe_clear(struct rr_runqueue* rrq, int p
 	struct list_node* node = head->node.next;
 	list_remove(node);
 
-	struct rr_thread* rrt = list_entry(node, struct rr_thread, link);
+	struct rr_thread* rrt = container_of(node, struct rr_thread, link);
 	if (list_empty(head))
 		rrq->active_bitmap &= ~(1ul << prio);
 
