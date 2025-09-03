@@ -347,7 +347,7 @@ void sched_cpu_init(void) {
 	preempt_cpu_init();
 	ext_context_cpu_init();
 	sched_bootstrap_processor();
-	deferred_cpu_init();
+	workqueue_cpu_init();
 }
 
 void sched_init(void) {
@@ -363,5 +363,5 @@ void sched_init(void) {
 
 	kthread_init(kproc);
 	sched_bootstrap_processor();
-	deferred_init();
+	workqueue_init();
 }

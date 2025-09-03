@@ -109,7 +109,7 @@ int schedule(void);
  *
  * @return -errno on failure
  */
-int schedule_work(void (*fn)(void*), void* arg, int flags);
+int sched_workqueue_add(void (*fn)(void*), void* arg, int flags);
 
 /**
  * @brief Relinquish the CPU
