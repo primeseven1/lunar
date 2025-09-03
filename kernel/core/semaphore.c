@@ -57,7 +57,7 @@ void semaphore_signal(struct semaphore* sem) {
 	spinlock_lock_irq_save(&sem->lock, &irq);
 
 	if (++sem->count <= 0 && !list_empty(&sem->wait_queue)) {
-		struct thread* thread = list_entry(sem->wait_queue.node.next, struct thread, block_link);
+		struct thread* thread = list_first_entry(&sem->wait_queue, struct thread, block_link);
 		list_remove(&thread->block_link);
 		assert(sched_wakeup(thread, 0) == 0);
 	}
