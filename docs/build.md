@@ -5,7 +5,7 @@ This project uses Kconfig to configure the kernel, and uses Linux's menuconfig t
 You do need to clone the submodules in order to build this project. To do this, you can run this command: `git submodule update --init --recursive`. If you haven't cloned the project yet,
 you can run `git clone url --recurse-submodules`
 
-You can only build this project with a GCC cross compiler (x86_64-elf-gcc). There is a script [here](scripts/gcc.sh) that handles that for you. Documentation on how to use it is [here](docs/gcc.md)
+You can only build this project with a GCC cross compiler (x86_64-elf-gcc). There is a script [here](../scripts/gcc.sh) that handles that for you. Documentation on how to use it is [here](gcc.md)
 
 To configure the project, run `make menuconfig`, and then you can configure the kernel how you would like.
 
