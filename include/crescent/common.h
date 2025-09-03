@@ -1,5 +1,6 @@
 #pragma once
 
+#define static_assert(e, s) _Static_assert(e, s)
 #define offsetof(t, m) __builtin_offsetof(t, m)
 #define typeof(e) __typeof__(e)
 
