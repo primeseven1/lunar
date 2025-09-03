@@ -21,7 +21,7 @@ config OPTIMIZATION
 
 config UBSAN
 	bool "Enable undefined behavior sanitizer"
-	default y
+	default n
 	help
 	  "Enable runtime checks for undefined behavior"
 
