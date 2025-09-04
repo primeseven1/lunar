@@ -118,6 +118,9 @@ struct prevpage {
 /**
  * @brief Save any info about any pages typically before overwriting them
  *
+ * This function will not fail to save pages, as the MM_NOFAIL flag is used to allocate them.
+ * Pointers returned are in HHDM.
+ *
  * @param mm_struct The mm struct to use
  * @param virtual The virtual address of the pages
  * @param size The size of the region

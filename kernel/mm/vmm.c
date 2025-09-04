@@ -126,11 +126,8 @@ void* vmap(void* hint, size_t size, mmuflags_t mmu_flags, int flags, void* optio
 	unsigned long irq;
 	spinlock_lock_irq_save(&kernel_mm_struct.vma_list_lock, &irq);
 
-	if (flags & VMM_FIXED && !(flags & VMM_NOREPLACE)) {
+	if (flags & VMM_FIXED && !(flags & VMM_NOREPLACE))
 		prev_pages = prevpage_save(&kernel_mm_struct, hint, size);
-		if (!prev_pages)
-			goto cleanup;
-	}
 
 	void* virtual = NULL;
 	int err = vma_map(&kernel_mm_struct, hint, size, mmu_flags, flags, &virtual);
