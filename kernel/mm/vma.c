@@ -199,19 +199,17 @@ int vma_protect(struct mm* mm, void* address, size_t size, mmuflags_t prot) {
 	}
 
 	/* Merge adjecent VMA's with the same protection flags */
-	if (!list_empty(&mm->vma_list)) {
-		struct vma* current = list_first_entry(&mm->vma_list, struct vma, link);
-		while (!list_is_last(&mm->vma_list, &current->link)) {
-			struct vma* next = list_next_entry(current, link);
-			if (current->top == next->start && current->prot == next->prot && current->flags == next->flags) {
-				current->top = next->top;
-				list_remove(&next->link);
-				vma_free(next);
-				continue;
-			}
-
-			current = next;
+	struct vma* current = list_first_entry(&mm->vma_list, struct vma, link);
+	while (!list_is_last(&mm->vma_list, &current->link)) {
+		struct vma* next = list_next_entry(current, link);
+		if (current->top == next->start && current->prot == next->prot && current->flags == next->flags) {
+			current->top = next->top;
+			list_remove(&next->link);
+			vma_free(next);
+			continue;
 		}
+
+		current = next;
 	}
 out:
 	if (!start_split_needed)
