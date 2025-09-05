@@ -4,7 +4,8 @@
 
 typedef volatile atomic(bool) spinlock_t;
 
-#define SPINLOCK_DEFINE(n) spinlock_t n = atomic_static_init(false)
+#define SPINLOCK_INITIALIZER atomic_static_init(false)
+#define SPINLOCK_DEFINE(n) spinlock_t n = SPINLOCK_INITIALIZER
 
 void spinlock_lock(spinlock_t* lock);
 void spinlock_unlock(spinlock_t* lock);
