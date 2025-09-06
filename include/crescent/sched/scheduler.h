@@ -94,9 +94,15 @@ void sched_cpu_init(void);
 void sched_init(void);
 
 /**
- * @brief Switch to another thread.
+ * @brief Switch to another runnable thread.
  *
- * @return Why the thread was woken up. -EAGAIN means preemptions were disabled when this function was called.
+ * If the thread was not prepared for sleep (via sched_prepare_for_sleep()), then the return value of this
+ * function is undefined and should be ignored in this case.
+ *
+ * @retval 0 Thread woke up normally
+ * @retval -EAGAIN Preemptions are disabled, a bug is triggered if the current task isn't runnable.
+ * @retval -EINTR Sleep was interrupted by a signal
+ * @retval -ETIMEDOUT A timeout was hit
  */
 int schedule(void);
 
@@ -107,24 +113,23 @@ int schedule(void);
  * @param arg The argument to pass to the function
  * @param flags Scheduler flags
  *
- * @return -errno on failure
+ * @retval 0 Successful
+ * @retval -EAGAIN Workqueue was full
  */
 int sched_workqueue_add(void (*fn)(void*), void* arg, int flags);
 
 /**
  * @brief Relinquish the CPU
  *
- * Notes:
  * Do not use this function for sleeping/blocking.
  *
- * @return Always zero.
+ * @return Always zero
  */
 int sched_yield(void);
 
 /**
  * @brief Prepare for a sleep
  *
- * Notes:
  * Do NOT use sched_yield() after preparing for sleep. Use schedule() instead.
  *
  * @param ms The number of milliseconds to sleep for (or a timeout if flags & SCHED_SLEEP_BLOCK is set and ms is not zero).
@@ -135,8 +140,7 @@ void sched_prepare_sleep(time_t ms, int flags);
 /**
  * @brief Wake up a thread
  *
- * NOTES:
- * If the thread is already woken up, this is a no-op
+ * If the thread is already woken up, this is a no-op.
  *
  * @param thread The thread to wake up
  * @param wakeup_err The reason the thread is waking up
