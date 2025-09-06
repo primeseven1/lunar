@@ -4,7 +4,10 @@
 
 /**
  * @brief Initialize the ability to do stack traces
- * @return -errno on failure
+ *
+ * @retval 0 Success
+ * @retval -ENOPROTOOPT Limine kernel file request not available
+ * @retval -ENOENT Kernel symbol table not available
  */
 int tracing_init(void);
 
