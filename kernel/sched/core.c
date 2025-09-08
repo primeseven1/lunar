@@ -232,8 +232,11 @@ int schedule(void) {
 		return 0;
 	}
 
-	if (atomic_load(&prev->state, ATOMIC_ACQUIRE) == THREAD_RUNNING)
+	int prev_state = atomic_load(&prev->state, ATOMIC_ACQUIRE);
+	if (prev_state == THREAD_RUNNING)
 		atomic_store(&prev->state, THREAD_READY, ATOMIC_RELEASE);
+	else if (prev_state == THREAD_ZOMBIE)
+		semaphore_signal(&rq->reaper_sem);
 	atomic_store(&next->state, THREAD_RUNNING, ATOMIC_RELEASE);
 
 	rq->current = next;
@@ -333,6 +336,8 @@ static struct thread* create_bootstrap_thread(struct runqueue* rq, void* exec, i
 static void sched_bootstrap_processor(void) {
 	struct runqueue* rq = &current_cpu()->runqueue;
 	spinlock_init(&rq->lock);
+	spinlock_init(&rq->zombie_lock);
+	semaphore_init(&rq->reaper_sem, 0);
 
 	struct thread* thread = create_bootstrap_thread(rq, NULL, THREAD_RUNNING, SCHED_PRIO_DEFAULT);
 	rq->current = thread;
@@ -349,6 +354,7 @@ void sched_cpu_init(void) {
 	ext_context_cpu_init();
 	sched_bootstrap_processor();
 	workqueue_cpu_init();
+	reaper_cpu_init();
 }
 
 void sched_init(void) {
@@ -365,4 +371,5 @@ void sched_init(void) {
 	kthread_init(kproc);
 	sched_bootstrap_processor();
 	workqueue_init();
+	reaper_cpu_init();
 }

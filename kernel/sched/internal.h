@@ -36,6 +36,7 @@ void ext_context_init(void);
 void kthread_init(struct proc* kernel_proc);
 void workqueue_cpu_init(void);
 void workqueue_init(void);
+void reaper_cpu_init(void);
 
 /**
  * @brief Decide the CPU a thread should run on

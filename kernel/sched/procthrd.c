@@ -179,7 +179,6 @@ int thread_attach_to_proc(struct thread* thread) {
 	}
 
 	atomic_add_fetch(&proc->thread_count, 1, ATOMIC_RELEASE);
-	atomic_add_fetch(&thread->refcount, 1, ATOMIC_RELEASE);
 	list_add(&proc->threads, &thread->proc_link);
 
 err:
@@ -200,7 +199,6 @@ int thread_detach_from_proc(struct thread* thread) {
 
 	list_remove(&thread->proc_link);
 	atomic_sub_fetch(&proc->thread_count, 1, ATOMIC_RELEASE);
-	atomic_sub_fetch(&thread->refcount, 1, ATOMIC_RELEASE);
 err:
 	spinlock_unlock_irq_restore(&proc->thread_lock, &irq);
 	return err;

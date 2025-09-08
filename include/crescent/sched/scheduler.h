@@ -3,6 +3,7 @@
 #include <crescent/core/spinlock.h>
 #include <crescent/core/interrupt.h>
 #include <crescent/core/timekeeper.h>
+#include <crescent/core/semaphore.h>
 #include <crescent/lib/list.h>
 
 struct cpu;
@@ -88,6 +89,7 @@ struct runqueue {
 	atomic(unsigned long) thread_count;
 	void* policy_priv; /* For scheduling algorithm */
 	spinlock_t lock, zombie_lock;
+	struct semaphore reaper_sem;
 };
 
 void sched_cpu_init(void);
