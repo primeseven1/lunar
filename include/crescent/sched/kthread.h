@@ -8,35 +8,42 @@
  * @param sched_flags Scheduler flags
  * @param func The start routine
  * @param arg The argument to pass to the function
+ * @param fmt Format string for name
+ * @param ... Variable arguments for name
  *
- * @return A pointer to the new thread
+ * @return -errno on failure, otherwise the thread ID is returned
+ * @retval -ENOMEM No memory
  */
-struct thread* kthread_create(int sched_flags, void* (*func)(void*), void* arg);
+__attribute__((format(printf, 4, 5)))
+tid_t kthread_create(int sched_flags, int (*func)(void*), void* arg, const char* fmt, ...);
 
 /**
  * @brief Detach a kernel thread
  *
- * After a kthread is detached, it is not safe to do anything with the thread structure.
+ * Allows a thread to have its resources cleaned up after execution.
  *
  * @param thread The thread to detach
+ *
+ * @reval -ESRCH Thread not found
+ * @retval 0 Successful
  */
-static inline void kthread_detach(struct thread* thread) {
-	atomic_sub_fetch(&thread->refcount, 1, ATOMIC_RELEASE);
-}
+int kthread_detach(tid_t id);
 
 /**
  * @brief Exit a kernel thread
- * @param ret The return value for the creator of the thread
+ * @param code The exit code, here for convention only. Discarded.
  */
-_Noreturn void kthread_exit(void* ret);
+_Noreturn void kthread_exit(int code);
 
 /**
- * @brief Get the return value from a thread
+ * @brief Wait for a thread to finish execution
  *
  * If the thread has not finished executing, the current thread yields until
- * the thread exits.
+ * the thread exits. Doesn't decrease the refcount.
  *
- * @param thread The thread to get the return value from
- * @param thread The thread
+ * @param id The thread ID
+ *
+ * @retval -ESRCH Thread not found
+ * @retval 0 Successful
  */
-void* kthread_join(struct thread* thread);
+int kthread_wait_for_completion(tid_t id);
