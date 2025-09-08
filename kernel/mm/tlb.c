@@ -3,6 +3,7 @@
 #include <crescent/core/interrupt.h>
 #include <crescent/core/cpu.h>
 #include <crescent/core/apic.h>
+#include <crescent/sched/kthread.h>
 #include <crescent/init/status.h>
 #include "pagetable.h"
 
@@ -51,8 +52,8 @@ void tlb_invalidate(void* address, size_t size) {
 	unsigned long irq = local_irq_save();
 
 	if (likely(init_status_get() >= INIT_STATUS_SCHED)) {
-		struct thread* current_thread = current_cpu()->runqueue.current;
-		int thread_count = atomic_load(&current_thread->proc->thread_count, ATOMIC_ACQUIRE);
+		struct thread* current = current_thread();
+		int thread_count = atomic_load(&current->proc->thread_count, ATOMIC_ACQUIRE);
 		if (cpus->count > 1 && thread_count > 1)
 			do_shootdown(cpus, address, size);
 	}
