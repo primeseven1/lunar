@@ -300,12 +300,11 @@ _Noreturn void sched_thread_exit(void) {
 	struct thread* current = rq->current;
 	atomic_store(&current->state, THREAD_ZOMBIE, ATOMIC_RELEASE);
 
-	spinlock_lock(&rq->lock);
+	spinlock_lock(&rq->zombie_lock);
 	list_add(&rq->zombies, &current->zombie_link);
-	spinlock_unlock(&rq->lock);
+	spinlock_unlock(&rq->zombie_lock);
 
 	local_irq_enable();
-
 	schedule();
 	__builtin_unreachable();
 }
@@ -317,26 +316,28 @@ static void idle_thread(void) {
 		cpu_halt();
 }
 
+static struct thread* create_bootstrap_thread(struct runqueue* rq, void* exec, int state, int prio) {
+	struct thread* thread = thread_create(kproc, PAGE_SIZE);
+	if (!thread)
+		panic("Failed to create a bootstrap thread\n");
+
+	thread->target_cpu = current_cpu();
+	atomic_store(&thread->state, state, ATOMIC_RELEASE);
+	thread_set_ring(thread, THREAD_RING_KERNEL);
+	thread_set_exec(thread, exec);
+	sched_thread_attach(rq, thread, prio);
+
+	return thread;
+}
+
 static void sched_bootstrap_processor(void) {
 	struct runqueue* rq = &current_cpu()->runqueue;
 	spinlock_init(&rq->lock);
 
-	struct thread* current = thread_create(kproc, PAGE_SIZE);
-	assert(current != NULL);
-	thread_set_ring(current, THREAD_RING_KERNEL);
-	sched_thread_attach(rq, current, 1);
-	atomic_store(&current->state, THREAD_RUNNING, ATOMIC_RELEASE);
-	rq->current = current;
-	current->target_cpu = current_cpu();
-
-	struct thread* idle = thread_create(kproc, PAGE_SIZE);
-	assert(idle != NULL);
-	thread_set_ring(idle, THREAD_RING_KERNEL);
-	thread_set_exec(idle, idle_thread);
-	sched_thread_attach(rq, idle, 0);
-	atomic_store(&idle->state, THREAD_READY, ATOMIC_RELEASE);
-	rq->idle = idle;
-	current->target_cpu = current_cpu();
+	struct thread* thread = create_bootstrap_thread(rq, NULL, THREAD_RUNNING, SCHED_PRIO_DEFAULT);
+	rq->current = thread;
+	thread = create_bootstrap_thread(rq, idle_thread, THREAD_READY, SCHED_PRIO_MIN);
+	rq->idle = thread;
 
 	list_head_init(&rq->sleepers);
 	list_head_init(&rq->zombies);

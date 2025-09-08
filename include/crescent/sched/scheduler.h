@@ -87,7 +87,7 @@ struct runqueue {
 	struct list_head zombies; /* For reaper thread */
 	atomic(unsigned long) thread_count;
 	void* policy_priv; /* For scheduling algorithm */
-	spinlock_t lock;
+	spinlock_t lock, zombie_lock;
 };
 
 void sched_cpu_init(void);
