@@ -1,13 +1,13 @@
 #pragma once
 
-#include <crescent/core/cpu.h>
+#include <crescent/sched/kthread.h>
 
 static inline void preempt_disable(void) {
-	current_cpu()->runqueue.current->preempt_count++;
+	current_thread()->preempt_count++;
 }
 
 static inline void preempt_enable(void) {
-	struct thread* current = current_cpu()->runqueue.current;
+	struct thread* current = current_thread();
 	assert(current->preempt_count > 0);
 	current->preempt_count--;
 }

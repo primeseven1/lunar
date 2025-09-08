@@ -1,6 +1,14 @@
 #pragma once
 
 #include <crescent/sched/scheduler.h>
+#include <crescent/core/cpu.h>
+
+static inline struct thread* current_thread(void) {
+	unsigned long irq = local_irq_save();
+	struct thread* current = current_cpu()->runqueue.current;
+	local_irq_restore(irq);
+	return current;
+}
 
 /**
  * @brief Create a kernel thread
