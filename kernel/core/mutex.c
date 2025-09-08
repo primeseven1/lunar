@@ -2,6 +2,7 @@
 #include <crescent/core/panic.h>
 #include <crescent/core/printk.h>
 #include <crescent/init/status.h>
+#include <crescent/sched/kthread.h>
 
 void mutex_lock(mutex_t* lock) {
 	if (unlikely(init_status_get() < INIT_STATUS_SCHED)) {
@@ -9,11 +10,11 @@ void mutex_lock(mutex_t* lock) {
 		return;
 	}
 
-	struct thread* current_thread = current_cpu()->runqueue.current;
-	bug(atomic_load(&lock->owner, ATOMIC_ACQUIRE) == current_thread);
+	struct thread* thread = current_thread();
+	bug(atomic_load(&lock->owner, ATOMIC_ACQUIRE) == thread);
 
 	semaphore_wait(&lock->sem, 0);
-	atomic_store(&lock->owner, current_thread, ATOMIC_RELEASE);
+	atomic_store(&lock->owner, thread, ATOMIC_RELEASE);
 }
 
 int mutex_lock_timed(mutex_t* lock, time_t timeout_ms) {
@@ -22,12 +23,12 @@ int mutex_lock_timed(mutex_t* lock, time_t timeout_ms) {
 		return 0;
 	}
 
-	struct thread* current_thread = current_cpu()->runqueue.current;
-	bug(atomic_load(&lock->owner, ATOMIC_ACQUIRE) == current_thread);
+	struct thread* thread = current_thread();
+	bug(atomic_load(&lock->owner, ATOMIC_ACQUIRE) == thread);
 
 	int res = semaphore_wait_timed(&lock->sem, timeout_ms, 0);
 	if (res == 0)
-		atomic_store(&lock->owner, current_thread, ATOMIC_RELEASE);
+		atomic_store(&lock->owner, thread, ATOMIC_RELEASE);
 	return res;
 }
 
@@ -35,12 +36,12 @@ bool mutex_try_lock(mutex_t* lock) {
 	if (unlikely(init_status_get() < INIT_STATUS_SCHED))
 		return spinlock_try(&lock->spinlock);
 
-	struct thread* current_thread = current_cpu()->runqueue.current;
-	bug(atomic_load(&lock->owner, ATOMIC_ACQUIRE) == current_thread);
+	struct thread* thread = current_thread();
+	bug(atomic_load(&lock->owner, ATOMIC_ACQUIRE) == thread);
 
 	bool success = semaphore_try(&lock->sem);
 	if (success)
-		atomic_store(&lock->owner, current_thread, ATOMIC_RELEASE);
+		atomic_store(&lock->owner, thread, ATOMIC_RELEASE);
 	return success;
 }
 
@@ -50,9 +51,9 @@ void mutex_unlock(mutex_t* lock) {
 		return;
 	}
 
-	struct thread* current_thread = current_cpu()->runqueue.current;
-	bug(atomic_load(&lock->owner, ATOMIC_ACQUIRE) != current_thread);
-
+	struct thread* thread = current_thread();
+	bug(atomic_load(&lock->owner, ATOMIC_ACQUIRE) != thread);
 	atomic_store(&lock->owner, NULL, ATOMIC_RELEASE);
+
 	semaphore_signal(&lock->sem);
 }
