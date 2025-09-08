@@ -10,7 +10,19 @@ int semaphore_wait(struct semaphore* sem, int flags) {
 		list_add_tail(&sem->wait_queue, &current_thread->block_link);
 		sched_prepare_sleep(0, SCHED_SLEEP_BLOCK | flags);
 		spinlock_unlock_irq_restore(&sem->lock, &irq);
-		return schedule();
+
+		int reason = schedule();
+		if (reason == -EINTR) {
+			spinlock_lock_irq_save(&sem->lock, &irq);
+			if (list_node_linked(&current_thread->block_link)) {
+				list_remove(&current_thread->block_link);
+				sem->count++;
+			} else {
+				reason = 0;
+			}
+			spinlock_unlock_irq_restore(&sem->lock, &irq);
+		}
+		return reason;
 	}
 
 	spinlock_unlock_irq_restore(&sem->lock, &irq);
@@ -24,13 +36,13 @@ int semaphore_wait_timed(struct semaphore *sem, time_t timeout_ms, int flags) {
 
 	spinlock_lock_irq_save(&sem->lock, &irq);
 
-	if (--sem->count >= 0)
-		goto out;
-	/* Basically a semaphore_try failure */
-	if (timeout_ms == 0) {
+	if (--sem->count >= 0) {
+		spinlock_unlock_irq_restore(&sem->lock, &irq);
+		return 0;
+	} else if (timeout_ms == 0) {
 		sem->count++;
-		reason = -ETIMEDOUT;
-		goto out;
+		spinlock_unlock_irq_restore(&sem->lock, &irq);
+		return -ETIMEDOUT;
 	}
 	list_add_tail(&sem->wait_queue, &current_thread->block_link);
 	sched_prepare_sleep(timeout_ms, SCHED_SLEEP_BLOCK | flags);
@@ -41,14 +53,18 @@ int semaphore_wait_timed(struct semaphore *sem, time_t timeout_ms, int flags) {
 	if (reason == -ETIMEDOUT || reason == -EINTR) {
 		spinlock_lock_irq_save(&sem->lock, &irq);
 
-		/* Make sure no other thread already undid our increment */
+		/* Check to see if the incriment was already done. If so, treat as success */
 		if (list_node_linked(&current_thread->block_link)) {
 			list_remove(&current_thread->block_link);
 			sem->count++;
+		} else {
+			reason = 0;
 		}
+
+		spinlock_unlock_irq_restore(&sem->lock, &irq);
+		return reason;
 	}
-out:
-	spinlock_unlock_irq_restore(&sem->lock, &irq);
+
 	return reason;
 }
 
@@ -63,6 +79,21 @@ void semaphore_signal(struct semaphore* sem) {
 	}
 
 	spinlock_unlock_irq_restore(&sem->lock, &irq);
+}
+
+int semaphore_reset(struct semaphore* sem) {
+	unsigned long irq;
+	spinlock_lock_irq_save(&sem->lock, &irq);
+
+	int ret = -EBUSY;
+	if (!list_empty(&sem->wait_queue))
+		goto out;
+
+	ret = 0;
+	sem->count = 0;
+out:
+	spinlock_unlock_irq_restore(&sem->lock, &irq);
+	return ret;
 }
 
 bool semaphore_try(struct semaphore* sem) {

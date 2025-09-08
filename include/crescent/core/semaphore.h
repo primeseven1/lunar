@@ -53,6 +53,14 @@ int semaphore_wait_timed(struct semaphore* sem, time_t timeout_ms, int flags);
 void semaphore_signal(struct semaphore* sem);
 
 /**
+ * @brief Reset a semaphore back to zero
+ * @param sem The semaphore to reset
+ * @retval -EBUSY Semaphore has waiters
+ * @reval 0 Successful
+ */
+int semaphore_reset(struct semaphore* sem);
+
+/**
  * @brief Check for an event without blocking
  * @param sem The event to check
  * @return true if successful
