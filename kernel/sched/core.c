@@ -198,7 +198,7 @@ void sched_tick(void) {
 			if (atomic_load(&pos->state, ATOMIC_ACQUIRE) == THREAD_BLOCKED)
 				err = -ETIMEDOUT;
 			__sched_wakeup_locked(pos, err);
-			if (cpu->runqueue.current == cpu->runqueue.idle)
+			if (current == cpu->runqueue.idle)
 				cpu->need_resched = true;
 		}
 	}
