@@ -1,17 +1,25 @@
 #pragma once
 
+#include <crescent/types.h>
 #include <crescent/asm/errno.h>
 
 typedef long long time_t;
 
 #define __timekeeper __attribute__((section(".timekeepers"), aligned(8), used))
 
+struct timekeeper;
+
 struct timekeeper_source {
-	const char* name;
-	int (*init)(void);
 	time_t (*get_ticks)(void);
 	unsigned long long freq;
-	unsigned int rating;
+	void* private;
+};
+
+struct timekeeper {
+	const char* name;
+	int (*init)(struct timekeeper_source**);
+	int rating;
+	bool early;
 };
 
 time_t timekeeper_get_nsec(void);
@@ -31,4 +39,5 @@ time_t timekeeper_get_nsec(void);
  */
 void timekeeper_stall(unsigned long usec);
 
+void timekeeper_cpu_init(void);
 void timekeeper_init(void);

@@ -4,21 +4,20 @@
 #include <crescent/core/printk.h>
 #include <crescent/core/panic.h>
 #include <crescent/core/timekeeper.h>
+#include <crescent/core/cpu.h>
 #include <crescent/core/interrupt.h>
 
-extern struct timekeeper_source _ld_kernel_timekeepers_start[];
-extern struct timekeeper_source _ld_kernel_timekeepers_end[];
+extern struct timekeeper _ld_kernel_timekeepers_start[];
+extern struct timekeeper _ld_kernel_timekeepers_end[];
 
-static struct timekeeper_source* timekeeper;
+static struct timekeeper* get_timekeeper(bool early) {
+	struct timekeeper* start = _ld_kernel_timekeepers_start;
+	struct timekeeper* end = _ld_kernel_timekeepers_end;
 
-static struct timekeeper_source* get_timekeeper(void) {
-	struct timekeeper_source* start = _ld_kernel_timekeepers_start;
-	struct timekeeper_source* end = _ld_kernel_timekeepers_end;
-
-	unsigned long count = ((uintptr_t)end - (uintptr_t)start) / sizeof(struct timekeeper_source);
-	struct timekeeper_source* best = NULL;
+	unsigned long count = ((uintptr_t)end - (uintptr_t)start) / sizeof(*start);
+	struct timekeeper* best = NULL;
 	for (unsigned long i = 0; i < count; i++) {
-		if (start[i].rating == 0)
+		if (start[i].rating == 0 || (!start[i].early && early) || (start[i].early && !early))
 			continue;
 
 		if (!best)
@@ -31,24 +30,35 @@ static struct timekeeper_source* get_timekeeper(void) {
 }
 
 static time_t timekeeper_get_ticks(void) {
-	if (!timekeeper)
-		return 0;
-	return timekeeper->get_ticks();	
+	unsigned long irq = local_irq_save();
+
+	struct timekeeper_source* timekeeper = current_cpu()->timekeeper;
+	time_t ticks = 0;
+	if (timekeeper)
+		ticks = timekeeper->get_ticks();
+
+	local_irq_restore(irq);
+	return ticks;
 }
 
 time_t timekeeper_get_nsec(void) {
-	if (!timekeeper)
-		return 0;
+	unsigned long irq = local_irq_save();
 
-	time_t ticks = timekeeper_get_ticks();
-	return (ticks * 1000000000ull) / timekeeper->freq;
+	struct timekeeper_source* timekeeper = current_cpu()->timekeeper;
+	time_t ticks = 0;
+	if (timekeeper)
+		ticks = timekeeper_get_ticks();
+
+	local_irq_restore(irq);
+	return ticks ? (ticks * 1000000000ull) / timekeeper->freq : 0;
 }
 
 void timekeeper_stall(unsigned long usec) {
-	assert(timekeeper != NULL); /* Expecting a stall, so crash to indicate a programming error */
-	assert(usec <= 5000000); /* More than 5 seconds is dumb, so crash here to catch a programming error */
-
 	unsigned long irq_state = local_irq_save();
+
+	struct timekeeper_source* timekeeper = current_cpu()->timekeeper;
+	bug(timekeeper == NULL); /* Trying to stall with no timekeeper when expecting a real stall can be bad */
+	bug(usec > 5000000); /* More than 5 seconds is dumb */
 
 	unsigned long long ticks_per_us = timekeeper->freq / 1000000;
 	time_t start = timekeeper_get_ticks();
@@ -60,17 +70,44 @@ void timekeeper_stall(unsigned long usec) {
 	local_irq_restore(irq_state);
 }
 
-void timekeeper_init(void) {
-	struct timekeeper_source* selected;
-	do {
-		selected = get_timekeeper();
-		if (selected->init() == 0)
+static struct timekeeper* get_timekeeper_init(bool early, struct timekeeper_source** out) {
+	struct timekeeper* keeper = get_timekeeper(early);
+	while (keeper) {
+		if (keeper->init(out) == 0)
 			break;
-		selected->rating = 0;
-	} while (selected);
+		keeper->rating = 0;
+		keeper = get_timekeeper(early);
+	}
+	return keeper;
+}
 
-	assert(selected != NULL);
-	timekeeper = selected;
-	printk(PRINTK_INFO "core: Timekeeper source %s chosen (frequency %llu mhz)\n", 
-			timekeeper->name, timekeeper->freq / 1000000);
+struct timekeeper* keeper = NULL;
+
+void timekeeper_cpu_init(void) {
+	int err = keeper->init(&current_cpu()->timekeeper);
+	if (err)
+		panic("Failed to initialize timekeeper for AP");
+}
+
+void timekeeper_init(void) {
+	const char* name = NULL;
+
+	/* The real timekeeper may need another working timekeeper */
+	struct timekeeper_source* source;
+	keeper = get_timekeeper_init(true, &source);
+	if (!keeper)
+		panic("No early timekeeper could be selected");
+	current_cpu()->timekeeper = source;
+	name = keeper->name;
+
+	/* Now initialize a real timekeeper (might just use the early one) */
+	struct timekeeper* real = get_timekeeper_init(false, &source);
+	if (real) {
+		name = real->name;
+		keeper = real;
+		current_cpu()->timekeeper = source;
+	}
+
+	atomic_thread_fence(ATOMIC_SEQ_CST); /* keeper is read by other CPU's after this call, so do a fence here */
+	printk(PRINTK_INFO "core: Timekeeper source %s chosen (frequency %llu mhz)\n", name, source->freq / 1000000);
 }

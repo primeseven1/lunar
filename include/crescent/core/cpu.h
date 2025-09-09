@@ -4,6 +4,7 @@
 #include <crescent/sched/scheduler.h>
 #include <crescent/lib/list.h>
 #include <crescent/lib/ringbuffer.h>
+#include <crescent/core/timekeeper.h>
 #include <crescent/core/panic.h>
 #include <crescent/core/semaphore.h>
 #include <crescent/core/limine.h>
@@ -17,6 +18,7 @@ struct cpu {
 	struct semaphore workqueue_sem;
 	spinlock_t workqueue_lock;
 	bool need_resched;
+	struct timekeeper_source* timekeeper;
 };
 
 struct smp_cpus {

@@ -50,17 +50,24 @@ static time_t get_ticks(void) {
 	return hpet_read(HPET_REG_COUNTER);	
 }
 
-static int init(void);
+static int init(struct timekeeper_source** out);
 
-static struct timekeeper_source __timekeeper hpet_timekeeper = {
+static struct timekeeper __timekeeper hpet_timekeeper = {
 	.name = "hpet",
-	.freq = 0,
-	.rating = UINT_MAX,
 	.init = init,
-	.get_ticks = get_ticks
+	.rating = 60, /* Slow to access, but very accurate */
+	.early = true
 };
 
-static int init(void) {
+static struct timekeeper_source _hpet_source;
+static struct timekeeper_source* hpet_source = NULL;
+
+static int init(struct timekeeper_source** out) {
+	if (hpet_source) {
+		*out = hpet_source;
+		return 0;
+	}
+
 	uacpi_table table;
 	uacpi_status status = uacpi_table_find_by_signature("HPET", &table);
 	if (status != UACPI_STATUS_OK) {
@@ -87,7 +94,9 @@ static int init(void) {
 		err = -EIO;
 		goto err_cleanup;
 	}
-	hpet_timekeeper.freq = 1000000000000000ull / femtoperiod;
+	_hpet_source.freq = 1000000000000000ull / femtoperiod;
+	_hpet_source.get_ticks = get_ticks;
+	_hpet_source.private = NULL;
 
 	/* Make sure the HPET is disabled and set the initial count to zero */
 	hpet_write(HPET_REG_CONFIG, 0);
@@ -98,6 +107,11 @@ static int init(void) {
 		err = -ENOSYS;
 		goto err_cleanup;
 	}
+
+	/* May be accessed by another CPU, so do a memory fence here */
+	hpet_source = &_hpet_source;
+	atomic_thread_fence(ATOMIC_SEQ_CST);
+	*out = hpet_source;
 
 	/* Enable the HPET */
 	hpet_write(HPET_REG_CONFIG, 1);
