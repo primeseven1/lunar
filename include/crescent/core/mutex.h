@@ -1,7 +1,6 @@
 #pragma once
 
 #include <crescent/core/semaphore.h>
-#include <crescent/core/cpu.h>
 
 typedef struct {
 	struct semaphore sem;
