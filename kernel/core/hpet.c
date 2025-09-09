@@ -50,15 +50,6 @@ static time_t get_ticks(void) {
 	return hpet_read(HPET_REG_COUNTER);	
 }
 
-static int init(struct timekeeper_source** out);
-
-static struct timekeeper __timekeeper hpet_timekeeper = {
-	.name = "hpet",
-	.init = init,
-	.rating = 60, /* Slow to access, but very accurate */
-	.early = true
-};
-
 static struct timekeeper_source _hpet_source;
 static struct timekeeper_source* hpet_source = NULL;
 
@@ -123,3 +114,10 @@ err_cleanup:
 
 	return err;
 }
+
+static struct timekeeper __timekeeper hpet_timekeeper = {
+	.name = "hpet",
+	.init = init,
+	.rating = 60, /* Slow to access, but very accurate */
+	.early = true
+};

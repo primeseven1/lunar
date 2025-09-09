@@ -81,12 +81,19 @@ static struct timekeeper* get_timekeeper_init(bool early, struct timekeeper_sour
 	return keeper;
 }
 
+struct timekeeper* early_keeper = NULL;
 struct timekeeper* keeper = NULL;
 
 void timekeeper_cpu_init(void) {
-	int err = keeper->init(&current_cpu()->timekeeper);
+	struct cpu* cpu = current_cpu();
+	int err = early_keeper->init(&cpu->timekeeper);
+	if (err)
+		panic("Failed to initialize early timekeeper for AP");
+	err = keeper->init(&current_cpu()->timekeeper);
 	if (err)
 		panic("Failed to initialize timekeeper for AP");
+	printk(PRINTK_INFO "core: Timekeeper frequency %llu mhz on CPU %u\n", 
+			cpu->timekeeper->freq / 1000000, cpu->processor_id);
 }
 
 void timekeeper_init(void) {
@@ -94,11 +101,11 @@ void timekeeper_init(void) {
 
 	/* The real timekeeper may need another working timekeeper */
 	struct timekeeper_source* source;
-	keeper = get_timekeeper_init(true, &source);
-	if (!keeper)
+	early_keeper = get_timekeeper_init(true, &source);
+	if (!early_keeper)
 		panic("No early timekeeper could be selected");
 	current_cpu()->timekeeper = source;
-	name = keeper->name;
+	name = early_keeper->name;
 
 	/* Now initialize a real timekeeper (might just use the early one) */
 	struct timekeeper* real = get_timekeeper_init(false, &source);
@@ -106,6 +113,8 @@ void timekeeper_init(void) {
 		name = real->name;
 		keeper = real;
 		current_cpu()->timekeeper = source;
+	} else {
+		keeper = early_keeper;
 	}
 
 	atomic_thread_fence(ATOMIC_SEQ_CST); /* keeper is read by other CPU's after this call, so do a fence here */
