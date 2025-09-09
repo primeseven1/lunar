@@ -45,6 +45,7 @@ _Noreturn __asmlinkage void ap_kernel_main(struct limine_mp_info* mp_info) {
 	segments_init();
 	interrupts_cpu_init();
 	apic_ap_init();
+	timekeeper_cpu_init();
 	sched_cpu_init();
 
 	ctl3_write(ctl3_read()); /* Flush again */
