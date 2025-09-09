@@ -44,7 +44,7 @@ def parse_cmdline_args(iso_file: str) -> str:
     qemu_args += f" -m {args.memory}"
     qemu_args += f" -smp cpus={args.cpus}"
     if args.kvm:
-        qemu_args += " -enable-kvm"
+        qemu_args += " -enable-kvm -cpu host,migratable=no,+invtsc"
 
     return qemu_args
 
