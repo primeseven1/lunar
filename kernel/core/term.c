@@ -16,29 +16,31 @@ static LIST_HEAD_DEFINE(term_hook_head);
 static SPINLOCK_DEFINE(hooks_lock);
 
 int term_driver_register(void (*write)(const char*, size_t)) {
+	struct term_hook* hook = kmalloc(sizeof(*hook), MM_ZONE_NORMAL);
+	if (!hook)
+		return -ENOMEM;
+	list_node_init(&hook->link);
+	hook->write = write;
+
+	int ret = 0;
+
 	unsigned long flags;
 	spinlock_lock_irq_save(&hooks_lock, &flags);
 
-	int ret = 0;
-	struct term_hook* hook;
-	list_for_each_entry(hook, &term_hook_head, link) {
-		if (hook->write == write) {
+	struct term_hook* pos;
+	list_for_each_entry(pos, &term_hook_head, link) {
+		if (pos->write == write) {
 			ret = -EALREADY;
 			goto out;
 		}
 	}
 
-	hook = kmalloc(sizeof(*hook), MM_ZONE_NORMAL);
-	if (!hook) {
-		ret = -ENOMEM;
-		goto out;
-	}
-
-	hook->write = write;
-	list_node_init(&hook->link);
 	list_add(&term_hook_head, &hook->link);
+
 out:
 	spinlock_unlock_irq_restore(&hooks_lock, &flags);
+	if (ret)
+		kfree(hook);
 	return ret;
 }
 

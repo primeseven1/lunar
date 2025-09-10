@@ -81,8 +81,8 @@ static struct timekeeper* get_timekeeper_init(bool early, struct timekeeper_sour
 	return keeper;
 }
 
-struct timekeeper* early_keeper = NULL;
-struct timekeeper* keeper = NULL;
+static struct timekeeper* early_keeper = NULL;
+static struct timekeeper* keeper = NULL;
 
 void timekeeper_cpu_init(void) {
 	struct cpu* cpu = current_cpu();
