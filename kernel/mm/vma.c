@@ -8,7 +8,7 @@
 #include <crescent/lib/string.h>
 #include <crescent/mm/buddy.h>
 #include <crescent/mm/vma.h>
-#include "hhdm.h"
+#include <crescent/mm/hhdm.h>
 
 static struct vma* vma_alloc(void) {
 	physaddr_t _vma = alloc_pages(MM_ZONE_NORMAL | MM_NOFAIL, get_order(sizeof(struct vma)));

@@ -7,9 +7,9 @@
 #include <crescent/core/printk.h>
 #include <crescent/core/limine.h>
 #include <crescent/mm/buddy.h>
+#include <crescent/mm/hhdm.h>
 #include <crescent/lib/string.h>
-#include "pagetable.h"
-#include "hhdm.h"
+#include "internal.h"
 
 #define HUGEPAGE_1G 0x40000000
 

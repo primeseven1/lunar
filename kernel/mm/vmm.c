@@ -7,12 +7,12 @@
 #include <crescent/core/panic.h>
 #include <crescent/core/trace.h>
 #include <crescent/core/printk.h>
+#include <crescent/mm/hhdm.h>
 #include <crescent/mm/buddy.h>
 #include <crescent/mm/vmm.h>
 #include <crescent/mm/vma.h>
 #include <crescent/lib/string.h>
-#include "hhdm.h"
-#include "pagetable.h"
+#include "internal.h"
 
 static struct mm kernel_mm_struct;
 

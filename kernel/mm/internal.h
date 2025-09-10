@@ -150,3 +150,10 @@ enum prevpage_flags {
  * @param flags Flags for what should be cleaned up
  */
 void prevpage_success(struct prevpage* head, int flags);
+
+/**
+ * @brief Called when out of memory
+ *
+ * When the MM_NOFAIL flag is set, this function can get called when there is no memory.
+ */
+void out_of_memory(void);

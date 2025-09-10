@@ -1,7 +1,7 @@
 #include <crescent/mm/buddy.h>
+#include <crescent/mm/hhdm.h>
 #include <crescent/core/panic.h>
-#include "pagetable.h"
-#include "hhdm.h"
+#include "internal.h"
 
 static void prevpage_create(struct prevpage** head, void* virtual,
 		physaddr_t physical, size_t page_size, mmuflags_t mmu_flags, int vmm_flags) {

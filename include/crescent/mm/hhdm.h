@@ -12,6 +12,8 @@ physaddr_t hhdm_physical(const void* virtual);
 /**
  * @brief Get a virtual address from a physical address with HHDM
  *
+ * Returns NULL if physical is NULL. Use hhdm_base() to get the base of HHDM.
+ *
  * The address returned is not guarunteed to be mapped to virtual memory. 
  * The protocol specifies that HHDM does not compromise any unusable memory regions.
  *
@@ -19,3 +21,9 @@ physaddr_t hhdm_physical(const void* virtual);
  * @return The virtual address
  */
 void* hhdm_virtual(physaddr_t physical);
+
+/**
+ * @brief Get the base of HHDM
+ * @return The virtual address of base of HHDM
+ */
+void* hhdm_base(void);

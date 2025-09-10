@@ -1,5 +1,5 @@
 #include <crescent/core/panic.h>
-#include "oom.h"
+#include "internal.h"
 
 void out_of_memory(void) {
 	panic("System is deadlocked on memory\n");

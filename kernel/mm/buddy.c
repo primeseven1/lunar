@@ -6,9 +6,9 @@
 #include <crescent/core/panic.h>
 #include <crescent/mm/buddy.h>
 #include <crescent/mm/mm.h>
+#include <crescent/mm/hhdm.h>
 #include <crescent/lib/string.h>
-#include "hhdm.h"
-#include "oom.h"
+#include "internal.h"
 
 /* Must be volatile, so that way the null check doesn't get optimized away */
 static volatile struct limine_mmap_request __limine_request mmap_request = {

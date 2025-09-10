@@ -5,7 +5,7 @@
 #include <crescent/core/apic.h>
 #include <crescent/sched/kthread.h>
 #include <crescent/init/status.h>
-#include "pagetable.h"
+#include "internal.h"
 
 static atomic(void*) shootdown_address;
 static atomic(size_t) shootdown_size;
