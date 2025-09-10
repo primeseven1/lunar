@@ -17,7 +17,7 @@ struct mempool {
 };
 
 static LIST_HEAD_DEFINE(mempool_head);
-static SPINLOCK_DEFINE(mempool_spinlock);
+static MUTEX_DEFINE(mempool_lock);
 static struct mempool self_mempool = {
 	.cache = NULL,
 	.refcount = atomic_static_init(1),
@@ -28,8 +28,7 @@ static struct mempool self_mempool = {
 static struct mempool* walk_mempools(size_t size, mm_t mm_flags) {
 	size = ROUND_UP(size, HEAP_ALIGN);
 
-	unsigned long lock_flags;
-	spinlock_lock_irq_save(&mempool_spinlock, &lock_flags);
+	mutex_lock(&mempool_lock);
 
 	struct list_node* pos;
 	list_for_each(pos, &mempool_head) {
@@ -38,7 +37,7 @@ static struct mempool* walk_mempools(size_t size, mm_t mm_flags) {
 				p->cache->obj_size <= size + OBJ_SIZE_SLACK && 
 				p->cache->mm_flags == mm_flags) {
 			atomic_add_fetch(&p->refcount, 1, ATOMIC_RELEASE);
-			spinlock_unlock_irq_restore(&mempool_spinlock, &lock_flags);
+			mutex_unlock(&mempool_lock);
 			return p;
 		}
 	}
@@ -59,7 +58,7 @@ static struct mempool* walk_mempools(size_t size, mm_t mm_flags) {
 	list_add(&mempool_head, &new_pool->link);
 	atomic_store(&new_pool->refcount, 1, ATOMIC_RELEASE);
 leave:
-	spinlock_unlock_irq_restore(&mempool_spinlock, &lock_flags);
+	mutex_unlock(&mempool_lock);
 	if (new_pool)
 		printk(PRINTK_DBG "mm: Successfully created new heap pool with a size of %zu\n", size);
 
@@ -67,8 +66,7 @@ leave:
 }
 
 static void attempt_delete_mempool(struct mempool* pool) {
-	unsigned long lock_flags;
-	spinlock_lock_irq_save(&mempool_spinlock, &lock_flags);
+	mutex_lock(&mempool_lock);
 
 	if (atomic_load(&pool->refcount, ATOMIC_ACQUIRE))
 		goto leave;
@@ -84,7 +82,7 @@ static void attempt_delete_mempool(struct mempool* pool) {
 	slab_cache_free(self_mempool.cache, pool);
 	printk(PRINTK_DBG "mm: Successfully destroyed heap pool with a size of %zu\n", obj_size);
 leave:
-	spinlock_unlock_irq_restore(&mempool_spinlock, &lock_flags);
+	mutex_unlock(&mempool_lock);
 }
 
 struct alloc_info {

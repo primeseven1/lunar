@@ -1,7 +1,7 @@
 #pragma once
 
 #include <crescent/types.h>
-#include <crescent/core/spinlock.h>
+#include <crescent/core/mutex.h>
 #include <crescent/asm/errno.h>
 #include <crescent/mm/mm.h>
 #include <crescent/lib/list.h>
@@ -21,7 +21,7 @@ struct slab_cache {
 	unsigned long obj_count;
 	size_t align;
 	mm_t mm_flags;
-	spinlock_t lock;
+	mutex_t lock;
 };
 
 /**

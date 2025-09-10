@@ -123,8 +123,7 @@ void* vmap(void* hint, size_t size, mmuflags_t mmu_flags, int flags, void* optio
 	pte_t* pagetable = kernel_mm_struct.pagetable;
 	struct prevpage* prev_pages = NULL;
 
-	unsigned long irq;
-	spinlock_lock_irq_save(&kernel_mm_struct.vma_list_lock, &irq);
+	mutex_lock(&kernel_mm_struct.vma_list_lock);
 
 	if (flags & VMM_FIXED && !(flags & VMM_NOREPLACE))
 		prev_pages = prevpage_save(&kernel_mm_struct, hint, size);
@@ -157,7 +156,7 @@ void* vmap(void* hint, size_t size, mmuflags_t mmu_flags, int flags, void* optio
 		memset(virtual, 0, size);
 	if (prev_pages)
 		prevpage_success(prev_pages, PREVPAGE_FREE_PREVIOUS);
-	spinlock_unlock_irq_restore(&kernel_mm_struct.vma_list_lock, &irq);
+	mutex_unlock(&kernel_mm_struct.vma_list_lock);
 
 	/* Make sure the memory is now mapped correctly */
 	if (flags & VMM_ALLOC && (!(mmu_flags & MMU_WRITE) || !(mmu_flags & MMU_READ)))
@@ -170,7 +169,7 @@ cleanup:
 		prevpage_fail(&kernel_mm_struct, prev_pages);
 		tlb_invalidate(virtual, size); /* Invalidate just in case */
 	}
-	spinlock_unlock_irq_restore(&kernel_mm_struct.vma_list_lock, &irq);
+	mutex_unlock(&kernel_mm_struct.vma_list_lock);
 	return NULL;
 }
 
@@ -185,8 +184,7 @@ int vprotect(void* virtual, size_t size, mmuflags_t mmu_flags, int flags) {
 	int err = 0;
 	size_t tlb_flush_round = PAGE_SIZE;
 
-	unsigned long irq;
-	spinlock_lock_irq_save(&kernel_mm_struct.vma_list_lock, &irq);
+	mutex_lock(&kernel_mm_struct.vma_list_lock);
 
 	struct prevpage* prevpages = prevpage_save(&kernel_mm_struct, virtual, size);
 
@@ -229,7 +227,7 @@ out:
 	else
 		prevpage_success(prevpages, 0);
 	tlb_invalidate(start, ROUND_UP(size, tlb_flush_round));
-	spinlock_unlock_irq_restore(&kernel_mm_struct.vma_list_lock, &irq);
+	mutex_unlock(&kernel_mm_struct.vma_list_lock);
 	return err;
 }
 
@@ -241,8 +239,7 @@ int vunmap(void* virtual, size_t size, int flags) {
 	size_t tlb_invalidate_round = PAGE_SIZE;
 	int err;
 
-	unsigned long irq;
-	spinlock_lock_irq_save(&kernel_mm_struct.vma_list_lock, &irq);
+	mutex_lock(&kernel_mm_struct.vma_list_lock);
 
 	struct prevpage* prevpages = prevpage_save(&kernel_mm_struct, virtual, size);
 
@@ -284,7 +281,7 @@ err:
 		prevpage_success(prevpages, PREVPAGE_FREE_PREVIOUS);
 	}
 
-	spinlock_unlock_irq_restore(&kernel_mm_struct.vma_list_lock, &irq);
+	mutex_unlock(&kernel_mm_struct.vma_list_lock);
 	return err;
 }
 
@@ -365,6 +362,7 @@ void vmm_init(void) {
 	cpu->mm_struct = &kernel_mm_struct;
 	pte_t* cr3 = hhdm_virtual(ctl3_read());
 	cpu->mm_struct->pagetable = cr3;
+	mutex_init(&cpu->mm_struct->vma_list_lock);
 	list_head_init(&cpu->mm_struct->vma_list);
 
 	int best = 0;

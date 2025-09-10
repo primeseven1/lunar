@@ -118,8 +118,7 @@ static struct slab* slab_release(struct slab_cache* cache, void* obj) {
 }
 
 void* slab_cache_alloc(struct slab_cache* cache) {
-	unsigned long flags;
-	spinlock_lock_irq_save(&cache->lock, &flags);
+	mutex_lock(&cache->lock);
 
 	/* Allocate from partial slabs first */
 	struct list_head* list = NULL;
@@ -151,13 +150,12 @@ void* slab_cache_alloc(struct slab_cache* cache) {
 	}
 
 out:
-	spinlock_unlock_irq_restore(&cache->lock, &flags);
+	mutex_unlock(&cache->lock);
 	return ret;
 }
 
 void slab_cache_free(struct slab_cache* cache, void* obj) {
-	unsigned long flags;
-	spinlock_lock_irq_save(&cache->lock, &flags);
+	mutex_lock(&cache->lock);
 
 	struct slab* slab = slab_release(cache, obj);
 	if (!slab) {
@@ -176,7 +174,7 @@ void slab_cache_free(struct slab_cache* cache, void* obj) {
 	}
 
 out:
-	spinlock_unlock_irq_restore(&cache->lock, &flags);
+	mutex_unlock(&cache->lock);
 }
 
 struct slab_cache* slab_cache_create(size_t obj_size, size_t align, 
@@ -199,17 +197,16 @@ struct slab_cache* slab_cache_create(size_t obj_size, size_t align,
 	cache->obj_count = cache->obj_size < SLAB_SIZE_CUTOFF ? (PAGE_SIZE * 2) / cache->obj_size : SLAB_AFTER_CUTOFF_OBJ_COUNT;
 	cache->align = align;
 	cache->mm_flags = mm_flags;
-	spinlock_init(&cache->lock);
+	mutex_init(&cache->lock);
 
 	return cache;
 }
 
 int slab_cache_destroy(struct slab_cache* cache) {
-	unsigned long irq;
-	if (!spinlock_try_irq_save(&cache->lock, &irq))
+	if (!mutex_try_lock(&cache->lock))
 		return -EWOULDBLOCK;
 	if (!list_empty(&cache->partial) || !list_empty(&cache->full)) {
-		spinlock_unlock_irq_restore(&cache->lock, &irq);
+		mutex_unlock(&cache->lock);
 		return -EBUSY;
 	}
 
@@ -222,7 +219,7 @@ int slab_cache_destroy(struct slab_cache* cache) {
 	}
 
 	/* No need to release the lock here, but this also acts as a memory fence */
-	spinlock_unlock_irq_restore(&cache->lock, &irq);
-	assert(vunmap(cache, sizeof(*cache), 0) == 0);
+	mutex_unlock(&cache->lock);
+	bug(vunmap(cache, sizeof(*cache), 0) != 0);
 	return 0;
 }

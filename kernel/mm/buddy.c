@@ -85,7 +85,7 @@ struct mem_area {
 	unsigned int layer_count; /* MAX_ORDER + 1 */
 	struct {
 		unsigned long* free_list;
-		spinlock_t lock;
+		mutex_t lock;
 	} pages; /* For managing the actual memory in the list */
 };
 
@@ -255,8 +255,7 @@ struct zone {
  * has enough contiguous blocks. It will also return the layer and the block it finds,
  * since there is no reason not to do that.
  *
- * LOCKING:
- *	Aquires  area->lock, IRQ's must be disabled before calling this function.
+ * Acquires area->lock
  */
 static struct mem_area* select_mem_area(struct zone* zone, unsigned int order, unsigned int* layer, unsigned long* block) {
 	struct mem_area* best = &zone->areas[0];
@@ -276,7 +275,7 @@ static struct mem_area* select_mem_area(struct zone* zone, unsigned int order, u
 				best = a;
 		}
 
-		spinlock_lock(&best->pages.lock);
+		mutex_lock(&best->pages.lock);
 		*layer = best->layer_count - order - 1u;
 		*block = find_first_free(best->pages.free_list, *layer);
 		if (*block != ULONG_MAX)
@@ -286,7 +285,7 @@ static struct mem_area* select_mem_area(struct zone* zone, unsigned int order, u
 		 * Reaching here means that either there was no contiguous block,
 		 * or somebody got to this area before we did
 		 */
-		spinlock_unlock(&best->pages.lock);
+		mutex_unlock(&best->pages.lock);
 	}
 
 	return NULL;
@@ -312,7 +311,6 @@ static physaddr_t __alloc_pages(struct zone* zone, unsigned int order) {
 	size_t alloc_size = PAGE_SIZE << order;
 	unsigned long block4k_count = alloc_size >> PAGE_SHIFT;
 
-	unsigned long irq_flags = local_irq_save();
 	physaddr_t ret = 0;
 	int err;
 
@@ -332,7 +330,7 @@ retry:
 	if (block == ULONG_MAX) {
 		block = find_first_free(area->pages.free_list, layer);
 		if (block == ULONG_MAX) {
-			spinlock_unlock(&area->pages.lock);
+			mutex_unlock(&area->pages.lock);
 			area = select_mem_area(zone, order, &layer, &block);
 			if (!area)
 				goto out;
@@ -373,8 +371,7 @@ retry:
 	}
 out:
 	if (area)
-		spinlock_unlock(&area->pages.lock);
-	local_irq_restore(irq_flags);
+		mutex_unlock(&area->pages.lock);
 	return ret;
 }
 
@@ -387,18 +384,16 @@ static int __free_pages(struct zone* zone, physaddr_t addr, unsigned int order) 
 	unsigned int layer = area->layer_count - order - 1;
 	size_t alloc_size = PAGE_SIZE << order;
 	unsigned long block4k_count = alloc_size >> PAGE_SHIFT;
-
 	unsigned long block = (addr - area->base) / alloc_size;
 
-	unsigned long lock_flags;
-	spinlock_lock_irq_save(&area->pages.lock, &lock_flags);
+	mutex_lock(&area->pages.lock);
 
 	int ret = _free_block(area, layer, block);
 	if (ret)
 		goto cleanup;
 	atomic_sub_fetch(&area->used_4k_blocks, block4k_count, ATOMIC_SEQ_CST);
 cleanup:
-	spinlock_unlock_irq_restore(&area->pages.lock, &lock_flags);
+	mutex_unlock(&area->pages.lock);
 	return ret;
 }
 
@@ -622,7 +617,7 @@ static int init_area(struct mem_area* area, mm_t free_list_zone, physaddr_t base
 	area->total_4k_blocks = 1 << (layer_count - 1);
 	atomic_store(&area->used_4k_blocks, 0, ATOMIC_RELAXED);
 	area->pages.free_list = hhdm_virtual(free_list);
-	spinlock_init(&area->pages.lock);
+	mutex_init(&area->pages.lock);
 	memset(area->pages.free_list, 0, free_list_size);
 
 	/* Allocate the invalid area, if there is one */

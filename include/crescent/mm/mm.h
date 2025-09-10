@@ -3,11 +3,12 @@
 #include <crescent/types.h>
 #include <crescent/mm/vma.h>
 #include <crescent/mm/vmm.h>
+#include <crescent/core/mutex.h>
 
 struct mm {
 	pte_t* pagetable;
 	struct list_head vma_list;
-	spinlock_t vma_list_lock;
+	mutex_t vma_list_lock;
 	void* mmap_start, *mmap_end;
 };
 
