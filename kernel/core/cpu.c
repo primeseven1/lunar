@@ -7,8 +7,8 @@
 #include <crescent/lib/string.h>
 #include <crescent/mm/buddy.h>
 #include <crescent/mm/vmm.h>
+#include <crescent/mm/hhdm.h>
 #include <crescent/init/head.h>
-#include "../mm/hhdm.h"
 
 /* Must be marked as volatile, otherwise checking the response pointer will be optimized away */
 static volatile struct limine_mp_request __limine_request mp_request = {
