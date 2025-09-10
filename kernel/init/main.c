@@ -21,9 +21,12 @@
 
 #include <acpi/acpi_init.h>
 
-static int init_status = INIT_STATUS_NOTHING;
+static atomic(int) init_status = atomic_static_init(INIT_STATUS_NOTHING);
 int init_status_get(void) {
-	return init_status;
+	return atomic_load(&init_status, ATOMIC_ACQUIRE);
+}
+static inline void init_status_set(int status) {
+	atomic_store(&init_status, status, ATOMIC_RELEASE);
 }
 
 static inline void log_ram_usage(void) {
@@ -76,7 +79,7 @@ _Noreturn __asmlinkage void kernel_main(void) {
 	vmm_tlb_init();
 	heap_init();
 
-	init_status = INIT_STATUS_MM;
+	init_status_set(INIT_STATUS_MM);
 
 	/* now we can use a generic error variable, since this is the last error before a term is initialized */
 	int err = cmdline_parse();
@@ -111,7 +114,7 @@ _Noreturn __asmlinkage void kernel_main(void) {
 	timekeeper_init();
 	sched_init();
 	cpu_startup_aps();
-	init_status = INIT_STATUS_SCHED;
+	init_status_set(INIT_STATUS_SCHED);
 
 	log_ram_usage();
 	printk(PRINTK_CRIT "init: kernel_main thread ended!\n");
