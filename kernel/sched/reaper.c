@@ -1,4 +1,6 @@
+#include <crescent/asm/wrap.h>
 #include <crescent/sched/kthread.h>
+#include <crescent/init/status.h>
 #include <crescent/core/cpu.h>
 #include "internal.h"
 
@@ -10,6 +12,13 @@ static inline void reap_thread(struct runqueue* rq, struct thread* thread) {
 static int reaper_thread(void* arg) {
 	(void)arg;
 
+	/*
+	 * Wait until the scheduler is initialized, so that way there
+	 * is no race between the spinlock and mutex switch
+	 */
+	while (init_status_get() < INIT_STATUS_SCHED)
+		cpu_relax();
+
 	unsigned long irq;
 	struct runqueue* rq = &current_cpu()->runqueue;
 	bool sleep = true;
@@ -19,6 +28,7 @@ static int reaper_thread(void* arg) {
 
 		struct thread* victim = NULL;
 		spinlock_lock_irq_save(&rq->zombie_lock, &irq);
+
 		sleep = list_empty(&rq->zombies);
 		if (!sleep) {
 			victim = list_first_entry(&rq->zombies, struct thread, zombie_link);
@@ -28,8 +38,8 @@ static int reaper_thread(void* arg) {
 				victim = NULL;
 			}
 		}
-		spinlock_unlock_irq_restore(&rq->zombie_lock, &irq);
 
+		spinlock_unlock_irq_restore(&rq->zombie_lock, &irq);
 		if (victim)
 			reap_thread(rq, victim);
 	}
