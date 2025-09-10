@@ -34,7 +34,7 @@ struct hashtable* hashtable_create(size_t head_count, size_t value_size) {
 	table->head_count = head_count;
 	table->size = 0;
 	table->value_size = value_size;
-	spinlock_init(&table->lock);
+	mutex_init(&table->lock);
 
 	return table;
 }
@@ -69,8 +69,7 @@ int hashtable_insert(struct hashtable* table, const void* key, size_t key_size, 
 	u64 hash = fnv1a64_hash(key, key_size);
 	int ret;
 
-	unsigned long flags;
-	spinlock_lock_irq_save(&table->lock, &flags);
+	mutex_lock(&table->lock);
 
 	size_t index = hash % table->head_count;
 
@@ -104,7 +103,7 @@ int hashtable_insert(struct hashtable* table, const void* key, size_t key_size, 
 
 	ret = 0;
 out:
-	spinlock_unlock_irq_restore(&table->lock, &flags);
+	mutex_unlock(&table->lock);
 	return ret;
 }
 
@@ -112,8 +111,7 @@ int hashtable_search(struct hashtable* table, const void* key, size_t key_size, 
 	u64 hash = fnv1a64_hash(key, key_size);
 	int ret;
 
-	unsigned long flags;
-	spinlock_lock_irq_save(&table->lock, &flags);
+	mutex_lock(&table->lock);
 
 	size_t index = hash % table->head_count;
 
@@ -130,7 +128,7 @@ int hashtable_search(struct hashtable* table, const void* key, size_t key_size, 
 
 	ret = -ENOENT;
 out:
-	spinlock_unlock_irq_restore(&table->lock, &flags);
+	mutex_unlock(&table->lock);
 	return ret;
 }
 
@@ -138,8 +136,7 @@ int hashtable_remove(struct hashtable* table, const void* key, size_t key_size) 
 	u64 hash = fnv1a64_hash(key, key_size);
 	int ret;
 
-	unsigned long flags;
-	spinlock_lock_irq_save(&table->lock, &flags);
+	mutex_lock(&table->lock);
 
 	size_t index = hash % table->head_count;
 
@@ -169,7 +166,7 @@ int hashtable_remove(struct hashtable* table, const void* key, size_t key_size) 
 
 	ret = -ENOENT;
 out:
-	spinlock_unlock_irq_restore(&table->lock, &flags);
+	mutex_unlock(&table->lock);
 	return ret;
 }
 
