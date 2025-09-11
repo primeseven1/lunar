@@ -15,3 +15,5 @@
 #define __diag_push() __do_pragma(GCC diagnostic push)
 #define __diag_ignore(w) __do_pragma(GCC diagnostic ignored w)
 #define __diag_pop() __do_pragma(GCC diagnostic pop)
+
+#define barrier() __asm__ volatile("" : : : "memory")
