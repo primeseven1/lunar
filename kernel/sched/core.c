@@ -7,6 +7,7 @@
 #include <crescent/sched/scheduler.h>
 #include <crescent/sched/preempt.h>
 #include <crescent/asm/errno.h>
+#include "crescent/core/time.h"
 #include "internal.h"
 
 int sched_thread_attach(struct runqueue* rq, struct thread* thread, int prio) {
@@ -190,7 +191,8 @@ void sched_tick(void) {
 	else if (current == rq->idle)
 		cpu->need_resched = true;
 
-	time_t now = timekeeper_get_nsec();
+	struct timespec ts_now = timekeeper_time();
+	time_t now = timespec_to_ns(&ts_now);
 	struct thread* pos, *tmp;
 	list_for_each_entry_safe(pos, tmp, &rq->sleepers, sleep_link) {
 		if (now >= pos->wakeup_time) {
@@ -269,10 +271,12 @@ int sched_yield(void) {
 
 void sched_prepare_sleep(time_t ms, int flags) {
 	time_t sleep_end = 0;
-	if (ms == 0 && !(flags & SCHED_SLEEP_BLOCK))
+	if (ms == 0 && !(flags & SCHED_SLEEP_BLOCK)) {
 		return;
-	else if (ms != 0)
-		sleep_end = timekeeper_get_nsec() + (ms * 1000000);
+	} else if (ms != 0) {
+		struct timespec ts = timekeeper_time();
+		sleep_end = timespec_to_ns(&ts) + (ms * 1000000);
+	}
 
 	unsigned long irq = local_irq_save();
 
