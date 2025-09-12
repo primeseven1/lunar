@@ -29,7 +29,7 @@ static struct timekeeper* get_timekeeper(bool early) {
 	return best;
 }
 
-static time_t timekeeper_get_ticks(void) {
+struct timespec timekeeper_time(void) {
 	unsigned long irq = local_irq_save();
 
 	struct timekeeper_source* timekeeper = current_cpu()->timekeeper;
@@ -37,23 +37,14 @@ static time_t timekeeper_get_ticks(void) {
 	if (timekeeper)
 		ticks = timekeeper->get_ticks();
 
+	/* Not converting to nanoseconds first can break some timekeepers */
+	time_t nsec = ticks ? (ticks * 1000000000ull) / timekeeper->freq : 0;
 	local_irq_restore(irq);
-	return ticks;
+
+	return (struct timespec){ .tv_sec = nsec / 1000000000ull, .tv_nsec = nsec % 1000000000ull };
 }
 
-time_t timekeeper_get_nsec(void) {
-	unsigned long irq = local_irq_save();
-
-	struct timekeeper_source* timekeeper = current_cpu()->timekeeper;
-	time_t ticks = 0;
-	if (timekeeper)
-		ticks = timekeeper_get_ticks();
-
-	local_irq_restore(irq);
-	return ticks ? (ticks * 1000000000ull) / timekeeper->freq : 0;
-}
-
-void timekeeper_stall(unsigned long usec) {
+void timekeeper_stall(time_t usec) {
 	unsigned long irq_state = local_irq_save();
 
 	struct timekeeper_source* timekeeper = current_cpu()->timekeeper;
@@ -61,10 +52,10 @@ void timekeeper_stall(unsigned long usec) {
 	bug(usec > 5000000); /* More than 5 seconds is dumb */
 
 	unsigned long long ticks_per_us = timekeeper->freq / 1000000;
-	time_t start = timekeeper_get_ticks();
+	time_t start = timekeeper->get_ticks();
 	time_t end = start + (usec * ticks_per_us);
 
-	while (timekeeper_get_ticks() < end)
+	while (timekeeper->get_ticks() < end)
 		cpu_relax();
 
 	local_irq_restore(irq_state);

@@ -2,8 +2,7 @@
 
 #include <crescent/types.h>
 #include <crescent/asm/errno.h>
-
-typedef long long time_t;
+#include <crescent/core/time.h>
 
 #define __timekeeper __attribute__((section(".timekeepers"), aligned(8), used))
 
@@ -22,7 +21,7 @@ struct timekeeper {
 	bool early;
 };
 
-time_t timekeeper_get_nsec(void);
+struct timespec timekeeper_time(void);
 
 /**
  * @brief Stall the thread
@@ -37,7 +36,7 @@ time_t timekeeper_get_nsec(void);
  *
  * @param usec The number of microseconds to stall for
  */
-void timekeeper_stall(unsigned long usec);
+void timekeeper_stall(time_t usec);
 
 void timekeeper_cpu_init(void);
 void timekeeper_init(void);

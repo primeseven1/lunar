@@ -100,10 +100,9 @@ int vprintk(const char* fmt, va_list va) {
 
 	char time_string[50];
 	const char* color = printk_level_string(level);
-	time_t nsec = timekeeper_get_nsec();
-	time_t sec = nsec / 1000000000;
-	time_t usec = (nsec % 1000000000) / 1000;
-	snprintf(time_string, sizeof(time_string), "%s[%5llu.%06llu]\033[0m ", color, sec, usec);
+	struct timespec ts = timekeeper_time();
+	snprintf(time_string, sizeof(time_string), "%s[%5llu.%06llu]\033[0m ", 
+			color, ts.tv_sec, (time_t)ts.tv_nsec / 1000);
 
 	/* clang-format off */
 	struct printk_msg msg = {
