@@ -589,6 +589,7 @@ static void dma_zone_init(physaddr_t last_usable) {
 
 	dma_area.layer_count = get_layer_count(dma_size);
 	dma_area.total_4k_blocks = 1 << (dma_area.layer_count - 1);
+	mutex_init(&dma_area.pages.lock);
 	memset(dma_area_free_list, 0, sizeof(dma_area_free_list));
 
 	/* Allocate the first page of memory, an error should never happen in this context */
