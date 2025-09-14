@@ -12,6 +12,7 @@ typedef struct {
 static inline void mutex_init(mutex_t* lock) {
 	semaphore_init(&lock->sem, 1);
 	atomic_store(&lock->owner, NULL, ATOMIC_RELAXED);
+	spinlock_init(&lock->spinlock);
 }
 
 /**
