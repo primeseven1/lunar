@@ -29,7 +29,7 @@ def create_cmdline_parser() -> ap.ArgumentParser:
     return parser
 
 def parse_cmdline_args(iso_file: str) -> str:
-    qemu_args: str = f"-cdrom {iso_file} -net none -debugcon stdio"
+    qemu_args: str = f"-cdrom {iso_file} -net none -debugcon stdio -machine q35"
 
     parser: ap.ArgumentParser = create_cmdline_parser()
     args = parser.parse_args()
