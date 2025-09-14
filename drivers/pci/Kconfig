@@ -1,0 +1,5 @@
+config DRIVER_PCI
+	bool "Enable support for PCI/PCIe"
+	default y
+	help
+	  "This driver allows support for PCI/PCIe devices"
