@@ -8,6 +8,7 @@
 #include <crescent/core/trace.h>
 #include <crescent/core/printk.h>
 #include <crescent/core/panic.h>
+#include <crescent/core/pci.h>
 #include <crescent/core/cpu.h>
 #include <crescent/core/cmdline.h>
 #include <crescent/core/term.h>
@@ -115,6 +116,8 @@ _Noreturn __asmlinkage void kernel_main(void) {
 	sched_init();
 	cpu_startup_aps();
 	init_status_set(INIT_STATUS_SCHED);
+
+	pci_init();
 
 	log_ram_usage();
 	printk(PRINTK_CRIT "init: kernel_main thread ended!\n");
