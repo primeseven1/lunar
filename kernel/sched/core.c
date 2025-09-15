@@ -21,7 +21,7 @@ int sched_thread_attach(struct runqueue* rq, struct thread* thread, int prio) {
 	if (!priv)
 		return -ENOMEM;
 
-	atomic_store(&thread->state, THREAD_READY, ATOMIC_RELEASE);
+	atomic_store(&thread->state, THREAD_READY);
 	assert(thread_attach_to_proc(thread) == 0);
 
 	thread->policy_priv = priv;
@@ -35,7 +35,7 @@ int sched_thread_attach(struct runqueue* rq, struct thread* thread, int prio) {
 	spinlock_lock_irq_save(&rq->lock, &irq);
 	if (rq->policy->ops->thread_attach)
 		rq->policy->ops->thread_attach(rq, thread, prio);
-	atomic_add_fetch(&rq->thread_count, 1, ATOMIC_RELEASE);
+	atomic_add_fetch(&rq->thread_count, 1);
 	spinlock_unlock_irq_restore(&rq->lock, &irq);
 
 	thread->attached = true;
@@ -47,7 +47,7 @@ void sched_thread_detach(struct runqueue* rq, struct thread* thread) {
 	spinlock_lock_irq_save(&rq->lock, &irq);
 	if (rq->policy->ops->thread_detach)
 		rq->policy->ops->thread_detach(rq, thread);
-	atomic_sub_fetch(&rq->thread_count, 1, ATOMIC_RELEASE);
+	atomic_sub_fetch(&rq->thread_count, 1);
 	spinlock_unlock_irq_restore(&rq->lock, &irq);
 
 	assert(thread_detach_from_proc(thread) == 0);
@@ -106,12 +106,12 @@ struct cpu* sched_decide_cpu(int flags) {
 
 	const struct smp_cpus* smp_cpus = smp_cpus_get();
 	struct cpu* best = current_cpu();
-	unsigned long best_tc = atomic_load(&best->runqueue.thread_count, ATOMIC_ACQUIRE);
+	unsigned long best_tc = atomic_load(&best->runqueue.thread_count);
 	for (u32 i = 0; i < smp_cpus->count; i++) {
 		struct cpu* current = smp_cpus->cpus[i];
 		if (current == best)
 			continue;
-		unsigned long current_tc = atomic_load(&current->runqueue.thread_count, ATOMIC_ACQUIRE);
+		unsigned long current_tc = atomic_load(&current->runqueue.thread_count);
 		if (current_tc < best_tc) {
 			best = current;
 			best_tc = current_tc;
@@ -124,7 +124,7 @@ struct cpu* sched_decide_cpu(int flags) {
 static int __sched_wakeup_locked(struct thread* thread, int wakeup_err) {
 	if (wakeup_err != 0 && wakeup_err != -ETIMEDOUT && wakeup_err != -EINTR)
 		return -EINVAL;
-	int state = atomic_load(&thread->state, ATOMIC_ACQUIRE);
+	int state = atomic_load(&thread->state);
 	if (state == THREAD_READY || state == THREAD_RUNNING)
 		return 0;
 
@@ -133,8 +133,8 @@ static int __sched_wakeup_locked(struct thread* thread, int wakeup_err) {
 
 	struct runqueue* rq = &thread->target_cpu->runqueue;
 
-	atomic_store(&thread->wakeup_err, wakeup_err, ATOMIC_RELEASE);
-	atomic_store(&thread->state, THREAD_READY, ATOMIC_RELEASE);
+	atomic_store(&thread->wakeup_err, wakeup_err);
+	atomic_store(&thread->state, THREAD_READY);
 	assert(rq->policy->ops->enqueue(rq, thread) == 0);
 
 	return 0;
@@ -197,7 +197,7 @@ void sched_tick(void) {
 	list_for_each_entry_safe(pos, tmp, &rq->sleepers, sleep_link) {
 		if (now >= pos->wakeup_time) {
 			int err = 0;
-			if (atomic_load(&pos->state, ATOMIC_ACQUIRE) == THREAD_BLOCKED)
+			if (atomic_load(&pos->state) == THREAD_BLOCKED)
 				err = -ETIMEDOUT;
 			__sched_wakeup_locked(pos, err);
 			if (current == cpu->runqueue.idle)
@@ -216,13 +216,13 @@ int schedule(void) {
 
 	struct thread* prev = rq->current;
 	if (prev->preempt_count) {
-		assert(atomic_load(&prev->state, ATOMIC_ACQUIRE) == THREAD_RUNNING);
+		assert(atomic_load(&prev->state) == THREAD_RUNNING);
 		return -EAGAIN;
 	}
 
 	struct thread* next = sched_pick_next(rq);
 	if (!next) {
-		if (atomic_load(&prev->state, ATOMIC_ACQUIRE) == THREAD_RUNNING)
+		if (atomic_load(&prev->state) == THREAD_RUNNING)
 			next = prev;
 		else
 			next = rq->idle;
@@ -234,18 +234,18 @@ int schedule(void) {
 		return 0;
 	}
 
-	int prev_state = atomic_load(&prev->state, ATOMIC_ACQUIRE);
+	int prev_state = atomic_load(&prev->state);
 	if (prev_state == THREAD_RUNNING)
-		atomic_store(&prev->state, THREAD_READY, ATOMIC_RELEASE);
+		atomic_store(&prev->state, THREAD_READY);
 	else if (prev_state == THREAD_ZOMBIE)
 		semaphore_signal(&rq->reaper_sem);
-	atomic_store(&next->state, THREAD_RUNNING, ATOMIC_RELEASE);
+	atomic_store(&next->state, THREAD_RUNNING);
 
 	rq->current = next;
 	cpu->need_resched = false;
 	context_switch(prev, next);
 
-	int reason = atomic_load(&prev->wakeup_err, ATOMIC_ACQUIRE);
+	int reason = atomic_load(&prev->wakeup_err);
 	local_irq_restore(irq);
 	return reason;
 }
@@ -284,11 +284,11 @@ void sched_prepare_sleep(time_t ms, int flags) {
 	struct thread* current = rq->current;
 
 	if (flags & SCHED_SLEEP_BLOCK)
-		atomic_store(&current->state, THREAD_BLOCKED, ATOMIC_RELEASE);
+		atomic_store(&current->state, THREAD_BLOCKED);
 	else
-		atomic_store(&current->state, THREAD_SLEEPING, ATOMIC_RELEASE);
+		atomic_store(&current->state, THREAD_SLEEPING);
 	if (flags & SCHED_SLEEP_INTERRUPTIBLE)
-		atomic_store(&current->sleep_interruptable, true, ATOMIC_RELEASE);
+		atomic_store(&current->sleep_interruptable, true);
 	if (sleep_end) {
 		assert(list_node_linked(&current->sleep_link) == false);
 		current->wakeup_time = sleep_end;
@@ -305,7 +305,7 @@ _Noreturn void sched_thread_exit(void) {
 
 	struct runqueue* rq = &current_cpu()->runqueue;
 	struct thread* current = rq->current;
-	atomic_store(&current->state, THREAD_ZOMBIE, ATOMIC_RELEASE);
+	atomic_store(&current->state, THREAD_ZOMBIE);
 
 	spinlock_lock(&rq->zombie_lock);
 	list_add(&rq->zombies, &current->zombie_link);
@@ -329,7 +329,7 @@ static struct thread* create_bootstrap_thread(struct runqueue* rq, void* exec, i
 		panic("Failed to create a bootstrap thread\n");
 
 	thread->target_cpu = current_cpu();
-	atomic_store(&thread->state, state, ATOMIC_RELEASE);
+	atomic_store(&thread->state, state);
 	thread_set_ring(thread, THREAD_RING_KERNEL);
 	thread_set_exec(thread, exec);
 	sched_thread_attach(rq, thread, prio);

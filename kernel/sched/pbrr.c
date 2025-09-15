@@ -130,7 +130,7 @@ static struct thread* pbrr_pick_next(struct runqueue* rq) {
 
 	struct thread* current = rq->current;
 	struct rr_thread* crt = current->policy_priv;
-	int state = atomic_load(&current->state, ATOMIC_ACQUIRE);
+	int state = atomic_load(&current->state);
 	bool runnable = (state == THREAD_RUNNING || state == THREAD_READY);
 
 	/* Place current thread at the end of the list and mark the priority as active */

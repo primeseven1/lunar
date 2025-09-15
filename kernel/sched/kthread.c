@@ -35,7 +35,7 @@ tid_t kthread_create(int sched_flags, int (*func)(void*), void* arg, const char*
 	if (err)
 		goto err_attach;
 
-	atomic_add_fetch(&thread->refcount, 1, ATOMIC_ACQUIRE);
+	atomic_add_fetch(&thread->refcount, 1);
 	thread->ctx.general.rdi = (uintptr_t)func;
 	thread->ctx.general.rsi = (uintptr_t)arg;
 
@@ -83,7 +83,7 @@ int kthread_detach(tid_t id) {
 
 	bug(hashtable_remove(kthread_table, &id, sizeof(id)) != 0);
 	struct thread* thread = kthread_struct.thread;
-	bug(atomic_fetch_sub(&thread->refcount, 1, ATOMIC_ACQ_REL) == 0);
+	bug(atomic_fetch_sub(&thread->refcount, 1) == 0);
 
 	return 0;
 }
@@ -97,7 +97,7 @@ int kthread_wait_for_completion(tid_t id) {
 		return err;
 
 	struct thread* thread = kthread_struct.thread;
-	while (atomic_load(&thread->state, ATOMIC_ACQUIRE) != THREAD_ZOMBIE)
+	while (atomic_load(&thread->state) != THREAD_ZOMBIE)
 		schedule();
 
 	return 0;

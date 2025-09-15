@@ -33,7 +33,7 @@ static int reaper_thread(void* arg) {
 		if (!sleep) {
 			victim = list_first_entry(&rq->zombies, struct thread, zombie_link);
 			list_remove(&victim->zombie_link);
-			if (atomic_load(&victim->refcount, ATOMIC_ACQUIRE) > 0) {
+			if (atomic_load(&victim->refcount) > 0) {
 				list_add_tail(&rq->zombies, &victim->zombie_link);
 				victim = NULL;
 			}

@@ -54,7 +54,7 @@ struct thread* thread_create(struct proc* proc, size_t stack_size) {
 	thread->target_cpu = NULL; /* Let the scheduler decide what CPU to schedule on */
 	thread->proc = proc;
 	thread->cpu_mask = ULONG_MAX;
-	atomic_store(&thread->state, THREAD_NEW, ATOMIC_RELAXED);
+	atomic_store(&thread->state, THREAD_NEW);
 
 	if (stack_size & (PAGE_SIZE - 1)) {
 		printk(PRINTK_WARN "sched: stack size not a multiple of page size!\n");
@@ -82,7 +82,7 @@ struct thread* thread_create(struct proc* proc, size_t stack_size) {
 	thread->ctx.general.rflags = RFLAGS_DEFAULT;
 	thread->ctx.general.rsp = (u8*)thread->stack + stack_total;
 
-	atomic_store(&thread->refcount, 0, ATOMIC_RELEASE);
+	atomic_store(&thread->refcount, 0);
 	return thread;
 err_ctx:
 	assert(vunmap(thread->stack, stack_total, 0) == 0);
@@ -93,7 +93,7 @@ err_id:
 }
 
 int thread_destroy(struct thread* thread) {
-	if (atomic_load(&thread->refcount, ATOMIC_ACQUIRE) != 0)
+	if (atomic_load(&thread->refcount) != 0)
 		return -EBUSY;
 
 	const size_t stack_total = thread->stack_size + THREAD_STACK_GUARD_SIZE;
@@ -147,14 +147,14 @@ struct proc* proc_create(void) {
 	}
 
 	list_head_init(&proc->threads);
-	atomic_store(&proc->thread_count, 0, ATOMIC_RELAXED);
+	atomic_store(&proc->thread_count, 0);
 	spinlock_init(&proc->thread_lock);
 
 	return proc;
 }
 
 int proc_destroy(struct proc* proc) {
-	if (atomic_load(&proc->thread_count, ATOMIC_ACQUIRE))
+	if (atomic_load(&proc->thread_count))
 		return -EBUSY;
 
 	unsigned long irq;
@@ -178,7 +178,7 @@ int thread_attach_to_proc(struct thread* thread) {
 		goto err;
 	}
 
-	atomic_add_fetch(&proc->thread_count, 1, ATOMIC_RELEASE);
+	atomic_add_fetch(&proc->thread_count, 1);
 	list_add(&proc->threads, &thread->proc_link);
 
 err:
@@ -198,7 +198,7 @@ int thread_detach_from_proc(struct thread* thread) {
 	}
 
 	list_remove(&thread->proc_link);
-	atomic_sub_fetch(&proc->thread_count, 1, ATOMIC_RELEASE);
+	atomic_sub_fetch(&proc->thread_count, 1);
 err:
 	spinlock_unlock_irq_restore(&proc->thread_lock, &irq);
 	return err;
