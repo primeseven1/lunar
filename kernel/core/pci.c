@@ -91,7 +91,7 @@ static int pci_enumerate_function(struct pci_device* dev, u32 func) {
 		return 0;
 
 	/* assuming 1 PCI controller (for now) */
-	printk("pci: 0000:%02x:%02x.%x found\n", dev->bus, dev->dev, func); /* TODO, do something... */
+	printk("pci: %04x:%02x:%02x.%x found\n", dev->domain, dev->bus, dev->dev, func); /* TODO, do something... */
 	return 1;
 }
 

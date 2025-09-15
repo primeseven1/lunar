@@ -54,7 +54,7 @@ enum pci_caps {
 };
 
 struct pci_device {
-	u32 bus, dev;
+	u32 domain, bus, dev;
 	void __iomem* virtual;
 };
 
