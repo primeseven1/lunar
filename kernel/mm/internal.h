@@ -109,6 +109,7 @@ void pagetable_init(void);
 struct prevpage {
 	void* start;
 	physaddr_t physical;
+	size_t len; /* multiple of page_size */
 	size_t page_size;
 	mmuflags_t mmu_flags;
 	int vmm_flags;
