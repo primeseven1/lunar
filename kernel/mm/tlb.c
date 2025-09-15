@@ -12,7 +12,7 @@ static atomic(size_t) shootdown_size;
 static atomic(u64) shootdown_remaining = atomic_init(0);
 static SPINLOCK_DEFINE(shootdown_lock);
 
-static const struct isr* shootdown_isr;
+static struct isr* shootdown_isr;
 static struct irq shootdown_irq = {
 	.irq = -1,
 	.eoi = apic_eoi
@@ -21,7 +21,7 @@ static struct irq shootdown_irq = {
 #define KERNEL_SPACE_START ((void*)0xFFFF800000000000)
 #define USER_SPACE_END ((void*)0x00007FFFFFFFFFFF)
 
-static void shootdown_ipi(const struct isr* isr, struct context* ctx) {
+static void shootdown_ipi(struct isr* isr, struct context* ctx) {
 	(void)isr;
 	(void)ctx;
 	tlb_flush_range(atomic_load(&shootdown_address), atomic_load(&shootdown_size));
@@ -67,7 +67,9 @@ void vmm_tlb_init(void) {
 	if (count == 1)
 		return;
 
-	shootdown_isr = interrupt_register(&shootdown_irq, shootdown_ipi);
+	shootdown_isr = interrupt_alloc();
 	if (unlikely(!shootdown_isr))
 		panic("Failed to create TLB shootdown ISR\n");
+
+	interrupt_register(shootdown_isr, &shootdown_irq, shootdown_ipi);
 }
