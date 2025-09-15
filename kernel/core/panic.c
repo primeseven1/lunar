@@ -13,7 +13,7 @@ _Noreturn void panic(const char* fmt, ...) {
 	static char panic_msg[257];
 
 	local_irq_disable();
-	if (!spinlock_try(&panic_lock))
+	if (!spinlock_try_lock(&panic_lock))
 		goto end;
 
 	/* 

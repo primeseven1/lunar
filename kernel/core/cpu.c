@@ -21,43 +21,43 @@ static volatile struct limine_mp_request __limine_request mp_request = {
 static atomic(struct smp_cpus*) smp_cpus;
 
 const struct smp_cpus* smp_cpus_get(void) {
-	return atomic_load(&smp_cpus, ATOMIC_ACQUIRE);
+	return atomic_load(&smp_cpus);
 }
 
 void cpu_structs_init(void) {
 	size_t struct_size = sizeof(struct smp_cpus) + (mp_request.response->cpu_count * sizeof(struct cpu*));
 	physaddr_t address = alloc_pages(MM_ZONE_NORMAL | MM_NOFAIL, get_order(struct_size));
-	atomic_store(&smp_cpus, hhdm_virtual(address), ATOMIC_RELAXED);
-	atomic_load(&smp_cpus, ATOMIC_RELAXED)->count = mp_request.response->cpu_count;
+	atomic_store(&smp_cpus, hhdm_virtual(address));
+	atomic_load(&smp_cpus)->count = mp_request.response->cpu_count;
 }
 
 void cpu_register(void) {
 	struct cpu* cpu = current_cpu();
-	atomic_load(&smp_cpus, ATOMIC_ACQUIRE)->cpus[cpu->sched_processor_id] = cpu;
+	atomic_load(&smp_cpus)->cpus[cpu->sched_processor_id] = cpu;
 }
 
 static atomic(i64) cpus_left;
 
 void cpu_init_finish(void) {
 	printk(PRINTK_INFO "core: CPU %u online!\n", current_cpu()->processor_id);
-	atomic_sub_fetch(&cpus_left, 1, ATOMIC_RELEASE);
+	atomic_sub_fetch(&cpus_left, 1);
 }
 
 void cpu_startup_aps(void) {
 	struct limine_mp_response* mp = mp_request.response;
-	atomic_store(&cpus_left, mp->cpu_count - 1, ATOMIC_RELAXED);
+	atomic_store(&cpus_left, mp->cpu_count - 1);
 	for (u64 i = 0; i < mp->cpu_count; i++) {
 		if (mp->cpus[i]->lapic_id == mp->bsp_lapic_id)
 			continue;
 
 		/* The CPU's are parked by the bootloader, an atomic write here causes the target CPU to start */
-		atomic_store(&mp->cpus[i]->goto_address, _ap_start, ATOMIC_SEQ_CST);
+		atomic_store_explicit(&mp->cpus[i]->goto_address, _ap_start, ATOMIC_SEQ_CST);
 	}
 
-	while (atomic_load(&cpus_left, ATOMIC_ACQUIRE))
+	while (atomic_load(&cpus_left))
 		cpu_relax();
 
-	struct smp_cpus* cpus = atomic_load(&smp_cpus, ATOMIC_ACQUIRE);
+	struct smp_cpus* cpus = atomic_load(&smp_cpus);
 	physaddr_t cpu_structs = hhdm_physical(cpus);
 	size_t struct_size = sizeof(*cpus) + (cpus->count * sizeof(struct cpu*));
 
@@ -69,10 +69,10 @@ void cpu_startup_aps(void) {
 	if (!cpus)
 		printk(PRINTK_WARN "core: Failed to remap CPU struct as read only\n");
 	else
-		atomic_store(&smp_cpus, cpus, ATOMIC_RELEASE);
+		atomic_store(&smp_cpus, cpus);
 }
 
-static atomic(u32) sched_ids = atomic_static_init(1);
+static atomic(u32) sched_ids = atomic_init(1);
 
 void cpu_ap_init(struct limine_mp_info* mp_info) {
 	struct cpu* cpu = hhdm_virtual(alloc_pages(MM_ZONE_NORMAL | MM_NOFAIL, get_order(sizeof(*cpu))));
@@ -81,7 +81,7 @@ void cpu_ap_init(struct limine_mp_info* mp_info) {
 	cpu->self = cpu;
 	cpu->lapic_id = mp_info->lapic_id;
 	cpu->processor_id = mp_info->processor_id;
-	cpu->sched_processor_id = atomic_fetch_add(&sched_ids, 1, ATOMIC_ACQ_REL);
+	cpu->sched_processor_id = atomic_fetch_add(&sched_ids, 1);
 
 	wrmsr(MSR_GS_BASE, (uintptr_t)cpu);
 }

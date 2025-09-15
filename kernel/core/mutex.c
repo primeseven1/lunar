@@ -5,11 +5,11 @@
 #include <crescent/sched/kthread.h>
 
 static inline void mutex_set_owner(mutex_t* lock, struct thread* thread) {
-	atomic_store(&lock->owner, thread, ATOMIC_RELEASE);
+	atomic_store(&lock->owner, thread);
 }
 
 static inline struct thread* mutex_get_owner(mutex_t* lock) {
-	return atomic_load(&lock->owner, ATOMIC_ACQUIRE);
+	return atomic_load(&lock->owner);
 }
 
 void mutex_lock(mutex_t* lock) {
@@ -41,7 +41,7 @@ int mutex_lock_timed(mutex_t* lock, time_t timeout_ms) {
 
 bool mutex_try_lock(mutex_t* lock) {
 	if (unlikely(init_status_get() < INIT_STATUS_SCHED))
-		return spinlock_try(&lock->spinlock);
+		return spinlock_try_lock(&lock->spinlock);
 
 	struct thread* thread = current_thread();
 	bug(mutex_get_owner(lock) == thread);
