@@ -22,12 +22,12 @@
 
 #include <acpi/acpi_init.h>
 
-static atomic(int) init_status = atomic_static_init(INIT_STATUS_NOTHING);
+static atomic(int) init_status = atomic_init(INIT_STATUS_NOTHING);
 int init_status_get(void) {
-	return atomic_load(&init_status, ATOMIC_ACQUIRE);
+	return atomic_load(&init_status);
 }
 static inline void init_status_set(int status) {
-	atomic_store(&init_status, status, ATOMIC_RELEASE);
+	atomic_store(&init_status, status);
 }
 
 static inline void log_ram_usage(void) {
