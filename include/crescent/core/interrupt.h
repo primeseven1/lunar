@@ -51,13 +51,47 @@ struct irq {
 
 struct isr {
 	struct irq* irq;
-	unsigned int vector;
-	void (*handler)(const struct isr*, struct context*);
+	void (*func)(struct isr*, struct context*);
+	void* private;
 };
 
 #define INTERRUPT_COUNT 256
 
-const struct isr* interrupt_register(struct irq* irq, void (*handler)(const struct isr*, struct context*));
+/**
+ * @brief Allocate an interrupt
+ */
+struct isr* interrupt_alloc(void);
+
+/**
+ * @brief Free an interrupt structure
+ * @param isr The ISR to free
+ *
+ * @retval 0 Success
+ * @retval -EINVAL Invalid ISR
+ */
+int interrupt_free(struct isr* isr);
+
+/**
+ * @brief Register an interrupt
+ *
+ * @param isr The ISR to register
+ * @param irq The IRQ (NULL is allowed)
+ * @param func The function to execute on interrupt
+ */
+void interrupt_register(struct isr* isr, struct irq* irq, void (*func)(struct isr*, struct context*));
+
+/**
+ * @brief Unregister an interrupt
+ * @param isr The ISR to unregister
+ */
+void interrupt_unregister(struct isr* isr);
+
+/**
+ * @brief Get the interrupt vector for an interrupt
+ * @param isr The ISR
+ * @return INT_MAX on invalid ISR, otherwise the vector is returned
+ */
+int interrupt_get_vector(const struct isr* isr);
 
 void interrupts_cpu_init(void);
 void interrupts_init(void);

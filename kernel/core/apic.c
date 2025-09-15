@@ -218,7 +218,7 @@ int apic_send_ipi(struct cpu* target_cpu, const struct isr* isr, int targets, bo
 	u32 id = target_cpu ? target_cpu->processor_id : 0;
 	u8 delivm = maskable ? APIC_DM_FIXED : APIC_DM_NMI;
 
-	u8 vector = isr ? isr->vector : 0;
+	u8 vector = isr ? interrupt_get_vector(isr) : 0;
 	if (maskable && vector == 0)
 		return -EINVAL;
 

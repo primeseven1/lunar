@@ -2,4 +2,4 @@
 
 #include <crescent/core/interrupt.h>
 
-void do_trap(const struct isr* isr, struct context* ctx);
+void do_trap(struct isr* isr, struct context* ctx);
