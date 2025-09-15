@@ -14,8 +14,8 @@ struct ecam_seg {
 	physaddr_t physical;
 	size_t len;
 	void __iomem* virtual;
-	u8 start_bus;
-	u8 end_bus;
+	u32 domain;
+	u8 start_bus, end_bus;
 };
 
 static struct ecam_seg* ecam_segs;
@@ -92,6 +92,7 @@ int pci_mcfg_device_open(u32 bus, u32 dev, struct pci_device** out) {
 
 	uintptr_t off = ecam_device_offset(entry, bus, dev);
 	device->virtual = (void __iomem*)((uintptr_t)entry->virtual + off);
+	device->domain = entry->domain;
 	device->bus = bus;
 	device->dev = dev;
 
@@ -141,6 +142,7 @@ int pci_mcfg_init(void) {
 			goto cleanup;
 		}
 
+		ecam_segs[ecam_seg_count].domain = ecam_seg_count;
 		ecam_segs[ecam_seg_count].physical = physical;
 		ecam_segs[ecam_seg_count].virtual = virtual;
 		ecam_segs[ecam_seg_count].len = len;

@@ -40,6 +40,7 @@ int pci_legacy_device_open(u32 bus, u32 dev, struct pci_device** out) {
 	if (!device)
 		return -ENOMEM;
 
+	device->domain = 0;
 	device->bus = bus;
 	device->dev = dev;
 	device->virtual = NULL;
