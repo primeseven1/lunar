@@ -20,7 +20,7 @@ static LIST_HEAD_DEFINE(mempool_head);
 static MUTEX_DEFINE(mempool_lock);
 static struct mempool self_mempool = {
 	.cache = NULL,
-	.refcount = atomic_static_init(1),
+	.refcount = atomic_init(1),
 	.link = LIST_NODE_INITIALIZER
 };
 
@@ -36,7 +36,7 @@ static struct mempool* walk_mempools(size_t size, mm_t mm_flags) {
 		if (p->cache->obj_size >= size && 
 				p->cache->obj_size <= size + OBJ_SIZE_SLACK && 
 				p->cache->mm_flags == mm_flags) {
-			atomic_add_fetch(&p->refcount, 1, ATOMIC_RELEASE);
+			atomic_add_fetch(&p->refcount, 1);
 			mutex_unlock(&mempool_lock);
 			return p;
 		}
@@ -56,7 +56,7 @@ static struct mempool* walk_mempools(size_t size, mm_t mm_flags) {
 	}
 
 	list_add(&mempool_head, &new_pool->link);
-	atomic_store(&new_pool->refcount, 1, ATOMIC_RELEASE);
+	atomic_store(&new_pool->refcount, 1);
 leave:
 	mutex_unlock(&mempool_lock);
 	if (new_pool)
@@ -68,7 +68,7 @@ leave:
 static void attempt_delete_mempool(struct mempool* pool) {
 	mutex_lock(&mempool_lock);
 
-	if (atomic_load(&pool->refcount, ATOMIC_ACQUIRE))
+	if (atomic_load(&pool->refcount))
 		goto leave;
 
 	size_t obj_size = pool->cache->obj_size;
@@ -109,7 +109,7 @@ void* kmalloc(size_t size, mm_t mm_flags) {
 			return NULL;
 		alloc_info = slab_cache_alloc(pool->cache);
 		if (!alloc_info) {
-			if (atomic_sub_fetch(&pool->refcount, 1, ATOMIC_ACQ_REL) == 0)
+			if (atomic_sub_fetch(&pool->refcount, 1) == 0)
 				attempt_delete_mempool(pool);
 			return NULL;
 		}
@@ -145,7 +145,7 @@ void kfree(void* ptr) {
 	}
 
 	slab_cache_free(pool->cache, alloc_info);
-	if (atomic_sub_fetch(&pool->refcount, 1, ATOMIC_ACQ_REL) == 0)
+	if (atomic_sub_fetch(&pool->refcount, 1) == 0)
 		attempt_delete_mempool(alloc_info->pool);
 }
 

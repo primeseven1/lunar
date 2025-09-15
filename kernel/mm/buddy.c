@@ -269,9 +269,9 @@ static struct mem_area* select_mem_area(struct zone* zone, unsigned int order, u
 			i = 0;
 		for (; i < zone->area_count; i++) {
 			struct mem_area* a = &zone->areas[i];
-			unsigned long used_4k = atomic_load(&a->used_4k_blocks, ATOMIC_SEQ_CST);
+			unsigned long used_4k = atomic_load(&a->used_4k_blocks);
 			unsigned long free = a->total_4k_blocks - used_4k;
-			if (free >= block_count && used_4k < atomic_load(&best->used_4k_blocks, ATOMIC_SEQ_CST))
+			if (free >= block_count && used_4k < atomic_load(&best->used_4k_blocks))
 				best = a;
 		}
 
@@ -353,7 +353,7 @@ retry:
 		goto out;
 	}
 
-	atomic_add_fetch(&area->used_4k_blocks, block4k_count, ATOMIC_SEQ_CST);
+	atomic_add_fetch(&area->used_4k_blocks, block4k_count);
 
 	/* Now make sure this region is actually marked usable in the memory map */
 	if (!mmap_region_check(ret, alloc_size)) {
@@ -362,7 +362,7 @@ retry:
 			if (mmap_region_check(ret + i, PAGE_SIZE)) {
 				block = ((ret + i) - area->base) >> PAGE_SHIFT;
 				_free_block(area, area->layer_count - 1, block);
-				atomic_sub_fetch(&area->used_4k_blocks, 1, ATOMIC_SEQ_CST);
+				atomic_sub_fetch(&area->used_4k_blocks, 1);
 			}
 		}
 
@@ -391,7 +391,7 @@ static int __free_pages(struct zone* zone, physaddr_t addr, unsigned int order) 
 	int ret = _free_block(area, layer, block);
 	if (ret)
 		goto cleanup;
-	atomic_sub_fetch(&area->used_4k_blocks, block4k_count, ATOMIC_SEQ_CST);
+	atomic_sub_fetch(&area->used_4k_blocks, block4k_count);
 cleanup:
 	mutex_unlock(&area->pages.lock);
 	return ret;
@@ -616,7 +616,7 @@ static int init_area(struct mem_area* area, mm_t free_list_zone, physaddr_t base
 	area->size = rounded_size;
 	area->layer_count = layer_count;
 	area->total_4k_blocks = 1 << (layer_count - 1);
-	atomic_store(&area->used_4k_blocks, 0, ATOMIC_RELAXED);
+	atomic_store_explicit(&area->used_4k_blocks, 0, ATOMIC_RELAXED);
 	area->pages.free_list = hhdm_virtual(free_list);
 	mutex_init(&area->pages.lock);
 	memset(area->pages.free_list, 0, free_list_size);
