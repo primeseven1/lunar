@@ -90,8 +90,8 @@ static int pci_enumerate_function(struct pci_device* dev, u32 func) {
 	if (vendor == U16_MAX || vendor == 0)
 		return 0;
 
-	u16 dev_id = pci_read_config_word(dev, func, PCI_CONFIG_DEVICE_ID);
-	printk("pci: device id found: %hu\n", dev_id); /* TODO, do something... */
+	/* assuming 1 PCI controller (for now) */
+	printk("pci: 0000:%02x:%02x.%x found\n", dev->bus, dev->dev, func); /* TODO, do something... */
 	return 1;
 }
 
