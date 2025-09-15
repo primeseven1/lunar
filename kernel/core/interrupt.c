@@ -92,8 +92,7 @@ int interrupt_get_vector(const struct isr* isr) {
 	if (off % sizeof(struct isr) != 0)
 		return INT_MAX;
 
-	size_t index = off / sizeof(struct isr);
-	return index;
+	return (int)(off / sizeof(struct isr));
 }
 
 int interrupt_free(struct isr* isr) {
