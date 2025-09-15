@@ -23,7 +23,7 @@ static u32 lapic_timer_get_ticks_for_preempt(void) {
 	return U32_MAX - lapic_read(LAPIC_REG_TIMER_CURRENT); 
 }
 
-static void lapic_timer(const struct isr* isr, struct context* ctx) {
+static void lapic_timer(struct isr* isr, struct context* ctx) {
 	(void)isr;
 	(void)ctx;
 	sched_tick();
@@ -34,16 +34,18 @@ static struct irq timer_irq = {
 	.eoi = apic_eoi
 };
 
-static const struct isr* lapic_timer_isr = NULL;
+static struct isr* lapic_timer_isr = NULL;
 
 void preempt_cpu_init(void) {
 	if (!lapic_timer_isr) {
-		lapic_timer_isr = interrupt_register(&timer_irq, lapic_timer);
-		assert(lapic_timer_isr != NULL);
+		lapic_timer_isr = interrupt_alloc();
+		if (unlikely(!lapic_timer_isr))
+			panic("Failed to allocate LAPIC timer ISR");
+		interrupt_register(lapic_timer_isr, &timer_irq, lapic_timer);
 	}
 
 	u32 ticks = lapic_timer_get_ticks_for_preempt();
-	lapic_write(LAPIC_REG_LVT_TIMER, lapic_timer_isr->vector | (1 << 17));
+	lapic_write(LAPIC_REG_LVT_TIMER, interrupt_get_vector(lapic_timer_isr) | (1 << 17));
 	lapic_write(LAPIC_REG_TIMER_DIVIDE, 0x03);
 	lapic_write(LAPIC_REG_TIMER_INITIAL, ticks);
 
