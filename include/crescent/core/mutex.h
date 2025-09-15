@@ -8,10 +8,10 @@ typedef struct {
 	spinlock_t spinlock;
 } mutex_t;
 
-#define MUTEX_DEFINE(n) mutex_t n = { .sem = SEMAPHORE_INITIALIZER(n.sem, 1), .owner = atomic_static_init(NULL), .spinlock = SPINLOCK_INITIALIZER }
+#define MUTEX_DEFINE(n) mutex_t n = { .sem = SEMAPHORE_INITIALIZER(n.sem, 1), .owner = atomic_init(NULL), .spinlock = SPINLOCK_INITIALIZER }
 static inline void mutex_init(mutex_t* lock) {
 	semaphore_init(&lock->sem, 1);
-	atomic_store(&lock->owner, NULL, ATOMIC_RELAXED);
+	atomic_store_explicit(&lock->owner, NULL, ATOMIC_RELAXED);
 	spinlock_init(&lock->spinlock);
 }
 
