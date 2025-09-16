@@ -39,6 +39,12 @@ void workqueue_init(void);
 void reaper_cpu_init(void);
 
 /**
+ * @brief Send a reschedule IPI to a CPU
+ * @param cpu The CPU to send the IPI to
+ */
+void sched_send_resched(struct cpu* target);
+
+/**
  * @brief Decide the CPU a thread should run on
  * @param flags Scheduler flags to decide the cpu
  */

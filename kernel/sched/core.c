@@ -1,13 +1,14 @@
 #include <crescent/compiler.h>
 #include <crescent/asm/wrap.h>
-#include <crescent/core/cpu.h>
+#include <crescent/asm/errno.h>
 #include <crescent/mm/heap.h>
 #include <crescent/core/spinlock.h>
+#include <crescent/core/cpu.h>
 #include <crescent/core/printk.h>
+#include <crescent/core/apic.h>
+#include <crescent/core/time.h>
 #include <crescent/sched/scheduler.h>
 #include <crescent/sched/preempt.h>
-#include <crescent/asm/errno.h>
-#include "crescent/core/time.h"
 #include "internal.h"
 
 int sched_thread_attach(struct runqueue* rq, struct thread* thread, int prio) {
@@ -68,6 +69,13 @@ int sched_enqueue(struct runqueue* rq, struct thread* thread) {
 	assert(thread->attached);
 	assert(rq->policy->ops->enqueue != NULL);
 	int ret = rq->policy->ops->enqueue(rq, thread);
+	if (ret == 0 && thread->prio > rq->current->prio) {
+		struct cpu* this_cpu = current_cpu();
+		if (thread->target_cpu == this_cpu)
+			this_cpu->need_resched = true;
+		else
+			sched_send_resched(thread->target_cpu);
+	}
 
 	spinlock_unlock_irq_restore(&rq->lock, &irq);
 	return ret;
@@ -171,7 +179,8 @@ int sched_change_prio(struct thread* thread, int prio) {
 			struct cpu* this_cpu = current_cpu();
 			if (thread->target_cpu == this_cpu)
 				this_cpu->need_resched = true;
-			/* TODO: Send resched IPI to other CPU */
+			else
+				sched_send_resched(thread->target_cpu);
 		}
 	}
 
@@ -361,6 +370,22 @@ void sched_cpu_init(void) {
 	reaper_cpu_init();
 }
 
+static struct isr* resched_isr;
+
+static void resched_ipi(struct isr* isr, struct context* ctx) {
+	(void)isr;
+	(void)ctx;
+
+	struct thread* current = current_thread();
+	if (current->preempt_count)
+		return;
+	current_cpu()->need_resched = true;
+}
+
+void sched_send_resched(struct cpu* target) {
+	apic_send_ipi(target, resched_isr, APIC_IPI_CPU_TARGET, true);
+}
+
 void sched_init(void) {
 	sched_policy_cpu_init();
 	preempt_cpu_init();
@@ -376,4 +401,10 @@ void sched_init(void) {
 	sched_bootstrap_processor();
 	workqueue_init();
 	reaper_cpu_init();
+
+	resched_isr = interrupt_alloc();
+	if (unlikely(!resched_isr))
+		panic("Failed to allocate resched ISR");
+	interrupt_register(resched_isr, resched_ipi);
+	apic_set_noirq(resched_isr);
 }
