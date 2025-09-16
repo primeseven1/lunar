@@ -47,15 +47,17 @@ struct context {
 struct isr;
 
 struct irq {
-	struct cpu* cpu;
-	int irq;
-	void (*eoi)(const struct isr*);
-	int (*set_mask)(const struct isr*, bool);
+	struct cpu* cpu; /* CPU this IRQ will run on, used by interrupt controller driver */
+	int irq; /* IRQ the device uses, -1 for software IRQ */
+	void (*eoi)(const struct isr*); /* EOI function for interrupt controller driver */
+	int (*set_mask)(const struct isr*, bool); /* Implemented by the interrupt controller driver */
 };
 
 struct isr {
 	struct irq irq; /* Set by the interrupt controller driver */
 	void (*func)(struct isr*, struct context*); /* Called by the ISR entry */
+	atomic(long) inflight; /* How many CPU's are running this ISR */
+	spinlock_t lock; /* Lock for inflight, used when deciding whether the ISR can run */
 	void* private; /* For use by whoever registers the interrupt */
 };
 
@@ -88,6 +90,27 @@ void interrupt_register(struct isr* isr, void (*func)(struct isr*, struct contex
  * @param isr The ISR to unregister
  */
 void interrupt_unregister(struct isr* isr);
+
+/**
+ * @brief Wait for ISR's to finish execution
+ *
+ * Not safe to call from an interrupt context.
+ *
+ * @param isr The ISR to wait for
+ *
+ * @retval -EINVAL ISR is invalid, an exception, or software triggered
+ * @retval 0 Successful
+ */
+int interrupt_synchronize(struct isr* isr);
+
+/**
+ * @brief Re-allow entry into an ISR after interrupt_synchronize
+ * @param isr The isr to allow entry in to
+ *
+ * @retval -EBUSY Not synced
+ * @retval 0 Successful
+ */
+int interrupt_allow_entry_if_synced(struct isr* isr);
 
 /**
  * @brief Get the interrupt vector for an interrupt

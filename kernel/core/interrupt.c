@@ -128,6 +128,67 @@ void interrupt_unregister(struct isr* isr) {
 	local_irq_restore(irq_flags);
 }
 
+int interrupt_synchronize(struct isr* isr) {
+	int vector = interrupt_get_vector(isr);
+
+	/* Don't allow syncing if ISR is invalid, ISR is an exception, or IRQ is software generated */
+	if (vector == INT_MAX || vector < INTERRUPT_EXCEPTION_COUNT || isr->irq.irq == -1)
+		return -EINVAL;
+
+	unsigned long irq;
+	spinlock_lock_irq_save(&isr->lock, &irq);
+	atomic_add_fetch(&isr->inflight, LONG_MIN);
+	spinlock_unlock_irq_restore(&isr->lock, &irq);
+
+	while (atomic_load(&isr->inflight) != LONG_MIN)
+		schedule();
+
+	return 0;
+}
+
+int interrupt_allow_entry_if_synced(struct isr* isr) {
+	int vector = interrupt_get_vector(isr);
+	if (vector == INT_MAX || vector < INTERRUPT_EXCEPTION_COUNT || isr->irq.irq == -1)
+		return -EINVAL;
+
+	unsigned long irq;
+	spinlock_lock_irq_save(&isr->lock, &irq);
+
+	int err = 0;
+	if (atomic_load(&isr->inflight) == LONG_MIN)
+		atomic_store(&isr->inflight, 0);
+	else
+		err = -EBUSY;
+
+	spinlock_unlock_irq_restore(&isr->lock, &irq);
+	return err;
+}
+
+static bool isr_enter(struct isr* isr) {
+	if (interrupt_get_vector(isr) < INTERRUPT_EXCEPTION_COUNT)
+		return true;
+
+	spinlock_lock(&isr->lock);
+
+	bool can_enter = atomic_load(&isr->inflight) >= 0;
+	if (can_enter)
+		atomic_add_fetch(&isr->inflight, 1);
+
+	spinlock_unlock(&isr->lock);
+	return can_enter;
+}
+
+static void isr_exit(struct isr* isr) {
+	if (interrupt_get_vector(isr) >= INTERRUPT_EXCEPTION_COUNT)
+		atomic_sub_fetch(&isr->inflight, 1);
+}
+
+static inline bool check_cpu(u8 vector) {
+	if (vector == INTERRUPT_NMI_VECTOR || vector == INTERRUPT_MACHINE_CHECK_VECTOR)
+		return !rdmsr(MSR_GS_BASE);
+	return false;
+}
+
 static inline void swap_cpu(void) {
 	__asm__ volatile("swapgs" : : : "memory");
 }
@@ -136,33 +197,26 @@ __diag_push();
 __diag_ignore("-Wmissing-prototypes");
 
 void __asmlinkage __isr_entry(struct context* ctx) {
-	bool bad_cpu = false;
-	if (ctx->vector == INTERRUPT_NMI_VECTOR || ctx->vector == INTERRUPT_MACHINE_CHECK_VECTOR) {
-		u64 gsbase = rdmsr(MSR_GS_BASE);
-		if (!gsbase) {
-			swap_cpu();
-			bad_cpu = true;
-		}
-	}
-
 	bug(ctx->vector >= INTERRUPT_COUNT);
+	bool bad_cpu = check_cpu(ctx->vector);
+	if (unlikely(bad_cpu))
+		swap_cpu();
 
 	struct isr* isr = &isr_handlers[ctx->vector];
-	atomic_thread_fence(ATOMIC_ACQUIRE);
-	if (likely(isr->func))
-		isr->func(isr, ctx);
-	else
-		printk(PRINTK_CRIT "core: Interrupt %lu happened, there is no handler for it!\n", ctx->vector);
-
+	bool can_enter = isr_enter(isr);
+	if (can_enter) {
+		if (likely(isr->func))
+			isr->func(isr, ctx);
+		else
+			printk(PRINTK_CRIT "core: Interrupt %lu happened, there is no handler for it!\n", ctx->vector);
+		isr_exit(isr);
+	}
 	if (isr->irq.eoi)
 		isr->irq.eoi(isr);
 
-	if (unlikely(bad_cpu)) {
+	if (unlikely(bad_cpu))
 		swap_cpu();
-		return;
-	}
-
-	if (current_cpu()->need_resched)
+	else if (current_cpu()->need_resched)
 		schedule();
 }
 
@@ -206,6 +260,7 @@ void interrupts_init(void) {
 			isr_handlers[i].func = i == INTERRUPT_NMI_VECTOR ? nmi : do_trap;
 			isr_free_list[i] = true;
 		}
+		spinlock_init(&isr_handlers[i].lock);
 	}
 
 	i8259_set_spurious(7);
