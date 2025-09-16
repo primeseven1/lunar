@@ -13,6 +13,7 @@
 #include <crescent/sched/scheduler.h>
 #include <crescent/lib/string.h>
 #include "traps.h"
+#include "i8259.h"
 
 struct idt_entry {
 	u16 handler_low;
@@ -108,10 +109,9 @@ int interrupt_free(struct isr* isr) {
 	return 0;
 }
 
-void interrupt_register(struct isr* isr, struct irq* irq, void (*func)(struct isr*, struct context*)) {
+void interrupt_register(struct isr* isr, void (*func)(struct isr*, struct context*)) {
 	unsigned long irq_flags = local_irq_save();
 
-	isr->irq = irq;
 	isr->func = func;
 	atomic_thread_fence(ATOMIC_RELEASE);
 
@@ -121,7 +121,6 @@ void interrupt_register(struct isr* isr, struct irq* irq, void (*func)(struct is
 void interrupt_unregister(struct isr* isr) {
 	unsigned long irq_flags = local_irq_save();
 
-	isr->irq = NULL;
 	isr->func = NULL;
 	isr->private = NULL;
 	atomic_thread_fence(ATOMIC_RELEASE);
@@ -155,10 +154,8 @@ void __asmlinkage __isr_entry(struct context* ctx) {
 	else
 		printk(PRINTK_CRIT "core: Interrupt %lu happened, there is no handler for it!\n", ctx->vector);
 
-	if (isr->irq) {
-		assert(isr->irq->eoi != NULL);
-		isr->irq->eoi(isr->irq);
-	}
+	if (isr->irq.eoi)
+		isr->irq.eoi(isr);
 
 	if (unlikely(bad_cpu)) {
 		swap_cpu();
@@ -182,21 +179,25 @@ static void spurious(struct isr* isr, struct context* ctx) {
 	if (interrupt_get_vector(isr) == INTERRUPT_SPURIOUS_VECTOR) {
 		printk(PRINTK_WARN "core: spurious interrupt from lapic\n");
 	} else {
-		printk(PRINTK_WARN "core: spurious interrupt from i8259 %hhu\n", isr->irq->irq);
+		printk(PRINTK_WARN "core: spurious interrupt on IRQ %hhu\n", isr->irq.irq);
 	}
 }
 
-static struct irq irq7 = {
-	.irq = 7,
-	.eoi = i8259_spurious_eoi
-};
-static struct irq irq15 = {
-	.irq = 15,
-	.eoi = i8259_spurious_eoi
-};
-
 void interrupts_cpu_init(void) {
 	idt_init();
+}
+
+static inline void i8259_set_spurious(u8 irq) {
+	u8 vector = I8259_VECTOR_OFFSET + irq;
+	isr_free_list[vector] = true;
+	isr_handlers[vector].func = spurious;
+	bug(i8259_set_irq(&isr_handlers[vector], irq, NULL, true) != 0);
+}
+
+static inline void apic_set_spurious(void) {
+	/* Don't register the IRQ, since no EOI needs to get sent */
+	isr_handlers[INTERRUPT_SPURIOUS_VECTOR].func = spurious;
+	isr_free_list[INTERRUPT_SPURIOUS_VECTOR] = true;
 }
 
 void interrupts_init(void) {
@@ -207,16 +208,9 @@ void interrupts_init(void) {
 		}
 	}
 
-	u8 irqv = I8259_VECTOR_OFFSET + 7;
-	isr_free_list[irqv] = true;
-	isr_handlers[irqv].irq = &irq7;
-	isr_handlers[irqv].func = spurious;
-	irqv = I8259_VECTOR_OFFSET + 15;
-	isr_free_list[irqv] = true;
-	isr_handlers[irqv].irq = &irq15;
-	isr_handlers[irqv].func = spurious;
+	i8259_set_spurious(7);
+	i8259_set_spurious(15);
+	apic_set_spurious();
 
-	isr_handlers[INTERRUPT_SPURIOUS_VECTOR].func = spurious;
-	isr_free_list[INTERRUPT_SPURIOUS_VECTOR] = true;
 	idt_init();
 }

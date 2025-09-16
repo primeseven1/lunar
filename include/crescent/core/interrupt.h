@@ -44,15 +44,19 @@ struct context {
 	unsigned long ss;
 } __attribute__((packed));
 
+struct isr;
+
 struct irq {
+	struct cpu* cpu;
 	int irq;
-	void (*eoi)(const struct irq*);
+	void (*eoi)(const struct isr*);
+	int (*set_mask)(const struct isr*, bool);
 };
 
 struct isr {
-	struct irq* irq;
-	void (*func)(struct isr*, struct context*);
-	void* private;
+	struct irq irq; /* Set by the interrupt controller driver */
+	void (*func)(struct isr*, struct context*); /* Called by the ISR entry */
+	void* private; /* For use by whoever registers the interrupt */
 };
 
 #define INTERRUPT_COUNT 256
@@ -75,10 +79,9 @@ int interrupt_free(struct isr* isr);
  * @brief Register an interrupt
  *
  * @param isr The ISR to register
- * @param irq The IRQ (NULL is allowed)
  * @param func The function to execute on interrupt
  */
-void interrupt_register(struct isr* isr, struct irq* irq, void (*func)(struct isr*, struct context*));
+void interrupt_register(struct isr* isr, void (*func)(struct isr*, struct context*));
 
 /**
  * @brief Unregister an interrupt

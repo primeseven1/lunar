@@ -12,58 +12,7 @@
 #include <uacpi/tables.h>
 #include <uacpi/acpi.h>
 
-#define PIC1 0x20
-#define PIC2 0xA0
-#define PIC1_DATA (PIC1 + 1)
-#define PIC2_DATA (PIC2 + 1)
-
-#define PIC_EOI 0x20
-
-void i8259_spurious_eoi(const struct irq* irq) {
-	if (irq->irq == 15)
-		outb(PIC1, PIC_EOI);
-}
-
-#define ICW1_ICW4 0x01
-#define ICW1_SINGLE 0x02
-#define ICW1_INTERVAL4 0x04
-#define ICW1_LEVEL 0x08
-#define ICW1_INIT 0x10
-#define ICW4_8086 0x01
-#define ICW4_AUTO 0x02
-#define ICW4_BUF_SLAVE 0x08
-#define ICW4_BUF_MASTER 0x0C
-#define ICW4_SFNM 0x10
-
-static void i8259_init(void) {
-	/* Start initiailization in cascade mode */
-	outb(PIC1, ICW1_INIT | ICW1_ICW4);
-	io_wait();
-	outb(PIC2, ICW1_INIT | ICW1_ICW4);
-	io_wait();
-
-	/* Set vector offsets */
-	outb(PIC1_DATA, I8259_VECTOR_OFFSET);
-	io_wait();
-	outb(PIC2_DATA, I8259_VECTOR_OFFSET + 8);
-	io_wait();
-
-	/* Tell PIC1 there is a PIC2 */
-	outb(PIC1_DATA, 4);
-	io_wait();
-	outb(PIC2_DATA, 2); /* Tell PIC2 it's "cascade identity", whatever that means */
-	io_wait();
-
-	/* Put both PIC's into 8086 mode */
-	outb(PIC1_DATA, ICW4_8086);
-	io_wait();
-	outb(PIC2_DATA, ICW4_8086);
-	io_wait();
-
-	/* Mask all interrupts */
-	outb(PIC1_DATA, 0xFF);
-	outb(PIC2_DATA, 0xFF);
-}
+#include "i8259.h"
 
 enum apic_base_flags {
 	APIC_BASE_BSP = (1 << 8),
@@ -143,12 +92,12 @@ static void ioapic_redtbl_write(u32 __iomem* ioapic, u8 entry, u8 vector,
 	ioapic_write(ioapic, 0x11 + entry * 2, (u32)dest << 24);
 }
 
-void apic_eoi(const struct irq* irq) {
-	(void)irq;
+static void apic_eoi(const struct isr* isr) {
+	(void)isr;
 	lapic_write(LAPIC_REG_EOI, 0);
 }
 
-int apic_set_irq(u8 irq, u8 vector, u8 processor, bool masked) {
+static int ioapic_set_irq(u8 irq, u8 vector, u8 processor, bool masked) {
 	u8 polarity = 1;
 	u8 trigger = 0;
 
@@ -172,6 +121,37 @@ int apic_set_irq(u8 irq, u8 vector, u8 processor, bool masked) {
 	irq = irq - desc->base;
 	ioapic_redtbl_write(desc->address, irq, vector, 0, 0, polarity, trigger, masked, processor);
 
+	return 0;
+}
+
+static int apic_set_mask(const struct isr* isr, bool masked) {
+	int vector = interrupt_get_vector(isr);
+	if (vector == INT_MAX || vector < INTERRUPT_EXCEPTION_COUNT)
+		return -EINVAL;
+	int err = ioapic_set_irq(isr->irq.irq, vector, isr->irq.cpu->processor_id, masked);
+	return err;
+}
+
+int apic_set_irq(struct isr* isr, int irq, struct cpu* cpu, bool masked) {
+	int vector = interrupt_get_vector(isr);
+	if (vector == INT_MAX || vector < INTERRUPT_EXCEPTION_COUNT)
+		return -EINVAL;
+
+	int err = ioapic_set_irq(irq, vector, cpu->processor_id, masked);
+	if (err == 0) {
+		isr->irq.cpu = cpu;
+		isr->irq.irq = irq;
+		isr->irq.eoi = apic_eoi;
+		isr->irq.set_mask = apic_set_mask;
+	}
+	return err;
+}
+
+int apic_set_noirq(struct isr* isr) {
+	isr->irq.cpu = NULL;
+	isr->irq.irq = -1;
+	isr->irq.eoi = apic_eoi;
+	isr->irq.set_mask = NULL;
 	return 0;
 }
 

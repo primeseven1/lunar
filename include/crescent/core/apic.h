@@ -59,12 +59,31 @@ void lapic_write(unsigned int reg, u32 x);
  * @retval 0 Success
  */
 int apic_send_ipi(struct cpu* target_cpu, const struct isr* isr, int targets, bool maskable);
-int apic_set_irq(u8 irq, u8 vector, u8 processor, bool masked);
+
+/**
+ * @brief Register an ISR with an IRQ for a specific processor
+ *
+ * @param isr The ISR to register
+ * @param cpu The CPU to run the ISR on
+ * @param masked Whether or not this IRQ should be masked
+ *
+ * @retval -EINVAL ISR or IRQ not valid
+ * @retval -ENOENT IRQ not supported by IOAPIC
+ */
+int apic_set_irq(struct isr* isr, int irq, struct cpu* cpu, bool masked);
+
+/**
+ * @brief Register an interrupt with no IRQ
+ *
+ * Used for IPI's or a timer interrupt where it's not routed through the
+ * IOAPIC.
+ *
+ * @param isr The ISR to register
+ * @return Never fails, always returns 0
+ */
+int apic_set_noirq(struct isr* isr);
+
 void apic_ap_init(void);
 int apic_bsp_init(void);
-void apic_eoi(const struct irq* irq);
-
-#define I8259_VECTOR_OFFSET 0x20
-#define I8259_VECTOR_COUNT 0x10
 
 void i8259_spurious_eoi(const struct irq* irq);
