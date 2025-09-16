@@ -15,7 +15,6 @@ static SPINLOCK_DEFINE(shootdown_lock);
 static struct isr* shootdown_isr;
 
 #define KERNEL_SPACE_START ((void*)0xFFFF800000000000)
-#define USER_SPACE_END ((void*)0x00007FFFFFFFFFFF)
 
 static void shootdown_ipi(struct isr* isr, struct context* ctx) {
 	(void)isr;
@@ -31,11 +30,7 @@ static void do_shootdown(const struct smp_cpus* cpus, void* address, size_t size
 	atomic_store(&shootdown_size, size);
 	atomic_store(&shootdown_remaining, cpus->count - 1);
 
-	for (u64 i = 0; i < cpus->count; i++) {
-		if (cpus->cpus[i] == current_cpu())
-			continue;
-		bug(apic_send_ipi(cpus->cpus[i], shootdown_isr, APIC_IPI_CPU_TARGET, true) != 0);
-	}
+	bug(apic_send_ipi(NULL, shootdown_isr, APIC_IPI_CPU_OTHERS, true) != 0);
 
 	while (atomic_load(&shootdown_remaining))
 		cpu_relax();
@@ -50,7 +45,7 @@ void tlb_invalidate(void* address, size_t size) {
 	if (likely(init_status_get() >= INIT_STATUS_SCHED)) {
 		struct thread* current = current_thread();
 		int thread_count = atomic_load(&current->proc->thread_count);
-		if (cpus->count > 1 && thread_count > 1)
+		if (cpus->count > 1 && (address >= KERNEL_SPACE_START || thread_count > 1))
 			do_shootdown(cpus, address, size);
 	}
 

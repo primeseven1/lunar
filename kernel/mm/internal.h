@@ -2,6 +2,7 @@
 
 #include <crescent/mm/vmm.h>
 #include <crescent/mm/mm.h>
+#include <crescent/asm/ctl.h>
 
 #define PTE_COUNT 512
 
@@ -26,8 +27,12 @@ static inline void tlb_flush_single(void* virtual) {
 
 static inline void tlb_flush_range(void* virtual, size_t size) {
 	unsigned long count = (size + PAGE_SIZE - 1) >> PAGE_SHIFT;
-	for (unsigned long i = 0; i < count; i++)
-		tlb_flush_single((u8*)virtual + (PAGE_SIZE * i));
+	if (count >= 128) {
+		ctl3_write(ctl3_read()); /* Global pages disabled, this is fine */
+	} else {
+		for (unsigned long i = 0; i < count; i++)
+			tlb_flush_single((u8*)virtual + (PAGE_SIZE * i));
+	}
 }
 
 unsigned long pagetable_mmu_to_pt(mmuflags_t mmu_flags);
