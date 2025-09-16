@@ -84,7 +84,7 @@ void timekeeper_cpu_init(void) {
 	if (err)
 		panic("Failed to initialize timekeeper for AP");
 	printk(PRINTK_INFO "core: Timekeeper frequency %llu mhz on CPU %u\n", 
-			cpu->timekeeper->freq / 1000000, cpu->processor_id);
+			cpu->timekeeper->freq / 1000000, cpu->sched_processor_id);
 }
 
 void timekeeper_init(void) {

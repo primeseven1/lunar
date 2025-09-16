@@ -39,7 +39,7 @@ void cpu_register(void) {
 static atomic(i64) cpus_left;
 
 void cpu_init_finish(void) {
-	printk(PRINTK_INFO "core: CPU %u online!\n", current_cpu()->processor_id);
+	printk(PRINTK_INFO "core: CPU %u online!\n", current_cpu()->sched_processor_id);
 	atomic_sub_fetch(&cpus_left, 1);
 }
 

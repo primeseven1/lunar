@@ -128,7 +128,7 @@ static int apic_set_mask(const struct isr* isr, bool masked) {
 	int vector = interrupt_get_vector(isr);
 	if (vector == INT_MAX || vector < INTERRUPT_EXCEPTION_COUNT)
 		return -EINVAL;
-	int err = ioapic_set_irq(isr->irq.irq, vector, isr->irq.cpu->processor_id, masked);
+	int err = ioapic_set_irq(isr->irq.irq, vector, isr->irq.cpu->lapic_id, masked);
 	return err;
 }
 
@@ -137,7 +137,7 @@ int apic_set_irq(struct isr* isr, int irq, struct cpu* cpu, bool masked) {
 	if (vector == INT_MAX || vector < INTERRUPT_EXCEPTION_COUNT)
 		return -EINVAL;
 
-	int err = ioapic_set_irq(irq, vector, cpu->processor_id, masked);
+	int err = ioapic_set_irq(irq, vector, cpu->lapic_id, masked);
 	if (err == 0) {
 		isr->irq.cpu = cpu;
 		isr->irq.irq = irq;
@@ -195,7 +195,7 @@ int apic_send_ipi(struct cpu* target_cpu, const struct isr* isr, int targets, bo
 			targets != APIC_IPI_CPU_OTHERS && targets != APIC_IPI_CPU_SELF)
 		return -EINVAL;
 
-	u32 id = target_cpu ? target_cpu->processor_id : 0;
+	u32 id = target_cpu ? target_cpu->lapic_id : 0;
 	u8 delivm = maskable ? APIC_DM_FIXED : APIC_DM_NMI;
 
 	u8 vector = isr ? interrupt_get_vector(isr) : 0;
