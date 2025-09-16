@@ -74,12 +74,12 @@ void workqueue_cpu_init(void) {
 	assert(ringbuffer_init(&cpu->workqueue, 64, sizeof(struct work)) == 0);
 
 	tid_t id = kthread_create(SCHED_THIS_CPU, worker_thread, NULL, 
-			"worker%u-%u", current_cpu()->processor_id, 0);
+			"worker%u-%u", current_cpu()->sched_processor_id, 0);
 	if (id < 0)
 		panic("Failed to create worker threads");
 	bug(kthread_detach(id) != 0);
 	id = kthread_create(SCHED_THIS_CPU, worker_thread, current_cpu(),
-			"worker%u-%u", current_cpu()->processor_id, 1);
+			"worker%u-%u", current_cpu()->sched_processor_id, 1);
 	if (id < 0)
 		panic("Failed to create worker threads");
 	bug(kthread_detach(id) != 0);

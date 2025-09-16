@@ -46,5 +46,5 @@ void preempt_cpu_init(void) {
 	lapic_write(LAPIC_REG_TIMER_INITIAL, ticks);
 
 	printk(PRINTK_DBG "sched: LAPIC timer calibrated at %u ticks per %u us on CPU %u\n", 
-			ticks, TIMER_TRIGGER_TIME_USEC, current_cpu()->processor_id);
+			ticks, TIMER_TRIGGER_TIME_USEC, current_cpu()->sched_processor_id);
 }

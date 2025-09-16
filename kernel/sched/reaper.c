@@ -49,7 +49,7 @@ static int reaper_thread(void* arg) {
 
 void reaper_cpu_init(void) {
 	tid_t id = kthread_create(SCHED_THIS_CPU, reaper_thread, NULL, 
-			"reaper-%u", current_cpu()->processor_id);
+			"reaper-%u", current_cpu()->sched_processor_id);
 	if (id < 0)
 		panic("Failed to create reaper thread(s)\n");
 	bug(kthread_detach(id) != 0);
