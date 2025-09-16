@@ -29,11 +29,6 @@ static void lapic_timer(struct isr* isr, struct context* ctx) {
 	sched_tick();
 }
 
-static struct irq timer_irq = {
-	.irq = -1,
-	.eoi = apic_eoi
-};
-
 static struct isr* lapic_timer_isr = NULL;
 
 void preempt_cpu_init(void) {
@@ -41,7 +36,8 @@ void preempt_cpu_init(void) {
 		lapic_timer_isr = interrupt_alloc();
 		if (unlikely(!lapic_timer_isr))
 			panic("Failed to allocate LAPIC timer ISR");
-		interrupt_register(lapic_timer_isr, &timer_irq, lapic_timer);
+		apic_set_noirq(lapic_timer_isr);
+		interrupt_register(lapic_timer_isr, lapic_timer);
 	}
 
 	u32 ticks = lapic_timer_get_ticks_for_preempt();
