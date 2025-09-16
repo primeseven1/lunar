@@ -63,6 +63,19 @@ static struct isr isr_handlers[INTERRUPT_COUNT] = { 0 };
 static bool isr_free_list[INTERRUPT_COUNT] = { 0 };
 static SPINLOCK_DEFINE(isr_free_list_lock);
 
+int interrupt_get_vector(const struct isr* isr) {
+	uintptr_t base = (uintptr_t)&isr_handlers[0];
+	uintptr_t end = base + (INTERRUPT_COUNT * sizeof(struct isr));
+	if ((uintptr_t)isr < base || (uintptr_t)isr >= end)
+		return INT_MAX;
+
+	size_t off = (uintptr_t)isr - base;
+	if (off % sizeof(struct isr) != 0)
+		return INT_MAX;
+
+	return (int)(off / sizeof(struct isr));
+}
+
 struct isr* interrupt_alloc(void) {
 	unsigned long irq;
 	spinlock_lock_irq_save(&isr_free_list_lock, &irq);
@@ -83,19 +96,6 @@ struct isr* interrupt_alloc(void) {
 	return isr;
 }
 
-int interrupt_get_vector(const struct isr* isr) {
-	uintptr_t base = (uintptr_t)&isr_handlers[0];
-	uintptr_t end = base + (INTERRUPT_COUNT * sizeof(struct isr));
-	if ((uintptr_t)isr < base || (uintptr_t)isr >= end)
-		return INT_MAX;
-
-	size_t off = (uintptr_t)isr - base;
-	if (off % sizeof(struct isr) != 0)
-		return INT_MAX;
-
-	return (int)(off / sizeof(struct isr));
-}
-
 int interrupt_free(struct isr* isr) {
 	int vector = interrupt_get_vector(isr);
 	if (vector == INT_MAX || vector < INTERRUPT_EXCEPTION_COUNT)
@@ -110,22 +110,25 @@ int interrupt_free(struct isr* isr) {
 }
 
 void interrupt_register(struct isr* isr, void (*func)(struct isr*, struct context*)) {
-	unsigned long irq_flags = local_irq_save();
-
 	isr->func = func;
 	atomic_thread_fence(ATOMIC_RELEASE);
-
-	local_irq_restore(irq_flags);
 }
 
-void interrupt_unregister(struct isr* isr) {
-	unsigned long irq_flags = local_irq_save();
+int interrupt_unregister(struct isr* isr) {
+	if (!isr->irq.set_mask)
+		return -EINVAL;
+	int err = isr->irq.set_mask(isr, true);
+	if (err)
+		return err;
+	err = interrupt_synchronize(isr);
+	if (err)
+		return err;
 
 	isr->func = NULL;
 	isr->private = NULL;
 	atomic_thread_fence(ATOMIC_RELEASE);
 
-	local_irq_restore(irq_flags);
+	return 0;
 }
 
 int interrupt_synchronize(struct isr* isr) {
@@ -164,8 +167,8 @@ int interrupt_allow_entry_if_synced(struct isr* isr) {
 	return err;
 }
 
-static bool isr_enter(struct isr* isr) {
-	if (interrupt_get_vector(isr) < INTERRUPT_EXCEPTION_COUNT)
+static bool irq_enter(struct isr* isr) {
+	if (interrupt_get_vector(isr) < INTERRUPT_EXCEPTION_COUNT || isr->irq.irq == -1)
 		return true;
 
 	spinlock_lock(&isr->lock);
@@ -178,8 +181,8 @@ static bool isr_enter(struct isr* isr) {
 	return can_enter;
 }
 
-static void isr_exit(struct isr* isr) {
-	if (interrupt_get_vector(isr) >= INTERRUPT_EXCEPTION_COUNT)
+static void irq_exit(struct isr* isr) {
+	if (interrupt_get_vector(isr) >= INTERRUPT_EXCEPTION_COUNT && isr->irq.irq != -1)
 		atomic_sub_fetch(&isr->inflight, 1);
 }
 
@@ -203,18 +206,18 @@ void __asmlinkage __isr_entry(struct context* ctx) {
 		swap_cpu();
 
 	struct isr* isr = &isr_handlers[ctx->vector];
-	bool can_enter = isr_enter(isr);
+	bool can_enter = irq_enter(isr);
 	if (can_enter) {
 		if (likely(isr->func))
 			isr->func(isr, ctx);
 		else
 			printk(PRINTK_CRIT "core: Interrupt %lu happened, there is no handler for it!\n", ctx->vector);
-		isr_exit(isr);
+		irq_exit(isr);
 	}
 	if (isr->irq.eoi)
 		isr->irq.eoi(isr);
 
-	if (unlikely(bad_cpu))
+	if (unlikely(bad_cpu)) /* NMI or MCE, not safe to reschedule */
 		swap_cpu();
 	else if (current_cpu()->need_resched)
 		schedule();

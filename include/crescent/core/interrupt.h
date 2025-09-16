@@ -49,7 +49,7 @@ struct isr;
 struct irq {
 	struct cpu* cpu; /* CPU this IRQ will run on, used by interrupt controller driver */
 	int irq; /* IRQ the device uses, -1 for software IRQ */
-	void (*eoi)(const struct isr*); /* EOI function for interrupt controller driver */
+	void (*eoi)(const struct isr*); /* End of interrupt, should never change after setting regardless if ISR is free or not */
 	int (*set_mask)(const struct isr*, bool); /* Implemented by the interrupt controller driver */
 };
 
@@ -87,9 +87,14 @@ void interrupt_register(struct isr* isr, void (*func)(struct isr*, struct contex
 
 /**
  * @brief Unregister an interrupt
+ *
+ * Software generated IRQ's and exceptions cannot be unregistered.
+ * Same with interrupts that cannot be masked.
+ *
  * @param isr The ISR to unregister
+ * @return -errno on failure
  */
-void interrupt_unregister(struct isr* isr);
+int interrupt_unregister(struct isr* isr);
 
 /**
  * @brief Wait for ISR's to finish execution

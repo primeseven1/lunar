@@ -137,21 +137,12 @@ int apic_set_irq(struct isr* isr, int irq, struct cpu* cpu, bool masked) {
 	if (vector == INT_MAX || vector < INTERRUPT_EXCEPTION_COUNT)
 		return -EINVAL;
 
-	int err = ioapic_set_irq(irq, vector, cpu->lapic_id, masked);
-	if (err == 0) {
-		isr->irq.cpu = cpu;
-		isr->irq.irq = irq;
-		isr->irq.eoi = apic_eoi;
-		isr->irq.set_mask = apic_set_mask;
-	}
-	return err;
+	isr->irq = (struct irq){ .cpu = cpu, .irq = irq, .eoi = apic_eoi, .set_mask = apic_set_mask };
+	return ioapic_set_irq(irq, vector, cpu->lapic_id, masked);
 }
 
 int apic_set_noirq(struct isr* isr) {
-	isr->irq.cpu = NULL;
-	isr->irq.irq = -1;
-	isr->irq.eoi = apic_eoi;
-	isr->irq.set_mask = NULL;
+	isr->irq = (struct irq){ .cpu = NULL, .irq = -1, .eoi = apic_eoi, .set_mask = NULL };
 	return 0;
 }
 
