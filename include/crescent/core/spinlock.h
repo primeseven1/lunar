@@ -2,7 +2,7 @@
 
 #include <crescent/types.h>
 
-typedef volatile atomic(bool) spinlock_t;
+typedef atomic(bool) spinlock_t;
 
 #define SPINLOCK_INITIALIZER atomic_init(false)
 #define SPINLOCK_DEFINE(n) spinlock_t n = SPINLOCK_INITIALIZER
