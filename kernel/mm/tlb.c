@@ -13,10 +13,6 @@ static atomic(u64) shootdown_remaining = atomic_init(0);
 static SPINLOCK_DEFINE(shootdown_lock);
 
 static struct isr* shootdown_isr;
-static struct irq shootdown_irq = {
-	.irq = -1,
-	.eoi = apic_eoi
-};
 
 #define KERNEL_SPACE_START ((void*)0xFFFF800000000000)
 #define USER_SPACE_END ((void*)0x00007FFFFFFFFFFF)
@@ -71,5 +67,6 @@ void vmm_tlb_init(void) {
 	if (unlikely(!shootdown_isr))
 		panic("Failed to create TLB shootdown ISR\n");
 
-	interrupt_register(shootdown_isr, &shootdown_irq, shootdown_ipi);
+	apic_set_noirq(shootdown_isr);
+	interrupt_register(shootdown_isr, shootdown_ipi);
 }
