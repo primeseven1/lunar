@@ -105,9 +105,9 @@ _Noreturn __asmlinkage void kernel_main(void) {
 	if (unlikely(err_trace))
 		printk(PRINTK_WARN "init: tracing_init failed with code %i\n", err_trace);
 
-	err = acpi_init();
-	if (unlikely(err))
-		panic("ACPI failed to initialize, err: %i", err);
+	uacpi_status acpi_status = acpi_early_init();
+	if (unlikely(acpi_status != UACPI_STATUS_OK))
+		panic("acpi_early_init(): %s", uacpi_status_to_string(acpi_status));
 
 	err = apic_bsp_init();
 	if (unlikely(err))
@@ -118,6 +118,9 @@ _Noreturn __asmlinkage void kernel_main(void) {
 	init_status_set(INIT_STATUS_SCHED);
 
 	pci_init();
+	acpi_status = acpi_finish_init();
+	if (unlikely(acpi_status != UACPI_STATUS_OK))
+		panic("acpi_finish_init(): %s", uacpi_status_to_string(acpi_status));
 
 	log_ram_usage();
 	printk(PRINTK_CRIT "init: kernel_main thread ended!\n");
