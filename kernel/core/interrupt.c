@@ -121,42 +121,52 @@ static void interrupt_unregister_work(void* arg) {
 	struct isr* isr = arg;
 	struct semaphore* sem = isr->private;
 
-	isr->private = NULL;
-	isr->func = NULL;
+
 	atomic_thread_fence(ATOMIC_RELEASE);
 
 	isr->irq.unset(isr);
 	semaphore_signal(sem);
 }
 
-int interrupt_unregister(struct isr* isr) {
-	if (init_status_get() < INIT_STATUS_SCHED)
-		return -EWOULDBLOCK;
-
-	if (!isr->irq.set_masked)
-		return -EINVAL;
+static int interrupt_unregister_do_sync(struct isr* isr) {
 	int err = isr->irq.set_masked(isr, true);
 	if (err)
 		return err;
 	bug(interrupt_synchronize(isr) != 0);
 
-	/* Safe, since the ISR is blocked from running after synchronize */
-	isr->private = kmalloc(sizeof(struct semaphore), MM_ZONE_NORMAL);
-	if (!isr->private) {
+	struct semaphore* sem = kmalloc(sizeof(*sem), MM_ZONE_NORMAL);
+	if (!sem) {
 		bug(isr->irq.set_masked(isr, false) != 0);
 		return -ENOMEM;
 	}
-	struct semaphore* sem = isr->private;
+
 	semaphore_init(sem, 0);
 
+	/* Safe, since the ISR is blocked from running after synchronize */
+	isr->private = sem;
 	err = sched_workqueue_add_on(isr->irq.cpu, interrupt_unregister_work, isr);
 	while (err == -EAGAIN) {
 		err = sched_workqueue_add_on(isr->irq.cpu, interrupt_unregister_work, isr);
 		schedule();
 	}
 
-	semaphore_wait(sem, 0);
+	if (err == 0)
+		semaphore_wait(sem, 0);
 	kfree(sem);
+	return 0;
+}
+
+int interrupt_unregister(struct isr* isr) {
+	if (init_status_get() < INIT_STATUS_SCHED)
+		return -EWOULDBLOCK;
+
+	int err = 0;
+	if (isr->irq.set_masked)
+		err = interrupt_unregister_do_sync(isr);
+	if (err == 0) {
+		isr->private = NULL;
+		isr->func = NULL;
+	}
 	return err;
 }
 
