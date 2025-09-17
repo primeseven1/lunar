@@ -109,16 +109,27 @@ void sched_init(void);
 int schedule(void);
 
 /**
- * @brief Schedule work in a deferred workqueue
+ * @brief Schedule deferred work in a global workqueue
  *
  * @param fn The function to execute
  * @param arg The argument to pass to the function
- * @param flags Scheduler flags
  *
  * @retval 0 Successful
  * @retval -EAGAIN Workqueue was full
  */
-int sched_workqueue_add(void (*fn)(void*), void* arg, int flags);
+int sched_workqueue_add(void (*fn)(void*), void* arg);
+
+/**
+ * @brief Schedule deferred work on a specific CPU
+ *
+ * @param cpu The CPU to run on
+ * @param fn The function to execute
+ * @param arg The argument to pass to the function
+ *
+ * @retval 0 Successful
+ * @retval -EAGAIN Workqueue was full
+ */
+int sched_workqueue_add_on(struct cpu* cpu, void(*fn)(void*), void* arg);
 
 /**
  * @brief Relinquish the CPU

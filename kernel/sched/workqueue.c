@@ -34,37 +34,31 @@ static int worker_thread(void* arg) {
 	kthread_exit(0);
 }
 
-int sched_workqueue_add(void (*fn)(void*), void* arg, int flags) {
+static int __sched_workqueue_add(struct ringbuffer* wq,
+		struct semaphore* wq_sem, spinlock_t* wq_lock,
+		void (*fn)(void*), void* arg) {
 	int ret = 0;
+	struct work work = { .fn = fn, .arg = arg };
 
-	unsigned long irq = local_irq_save();
+	unsigned long irq;
+	spinlock_lock_irq_save(wq_lock, &irq);
 
-	struct cpu* cpu = sched_decide_cpu(flags);
-	struct semaphore* sem = &global_sem;
-	struct ringbuffer* ringbuffer = &global_workqueue;
-	spinlock_t* lock = &global_lock;
-
-	if (cpu) {
-		sem = &cpu->workqueue_sem;
-		ringbuffer = &cpu->workqueue;
-		lock = &cpu->workqueue_lock;
-	}
-
-	spinlock_lock(lock);
-
-	struct work work = {
-		.fn = fn,
-		.arg = arg,
-	};
-
-	if (ringbuffer_enqueue(ringbuffer, &work) == 0)
-		semaphore_signal(sem);
-	else
+	if (ringbuffer_enqueue(wq, &work) != 0)
 		ret = -EAGAIN;
 
-	spinlock_unlock(lock);
-	local_irq_restore(irq);
+	spinlock_unlock_irq_restore(wq_lock, &irq);
+
+	if (ret == 0)
+		semaphore_signal(wq_sem);
 	return ret;
+}
+
+int sched_workqueue_add(void (*fn)(void*), void* arg) {
+	return __sched_workqueue_add(&global_workqueue, &global_sem, &global_lock, fn, arg);
+}
+
+int sched_workqueue_add_on(struct cpu* cpu, void(*fn)(void*), void* arg) {
+	return __sched_workqueue_add(&cpu->workqueue, &cpu->workqueue_sem, &cpu->workqueue_lock, fn, arg);
 }
 
 void workqueue_cpu_init(void) {
