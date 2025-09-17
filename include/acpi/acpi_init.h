@@ -1,5 +1,6 @@
 #pragma once
 
-#include <crescent/asm/errno.h>
+#include <uacpi/status.h>
 
-int acpi_init(void);
+uacpi_status acpi_finish_init(void);
+uacpi_status acpi_early_init(void);
