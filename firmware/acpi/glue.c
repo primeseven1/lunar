@@ -339,6 +339,7 @@ uacpi_status uacpi_kernel_install_interrupt_handler(uacpi_u32 irq, uacpi_interru
 	actx->isr = isr;
 	actx->ctx = ctx;
 	actx->handler = handler;
+	isr->private = actx;
 
 	mutex_lock(&uacpi_interrupts_lock);
 	list_node_init(&actx->link);
