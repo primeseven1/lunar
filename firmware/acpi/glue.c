@@ -82,7 +82,7 @@ uacpi_status uacpi_kernel_pci_device_open(uacpi_pci_address address, uacpi_handl
 	int err = pci_device_open(address.bus, address.device, &device);
 	if (err) {
 		kfree(handle);
-		return UACPI_STATUS_INTERNAL_ERROR;
+		return err == -ENOSYS ? UACPI_STATUS_UNIMPLEMENTED : UACPI_STATUS_INTERNAL_ERROR;
 	}
 
 	handle->device = device;
