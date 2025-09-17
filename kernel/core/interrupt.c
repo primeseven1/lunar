@@ -9,6 +9,7 @@
 #include <crescent/core/interrupt.h>
 #include <crescent/core/trace.h>
 #include <crescent/core/apic.h>
+#include <crescent/init/status.h>
 #include <crescent/mm/vmm.h>
 #include <crescent/sched/scheduler.h>
 #include <crescent/lib/string.h>
@@ -110,28 +111,59 @@ int interrupt_free(struct isr* isr) {
 }
 
 void interrupt_register(struct isr* isr, void (*func)(struct isr*, struct context*)) {
+	atomic_store_explicit(&isr->inflight, 0, ATOMIC_RELAXED);
 	isr->func = func;
 	atomic_thread_fence(ATOMIC_RELEASE);
 }
 
-int interrupt_unregister(struct isr* isr) {
-	if (!isr->irq.set_mask)
-		return -EINVAL;
-	int err = isr->irq.set_mask(isr, true);
-	if (err)
-		return err;
-	err = interrupt_synchronize(isr);
-	if (err)
-		return err;
+/* Must be called on the target CPU of the ISR */
+static void interrupt_unregister_work(void* arg) {
+	struct isr* isr = arg;
+	struct semaphore* sem = isr->private;
 
-	isr->func = NULL;
 	isr->private = NULL;
+	isr->func = NULL;
 	atomic_thread_fence(ATOMIC_RELEASE);
 
-	return 0;
+	isr->irq.unset(isr);
+	semaphore_signal(sem);
+}
+
+int interrupt_unregister(struct isr* isr) {
+	if (init_status_get() < INIT_STATUS_SCHED)
+		return -EWOULDBLOCK;
+
+	if (!isr->irq.set_masked)
+		return -EINVAL;
+	int err = isr->irq.set_masked(isr, true);
+	if (err)
+		return err;
+	bug(interrupt_synchronize(isr) != 0);
+
+	/* Safe, since the ISR is blocked from running after synchronize */
+	isr->private = kmalloc(sizeof(struct semaphore), MM_ZONE_NORMAL);
+	if (!isr->private) {
+		bug(isr->irq.set_masked(isr, false) != 0);
+		return -ENOMEM;
+	}
+	struct semaphore* sem = isr->private;
+	semaphore_init(sem, 0);
+
+	err = sched_workqueue_add_on(isr->irq.cpu, interrupt_unregister_work, isr);
+	while (err == -EAGAIN) {
+		err = sched_workqueue_add_on(isr->irq.cpu, interrupt_unregister_work, isr);
+		schedule();
+	}
+
+	semaphore_wait(sem, 0);
+	kfree(sem);
+	return err;
 }
 
 int interrupt_synchronize(struct isr* isr) {
+	if (init_status_get() < INIT_STATUS_SCHED)
+		return -EWOULDBLOCK;
+
 	int vector = interrupt_get_vector(isr);
 
 	/* Don't allow syncing if ISR is invalid, ISR is an exception, or IRQ is software generated */
@@ -140,7 +172,10 @@ int interrupt_synchronize(struct isr* isr) {
 
 	unsigned long irq;
 	spinlock_lock_irq_save(&isr->lock, &irq);
-	atomic_add_fetch(&isr->inflight, LONG_MIN);
+
+	if (atomic_load(&isr->inflight) >= 0)
+		atomic_add_fetch(&isr->inflight, LONG_MIN);
+
 	spinlock_unlock_irq_restore(&isr->lock, &irq);
 
 	while (atomic_load(&isr->inflight) != LONG_MIN)

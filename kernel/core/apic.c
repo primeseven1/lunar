@@ -124,7 +124,23 @@ static int ioapic_set_irq(u8 irq, u8 vector, u8 processor, bool masked) {
 	return 0;
 }
 
-static int apic_set_mask(const struct isr* isr, bool masked) {
+static inline bool lapic_vec_test(unsigned int reg, u8 vector) {
+	int bank = vector >> 5;
+	u32 mask = 1u << (vector & 31);
+	return (lapic_read(reg + bank * 0x10) & mask) != 0;
+}
+
+static inline bool apic_is_pending(struct isr* isr) {
+	int vector = interrupt_get_vector(isr);
+	return vector == INT_MAX ? false : lapic_vec_test(LAPIC_REG_IRR_BASE, vector);
+}
+
+static inline bool apic_in_service(struct isr* isr) {
+	int vector = interrupt_get_vector(isr);
+	return vector == INT_MAX ? false : lapic_vec_test(LAPIC_REG_ISR_BASE, vector);
+}
+
+static int apic_set_masked(const struct isr* isr, bool masked) {
 	int vector = interrupt_get_vector(isr);
 	if (vector == INT_MAX || vector < INTERRUPT_EXCEPTION_COUNT)
 		return -EINVAL;
@@ -132,17 +148,27 @@ static int apic_set_mask(const struct isr* isr, bool masked) {
 	return err;
 }
 
+static void apic_unset_irq(struct isr* isr) {
+	while (1) {
+		if (likely(!apic_in_service(isr)) && !apic_is_pending(isr))
+			break;
+		schedule();
+	}
+
+	isr->irq = (struct irq){ .eoi = NULL, .set_masked = NULL, .unset = NULL, .irq = -1, .cpu = NULL };
+}
+
 int apic_set_irq(struct isr* isr, int irq, struct cpu* cpu, bool masked) {
 	int vector = interrupt_get_vector(isr);
 	if (vector == INT_MAX || vector < INTERRUPT_EXCEPTION_COUNT)
 		return -EINVAL;
 
-	isr->irq = (struct irq){ .cpu = cpu, .irq = irq, .eoi = apic_eoi, .set_mask = apic_set_mask };
+	isr->irq = (struct irq){ .cpu = cpu, .irq = irq, .eoi = apic_eoi, .set_masked = apic_set_masked, .unset = apic_unset_irq };
 	return ioapic_set_irq(irq, vector, cpu->lapic_id, masked);
 }
 
 int apic_set_noirq(struct isr* isr) {
-	isr->irq = (struct irq){ .cpu = NULL, .irq = -1, .eoi = apic_eoi, .set_mask = NULL };
+	isr->irq = (struct irq){ .cpu = NULL, .irq = -1, .eoi = apic_eoi, .set_masked = NULL, .unset = apic_unset_irq };
 	return 0;
 }
 

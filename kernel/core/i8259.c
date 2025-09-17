@@ -22,7 +22,7 @@ int i8259_set_irq(struct isr* isr, int irq, struct cpu* cpu, bool masked) {
 	isr->irq.irq = irq;
 	isr->irq.cpu = NULL;
 	isr->irq.eoi = i8259_spurious_eoi;
-	isr->irq.set_mask = NULL;
+	isr->irq.set_masked = NULL;
 
 	return 0;
 }

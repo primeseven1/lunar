@@ -49,8 +49,9 @@ struct isr;
 struct irq {
 	struct cpu* cpu; /* CPU this IRQ will run on, used by interrupt controller driver */
 	int irq; /* IRQ the device uses, -1 for software IRQ */
-	void (*eoi)(const struct isr*); /* End of interrupt, should never change after setting regardless if ISR is free or not */
-	int (*set_mask)(const struct isr*, bool); /* Implemented by the interrupt controller driver */
+	void (*eoi)(const struct isr*); /* End of interrupt signal */
+	int (*set_masked)(const struct isr*, bool); /* Mask/unmask an interrupt */
+	void (*unset)(struct isr*); /* Detach an IRQ. Must be called on the target CPU and be masked */
 };
 
 struct isr {
@@ -92,7 +93,11 @@ void interrupt_register(struct isr* isr, void (*func)(struct isr*, struct contex
  * Same with interrupts that cannot be masked.
  *
  * @param isr The ISR to unregister
+ *
  * @return -errno on failure
+ * @retval -EWOULDBLOCK Scheduler not initialized yet
+ * @retval -EINVAL ISR is software generated, an exception, bad pointer, or cannot be masked
+ * @retval -ENOMEM Ran out of memory trying to unregister the IRQ
  */
 int interrupt_unregister(struct isr* isr);
 
@@ -104,6 +109,7 @@ int interrupt_unregister(struct isr* isr);
  * @param isr The ISR to wait for
  *
  * @retval -EINVAL ISR is invalid, an exception, or software triggered
+ * @retval -EWOULDBLOCK Scheduler not initialized yet
  * @retval 0 Successful
  */
 int interrupt_synchronize(struct isr* isr);
