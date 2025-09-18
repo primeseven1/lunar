@@ -326,15 +326,17 @@ uacpi_status uacpi_kernel_install_interrupt_handler(uacpi_u32 irq, uacpi_interru
 	struct uacpi_irq_ctx* actx = kmalloc(sizeof(*actx), MM_ZONE_NORMAL);
 	if (!actx)
 		return UACPI_STATUS_OUT_OF_MEMORY;
-
-	uacpi_status status = UACPI_STATUS_INTERNAL_ERROR;
 	struct isr* isr = interrupt_alloc();
-	if (!isr)
-		goto fail;
-	interrupt_register(isr, uacpi_irq);
-	int err = apic_set_irq(isr, irq, current_cpu(), true);
-	if (err)
-		goto fail;
+	if (!isr) {
+		kfree(actx);
+		return UACPI_STATUS_INTERNAL_ERROR;
+	}
+	int err = interrupt_register(isr, uacpi_irq, apic_set_irq, irq, current_cpu(), true);
+	if (err) {
+		interrupt_free(isr);
+		kfree(actx);
+		return UACPI_STATUS_INTERNAL_ERROR;
+	}
 
 	actx->isr = isr;
 	actx->ctx = ctx;
@@ -349,13 +351,6 @@ uacpi_status uacpi_kernel_install_interrupt_handler(uacpi_u32 irq, uacpi_interru
 	isr->irq.set_masked(isr, false);
 	*out_handle = isr;
 	return UACPI_STATUS_OK;
-fail:
-	if (isr) {
-		interrupt_unregister(isr);
-		interrupt_free(isr);
-	}
-	kfree(actx);
-	return status;
 }
 
 uacpi_status uacpi_kernel_uninstall_interrupt_handler(uacpi_interrupt_handler handler, uacpi_handle irq_handle) {
