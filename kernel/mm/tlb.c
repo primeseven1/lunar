@@ -62,6 +62,5 @@ void vmm_tlb_init(void) {
 	if (unlikely(!shootdown_isr))
 		panic("Failed to create TLB shootdown ISR\n");
 
-	apic_set_noirq(shootdown_isr);
-	interrupt_register(shootdown_isr, shootdown_ipi);
+	interrupt_register(shootdown_isr, shootdown_ipi, apic_set_irq, -1, NULL, false);
 }
