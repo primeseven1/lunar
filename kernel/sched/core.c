@@ -405,6 +405,5 @@ void sched_init(void) {
 	resched_isr = interrupt_alloc();
 	if (unlikely(!resched_isr))
 		panic("Failed to allocate resched ISR");
-	interrupt_register(resched_isr, resched_ipi);
-	apic_set_noirq(resched_isr);
+	interrupt_register(resched_isr, resched_ipi, apic_set_irq, -1, NULL, false);
 }
