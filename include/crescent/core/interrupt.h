@@ -51,7 +51,8 @@ struct irq {
 	int irq; /* IRQ the device uses, -1 for software IRQ */
 	void (*eoi)(const struct isr*); /* End of interrupt signal */
 	int (*set_masked)(const struct isr*, bool); /* Mask/unmask an interrupt */
-	void (*unset)(struct isr*); /* Detach an IRQ. Must be called on the target CPU and be masked */
+	bool (*is_masked)(const struct isr*); /* Check if an interrupt is masked */
+	void (*unset_irq)(struct isr*); /* Detach an IRQ. Must be called on the target CPU and be masked */
 };
 
 struct isr {
@@ -82,9 +83,17 @@ int interrupt_free(struct isr* isr);
  * @brief Register an interrupt
  *
  * @param isr The ISR to register
- * @param func The function to execute on interrupt
+ * @param func The function to execute
+ * @param set_irq Interrupt controller set_irq (eg. apic_set_irq)
+ * @param irq The IRQ this interrupt is associated with (-1 for software generated)
+ * @param cpu The target CPU this IRQ should run on (NULL is valid for software generated IRQ's)
+ * @param masked Whether or not the interrupt should be masked when registered
+ *
+ * @return -errno on failure
  */
-void interrupt_register(struct isr* isr, void (*func)(struct isr*, struct context*));
+int interrupt_register(struct isr* isr, void (*func)(struct isr*, struct context*),
+		int (*set_irq)(struct isr* isr, int irq, struct cpu* cpu, bool masked),
+		int irq, struct cpu* cpu, bool masked);
 
 /**
  * @brief Unregister an interrupt

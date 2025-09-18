@@ -110,48 +110,49 @@ int interrupt_free(struct isr* isr) {
 	return 0;
 }
 
-void interrupt_register(struct isr* isr, void (*func)(struct isr*, struct context*)) {
-	atomic_store_explicit(&isr->inflight, 0, ATOMIC_RELAXED);
+int interrupt_register(struct isr* isr, void (*func)(struct isr*, struct context*),
+		int (*set_irq)(struct isr* isr, int irq, struct cpu* cpu, bool masked),
+		int irq, struct cpu* cpu, bool masked) {
+	if (interrupt_get_vector(isr) == INT_MAX)
+		return -EINVAL;
+	if (isr->func)
+		return -EALREADY;
+
 	isr->func = func;
-	atomic_thread_fence(ATOMIC_RELEASE);
+	atomic_store_explicit(&isr->inflight, 0, ATOMIC_RELEASE);
+
+	return set_irq(isr, irq, cpu, masked);
 }
 
 /* Must be called on the target CPU of the ISR */
 static void interrupt_unregister_work(void* arg) {
 	struct isr* isr = arg;
 	struct semaphore* sem = isr->private;
-
-
-	atomic_thread_fence(ATOMIC_RELEASE);
-
-	isr->irq.unset(isr);
+	isr->irq.unset_irq(isr);
 	semaphore_signal(sem);
 }
 
-static int interrupt_unregister_do_sync(struct isr* isr) {
+static int __interrupt_unregister(struct isr* isr) {
+	struct semaphore* sem = kmalloc(sizeof(*sem), MM_ZONE_NORMAL);
+	if (!sem)
+		return -ENOMEM;
+
 	int err = isr->irq.set_masked(isr, true);
-	if (err)
+	if (err) {
+		kfree(sem);
 		return err;
+	}
 	bug(interrupt_synchronize(isr) != 0);
 
-	struct semaphore* sem = kmalloc(sizeof(*sem), MM_ZONE_NORMAL);
-	if (!sem) {
-		bug(isr->irq.set_masked(isr, false) != 0);
-		return -ENOMEM;
-	}
-
 	semaphore_init(sem, 0);
-
-	/* Safe, since the ISR is blocked from running after synchronize */
-	isr->private = sem;
+	isr->private = sem; /* Safe, since the ISR is blocked from running after syncing */
 	err = sched_workqueue_add_on(isr->irq.cpu, interrupt_unregister_work, isr);
 	while (err == -EAGAIN) {
-		err = sched_workqueue_add_on(isr->irq.cpu, interrupt_unregister_work, isr);
 		schedule();
+		err = sched_workqueue_add_on(isr->irq.cpu, interrupt_unregister_work, isr);
 	}
 
-	if (err == 0)
-		semaphore_wait(sem, 0);
+	semaphore_wait(sem, 0);
 	kfree(sem);
 	return 0;
 }
@@ -160,9 +161,12 @@ int interrupt_unregister(struct isr* isr) {
 	if (init_status_get() < INIT_STATUS_SCHED)
 		return -EWOULDBLOCK;
 
-	int err = 0;
-	if (isr->irq.set_masked)
-		err = interrupt_unregister_do_sync(isr);
+	/* Can't unregister interrupts that cannot be masked or have no real IRQ */
+	if (interrupt_get_vector(isr) == INT_MAX ||
+			isr->irq.irq == -1 || !isr->irq.set_masked)
+		return -EINVAL;
+
+	int err = __interrupt_unregister(isr);
 	if (err == 0) {
 		isr->private = NULL;
 		isr->func = NULL;
@@ -174,10 +178,9 @@ int interrupt_synchronize(struct isr* isr) {
 	if (init_status_get() < INIT_STATUS_SCHED)
 		return -EWOULDBLOCK;
 
+	/* Don't synchronize the interrupt unless it has a real IRQ assocated with it */
 	int vector = interrupt_get_vector(isr);
-
-	/* Don't allow syncing if ISR is invalid, ISR is an exception, or IRQ is software generated */
-	if (vector == INT_MAX || vector < INTERRUPT_EXCEPTION_COUNT || isr->irq.irq == -1)
+	if (vector == INT_MAX || isr->irq.irq == -1)
 		return -EINVAL;
 
 	unsigned long irq;
@@ -195,8 +198,7 @@ int interrupt_synchronize(struct isr* isr) {
 }
 
 int interrupt_allow_entry_if_synced(struct isr* isr) {
-	int vector = interrupt_get_vector(isr);
-	if (vector == INT_MAX || vector < INTERRUPT_EXCEPTION_COUNT || isr->irq.irq == -1)
+	if (interrupt_get_vector(isr) == INT_MAX || isr->irq.irq == -1)
 		return -EINVAL;
 
 	unsigned long irq;
@@ -309,6 +311,7 @@ void interrupts_init(void) {
 			isr_free_list[i] = true;
 		}
 		spinlock_init(&isr_handlers[i].lock);
+		isr_handlers[i].irq.irq = -1;
 	}
 
 	i8259_set_spurious(7);

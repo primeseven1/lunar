@@ -8,7 +8,7 @@ enum ioapic_regs {
 	IOAPIC_REG_ID = 0,
 	IOAPIC_REG_ENTRY_COUNT = 1,
 	IOAPIC_REG_PRIORITY = 2,
-	IOAPIC_REG_ENTRY = 0x10
+	IOAPIC_REG_REDTBL_BASE = 0x10
 };
 
 static inline u32 ioapic_read(u32 __iomem* ioapic, u8 reg) {
@@ -75,18 +75,5 @@ int apic_send_ipi(struct cpu* target_cpu, const struct isr* isr, int targets, bo
  */
 int apic_set_irq(struct isr* isr, int irq, struct cpu* cpu, bool masked);
 
-/**
- * @brief Register an interrupt with no IRQ
- *
- * Used for IPI's or a timer interrupt where it's not routed through the
- * IOAPIC.
- *
- * @param isr The ISR to register
- * @return Never fails, always returns 0
- */
-int apic_set_noirq(struct isr* isr);
-
 void apic_ap_init(void);
 int apic_bsp_init(void);
-
-void i8259_spurious_eoi(const struct irq* irq);
