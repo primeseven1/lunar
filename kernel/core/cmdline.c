@@ -28,71 +28,36 @@ int cmdline_parse(void) {
 		return -ENOPROTOOPT;
 
 	size_t cmdline_size = strlen(cmdline);
-	if (cmdline_size == 0)
+	if (cmdline_size++ == 0)
 		return 0;
-	cmdline_size++;
 
-	cmdline_hashtable = hashtable_create(5, sizeof(char*));
+	/* Hastable with 10 nodes is probably more than enough */
+	cmdline_hashtable = hashtable_create(10, sizeof(char*));
 	if (!cmdline_hashtable)
 		return -ENOMEM;
 
-	/* 
-	 * Don't want to modify the cmdline directly, so make a copy of it. Use vmap over kmalloc
-	 * since after we're done parsing, the memory becomes read only.
-	 */
+	/* Create a writable copy, this will be tokenized and made read only */
 	char* cmdline_copy = vmap(NULL, cmdline_size, MMU_READ | MMU_WRITE, VMM_ALLOC, NULL);
-	char* const cmdline_copy_copy = cmdline_copy;
+	char* const cmdline_base = cmdline_copy;
 	if (!cmdline_copy)
 		return -ENOMEM;
 	strcpy(cmdline_copy, cmdline);
 
-	const char* key;
-	const char* value;
-
 	int err = 0;
-	while (*cmdline_copy) {
-		while (*cmdline_copy == ' ')
-			cmdline_copy++;
-		if (*cmdline_copy == '\0')
-			goto leave;
+	char* save_outer = NULL;
+	for (char* tok = strtok_r(cmdline_copy, " ", &save_outer); tok != NULL; tok = strtok_r(NULL, " ", &save_outer)) {
+		char* save_inner = NULL;
+		char* key = strtok_r(tok, "=", &save_inner);
+		char* value = strtok_r(NULL, "=", &save_inner);
+		if (!key || !value)
+			break;
 
-		/* Parse the option part of the argument */
-		key = cmdline_copy;
-		while (*cmdline_copy != '=') {
-			if (*cmdline_copy == '\0')
-				goto leave;
-			cmdline_copy++;
-		}
-
-		/* Replace the equals sign with a null terminator */
-		*cmdline_copy = '\0';
-		value = ++cmdline_copy;
-
-		/* Now parse the value of the option we want */
-		while (*cmdline_copy != ' ') {
-			if (*cmdline_copy == '\0') {
-				/* Just insert the last option and then exit */
-				err = hashtable_insert(cmdline_hashtable, key, strlen(key), &value);
-				if (err)
-					goto leave;
-				goto leave;
-			}
-			cmdline_copy++;
-		}
-
-		/* Replace the space with a null character, and then insert the value into the hashtable */
-		*cmdline_copy = '\0';
 		err = hashtable_insert(cmdline_hashtable, key, strlen(key), &value);
 		if (err)
-			goto leave;
-
-		cmdline_copy++;
+			break;
 	}
 
-	int kprotect_err;
-leave:
-	kprotect_err = vprotect(cmdline_copy_copy, cmdline_size, MMU_READ, 0);
-	if (kprotect_err)
+	if (unlikely(vprotect(cmdline_base, cmdline_size, MMU_READ, 0)))
 		printk(PRINTK_ERR "core: Failed to remap command line arguments as read only!\n");
 	return err;
 }
