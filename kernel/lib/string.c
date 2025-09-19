@@ -49,6 +49,16 @@ int memcmp(const void* b1, const void* b2, size_t count) {
 	return 0;
 }
 
+void* memchr(const void* ptr, int val, size_t count) {
+	const u8* p = ptr;
+	while (count--) {
+		if (*p == (u8)val)
+			return (void*)p;
+		p++;
+	}
+	return NULL;
+}
+
 size_t strlen(const char* str) {
 	size_t len = 0;
 	while (str[len])
@@ -158,4 +168,31 @@ int strncmp(const char* s1, const char* s2, size_t count) {
 	}
 
 	return c1 - c2;
+}
+
+char* strchr(const char* str, int c) {
+	while (*str != (char)c) {
+		if (*str == '\0')
+			return NULL;
+		str++;
+	}
+	return (char*)str;
+}
+
+char* strtok_r(char* str, const char* delim, char** saveptr) {
+	char* ret;
+	if (!str)
+		str = *saveptr;
+	while (*str && strchr(delim, *str))
+		str++;
+	if (*str == '\0')
+		return NULL;
+
+	ret = str;
+	while (*str && !strchr(delim, *str))
+		str++;
+	if (*str)
+		*str++ = '\0';
+	*saveptr = str;
+	return ret;
 }

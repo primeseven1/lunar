@@ -58,6 +58,17 @@ void* memmove(void* dest, const void* src, size_t count);
 int memcmp(const void* b1, const void* b2, size_t count);
 
 /**
+ * @brief Find a byte in a memory block
+ *
+ * @param ptr The pointer to the block
+ * @param val The byte to search for
+ * @param count The number of bytes in the memory block
+ *
+ * @return A pointer to the first occurrence of the value, or NULL
+ */
+void* memchr(const void* ptr, int val, size_t count);
+
+/**
  * @brief Get the length of a null terminated string
  * @param str The string to get the length of
  * @return The length of the string excluding the null terminator
@@ -177,3 +188,24 @@ int strcmp(const char* s1, const char* s2);
  * @return The difference of the last compared character
  */
 int strncmp(const char* s1, const char* s2, size_t count);
+
+/**
+ * @brief Look for a character in a string
+ *
+ * @param str The string
+ * @param c The character to look for
+ *
+ * @return Pointer to the first occurrence of the character, or NULL
+ */
+char* strchr(const char* str, int c);
+
+/**
+ * @brief Tokenize a string into substrings using delimiters
+ *
+ * @param str The string to tokenize on first call, NULL to continue.
+ * @param delim A string that has delimiter characters to separate tokens
+ * @param saveptr A pointer to be used internally to maintain successive calls
+ *
+ * @return A pointer to the next token, or NULL if there are no more tokens
+ */
+char* strtok_r(char* str, const char* delim, char** saveptr);
