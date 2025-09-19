@@ -33,6 +33,8 @@ typedef int i32;
 typedef unsigned int u32;
 typedef long i64;
 typedef unsigned long u64;
+typedef __int128_t i128;
+typedef __uint128_t u128;
 
 #define U8_MAX UCHAR_MAX
 #define I8_MAX SCHAR_MAX
