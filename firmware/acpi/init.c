@@ -1,3 +1,5 @@
+#include <crescent/core/cmdline.h>
+
 #include <acpi/acpi_init.h>
 #include <uacpi/uacpi.h>
 #include <uacpi/context.h>
@@ -22,8 +24,26 @@ uacpi_status acpi_finish_init(void) {
 	return UACPI_STATUS_OK;
 }
 
+static uacpi_log_level get_loglevel_from_cmdline(void) {
+	const char* acpi_log_level = cmdline_get("acpi.loglevel");
+	if (!acpi_log_level)
+		return UACPI_LOG_ERROR;
+
+	uacpi_log_level level = *acpi_log_level - '0';
+	switch (level) {
+	case UACPI_LOG_TRACE:
+	case UACPI_LOG_DEBUG:
+	case UACPI_LOG_ERROR:
+	case UACPI_LOG_WARN:
+	case UACPI_LOG_INFO:
+		return level;
+	}
+
+	return UACPI_LOG_ERROR;
+}
+
 uacpi_status acpi_early_init(void) {
-	uacpi_context_set_log_level(UACPI_LOG_TRACE);
+	uacpi_context_set_log_level(get_loglevel_from_cmdline());
 	uacpi_context_set_proactive_table_checksum(UACPI_TRUE);
 	uacpi_initialize(0);
 	return 0;
