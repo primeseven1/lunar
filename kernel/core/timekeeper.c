@@ -29,18 +29,19 @@ static struct timekeeper* get_timekeeper(bool early) {
 	return best;
 }
 
+static inline time_t scale_ticks_to_ns(time_t ticks, unsigned long long freq) {
+	i128 tmp = (i128)ticks * 1000000000ull;
+	return tmp / freq;
+}
+
 struct timespec timekeeper_time(void) {
 	unsigned long irq = local_irq_save();
 
 	struct timekeeper_source* timekeeper = current_cpu()->timekeeper;
-	time_t ticks = 0;
-	if (timekeeper)
-		ticks = timekeeper->get_ticks();
+	time_t ticks = timekeeper ? ticks = timekeeper->get_ticks() : 0;
+	time_t nsec = ticks ? scale_ticks_to_ns(ticks, timekeeper->freq) : 0;
 
-	/* Not converting to nanoseconds first can break some timekeepers */
-	time_t nsec = ticks ? (ticks * 1000000000ull) / timekeeper->freq : 0;
 	local_irq_restore(irq);
-
 	return (struct timespec){ .tv_sec = nsec / 1000000000ull, .tv_nsec = nsec % 1000000000ull };
 }
 
