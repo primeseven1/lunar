@@ -1,21 +1,27 @@
 #include <crescent/core/timekeeper.h>
 #include <crescent/core/cpu.h>
+#include <crescent/core/cmdline.h>
 #include <crescent/asm/cpuid.h>
 #include <crescent/mm/heap.h>
 
 static bool tsc_usable(void) {
+	/* On CPU's with multiple cores, the TSC's may have issues with drift, so this timekeeper can be disabled */
+	const char* cmdline_tsc = cmdline_get("timekeeper.tsc_enable");
+	if (cmdline_tsc && *cmdline_tsc == '0')
+		return false;
+
 	u32 eax, edx, _unused;
 	cpuid(CPUID_EXT_LEAF_HIGHEST_FUNCTION, 0, &eax, &_unused, &_unused, &_unused);
 	if (eax < CPUID_EXT_LEAF_PM_FEATURES)
 		return false;
 
 	cpuid(CPUID_EXT_LEAF_PM_FEATURES, 0, &_unused, &_unused, &_unused, &edx);
-	return !!(edx & (1 << 8));
+	return !!(edx & (1 << 8)); /* Check for invariant TSC */
 }
 
 static u64 rdtsc_serialized(void) {
 	u32 low, high;
-	__asm__("cpuid\n\t" 
+	__asm__("cpuid\n\t" /* cpuid is a serializing instruction */
 			"rdtsc\n\t"
 			: "=a"(low), "=d"(high)
 			:
@@ -23,40 +29,38 @@ static u64 rdtsc_serialized(void) {
 	return ((u64)high << 32) | low;
 }
 
+struct tsc_priv {
+	u64 offset;
+};
+
 static time_t get_ticks(void) {
 	struct timekeeper_source* source = current_cpu()->timekeeper;
-	time_t offset;
-	if (sizeof(time_t) <= sizeof(source->private))
-		offset = (time_t)source->private;
-	else
-		offset = *(time_t*)source->private;
+	u64 offset = ((struct tsc_priv*)source->private)->offset;
 	return rdtsc_serialized() - offset;
 }
 
 static inline unsigned long long get_freq_from_cpuid(u32 eax, u32 ebx, u32 ecx) {
 	if (eax == 0 || ebx == 0 || ecx == 0)
 		return 0;
-	return ecx * ebx / eax;
+
+	return (unsigned long long)ecx * ebx / eax;
 }
 
 static inline unsigned long long get_freq_from_calibration(void) {
-	time_t usec = 10000;
+	time_t usec = 100000;
 	u64 start = rdtsc_serialized();
-	timekeeper_stall(usec);
+	timekeeper_stall(usec); /* Safe since this isn't suitable as an early timekeeper */
 	u64 end = rdtsc_serialized();
-	return (time_t)((end - start) * 1000000ull / usec);
+	return (unsigned long long)((end - start) * 1000000ull / usec);
 }
 
-static time_t get_bsp_offset(void) {
+static u64 get_bsp_offset(void) {
 	if (current_cpu()->sched_processor_id == 0)
 		return rdtsc_serialized();
 
 	const struct smp_cpus* cpus = smp_cpus_get();
 	struct cpu* bsp = cpus->cpus[0];
-	if (sizeof(time_t) <= sizeof(bsp->timekeeper->private))
-		return (time_t)bsp->timekeeper->private;
-
-	return *(time_t*)bsp->timekeeper->private;
+	return ((struct tsc_priv*)bsp->timekeeper->private)->offset;
 }
 
 static int init(struct timekeeper_source** out) {
@@ -80,17 +84,12 @@ static int init(struct timekeeper_source** out) {
 		freq = get_freq_from_calibration();
 	}
 
-	time_t off = get_bsp_offset();
-	if (sizeof(time_t) <= sizeof(source->private)) {
-		source->private = (void*)(time_t)off;
-	} else {
-		source->private = kmalloc(sizeof(time_t), MM_ZONE_NORMAL);
-		if (!source->private) {
-			kfree(source);
-			return -ENOMEM;
-		}
-		*(time_t*)source->private = (time_t)off;
+	source->private = kmalloc(sizeof(struct tsc_priv), MM_ZONE_NORMAL);
+	if (!source->private) {
+		kfree(source);
+		return -ENOMEM;
 	}
+	((struct tsc_priv*)source->private)->offset = get_bsp_offset();
 
 	source->get_ticks = get_ticks;
 	source->freq = freq;
