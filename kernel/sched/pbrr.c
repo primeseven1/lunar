@@ -154,7 +154,7 @@ static struct thread* pbrr_pick_next(struct runqueue* rq) {
 
 	/* Pop a thread from the priority queue */
 	struct rr_thread* next_rrt = pop_head_and_maybe_clear(rrq, p);
-	assert(next_rrt != NULL); /* Well, I guess the bitmap lied to us!! */
+	bug(next_rrt == NULL); /* Well, I guess the bitmap lied to us!! */
 
 	if (rrq->prio_budget[p] > 0)
 		rrq->prio_budget[p]--;
@@ -171,14 +171,17 @@ static int pbrr_change_prio(struct runqueue* rq, struct thread* thread, int posi
 
 	if (rrt->prio == prio)
 		return 0;
+
+	/* If not the current thread, add to the other list */
 	if (list_node_linked(&rrt->link)) {
 		list_remove(&rrt->link);
 		if (list_empty(&rrq->queues[rrt->prio]))
 			rrq->active_bitmap &= ~(1ul << rrt->prio);
+		list_add_tail(&rrq->queues[prio], &rrt->link);
+		if (!list_empty(&rrq->queues[prio]))
+			rrq->active_bitmap |= (1ul << prio);
 	}
 	rrt->prio = prio;
-	list_add_tail(&rrq->queues[prio], &rrt->link);
-	rrq->active_bitmap |= (1ul << prio);
 
 	return 0;
 }
