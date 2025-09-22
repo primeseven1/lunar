@@ -117,6 +117,8 @@ _Noreturn __asmlinkage void kernel_main(void) {
 	cpu_startup_aps();
 	init_status_set(INIT_STATUS_SCHED);
 
+	sched_change_prio(current_thread(), SCHED_PRIO_MAX);
+
 	pci_init();
 	acpi_status = acpi_finish_init();
 	if (unlikely(acpi_status != UACPI_STATUS_OK))
