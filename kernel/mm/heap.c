@@ -2,17 +2,20 @@
 #include <crescent/core/printk.h>
 #include <crescent/core/panic.h>
 #include <crescent/core/cpu.h>
+#include <crescent/init/status.h>
+#include <crescent/sched/kthread.h>
 #include <crescent/mm/heap.h>
 #include <crescent/mm/slab.h>
 #include <crescent/lib/string.h>
 
-#define HEAP_CANARY_VALUE 0xdecafc0ffeeUL
+#define HEAP_CANARY_XOR 0xdecafc0ffeeUL
 #define HEAP_ALIGN 16
 #define OBJ_SIZE_SLACK 128
 
 struct mempool {
-	struct slab_cache* cache;
-	atomic(unsigned long) refcount;
+	struct slab_cache* cache; /* Slab cache backing */
+	atomic(unsigned long) refcount; /* Will only ever increase when mempool_lock is locked */
+	bool destroy_thread_exists; /* Prevents creating several deleter threads, modified/read only under the mempool lock */
 	struct list_node link;
 };
 
@@ -55,8 +58,10 @@ static struct mempool* walk_mempools(size_t size, mm_t mm_flags) {
 		goto leave;
 	}
 
-	list_add(&mempool_head, &new_pool->link);
+	new_pool->destroy_thread_exists = false;
 	atomic_store(&new_pool->refcount, 1);
+	list_node_init(&new_pool->link);
+	list_add(&mempool_head, &new_pool->link);
 leave:
 	mutex_unlock(&mempool_lock);
 	if (new_pool)
@@ -65,24 +70,63 @@ leave:
 	return new_pool;
 }
 
+static inline void delete_mempool(struct mempool* pool) {
+	size_t cache_size = pool->cache->obj_size;
+	bug(slab_cache_destroy(pool->cache) != 0);
+	printk(PRINTK_DBG "mm: Successfully destroyed heap pool with a size of %zu\n", cache_size);
+	list_remove(&pool->link);
+	slab_cache_free(self_mempool.cache, pool);
+}
+
+static int deleter_thread(void* arg) {
+	struct mempool* pool = arg;
+
+	/* Sleep for 100 ms and then try to delete, to avoid recreating mempools constantly */
+	sched_prepare_sleep(200, 0);
+	schedule();
+
+	mutex_lock(&mempool_lock);
+
+	pool->destroy_thread_exists = false;
+	if (atomic_load(&pool->refcount))
+		goto out;
+
+	delete_mempool(pool);
+out:
+	mutex_unlock(&mempool_lock);
+	kthread_exit(0);
+}
+
 static void attempt_delete_mempool(struct mempool* pool) {
 	mutex_lock(&mempool_lock);
 
+	bool create_thread = false;
 	if (atomic_load(&pool->refcount))
 		goto leave;
-
-	size_t obj_size = pool->cache->obj_size;
-	int err = slab_cache_destroy(pool->cache);
-	if (unlikely(err)) {
-		assert(err != -EWOULDBLOCK);
+	if (pool->destroy_thread_exists)
 		goto leave;
-	}
+	create_thread = true;
 
-	list_remove(&pool->link);
-	slab_cache_free(self_mempool.cache, pool);
-	printk(PRINTK_DBG "mm: Successfully destroyed heap pool with a size of %zu\n", obj_size);
+	if (init_status_get() >= INIT_STATUS_SCHED) {
+		pool->destroy_thread_exists = true;
+	} else {
+		delete_mempool(pool);
+		create_thread = false;
+	}
 leave:
 	mutex_unlock(&mempool_lock);
+
+	/* kthread_create may result in a code path that calls kmalloc, so unlock first to avoid a deadlock */
+	if (create_thread) {
+		tid_t id = kthread_create(0, deleter_thread, pool, "pool-deleter");
+		if (id >= 0) {
+			kthread_detach(id);
+		} else { /* On failure, we don't really care, we'll just try again on another alloc/free */
+			mutex_lock(&mempool_lock);
+			pool->destroy_thread_exists = false;
+			mutex_unlock(&mempool_lock);
+		}
+	}
 }
 
 struct alloc_info {
@@ -103,7 +147,7 @@ void* kmalloc(size_t size, mm_t mm_flags) {
 
 	struct alloc_info* alloc_info;
 	struct mempool* pool = NULL;
-	if (size <= SHRT_MAX) {
+	if (total_size <= SHRT_MAX) {
 		pool = walk_mempools(total_size, mm_flags);
 		if (!pool)
 			return NULL;
@@ -125,28 +169,31 @@ void* kmalloc(size_t size, mm_t mm_flags) {
 	u8* ret = (u8*)(alloc_info + 1);
 
 	size_t* canary_value = (size_t*)(ret + size);
-	*canary_value = HEAP_CANARY_VALUE;
+	*canary_value = (uintptr_t)ret ^ HEAP_CANARY_XOR;
 
 	return ret;
 }
 
 void kfree(void* ptr) {
-	struct alloc_info* alloc_info = (struct alloc_info*)ptr - 1;
+	if (!ptr) {
+		printk(PRINTK_ERR "mm: NULL pointer passed to kfree!\n");
+		return;
+	}
 
+	struct alloc_info* alloc_info = (struct alloc_info*)ptr - 1;
 	size_t* canary_value = (size_t*)((u8*)ptr + alloc_info->size);
-	assert(*canary_value == HEAP_CANARY_VALUE);
+	bug(*canary_value != ((uintptr_t)ptr ^ HEAP_CANARY_XOR));
 
 	struct mempool* pool = alloc_info->pool;
 	if (!pool) {
 		size_t total_size;
-		assert(__builtin_add_overflow(alloc_info->size, sizeof(struct alloc_info) + sizeof(size_t), &total_size) == false);
-		assert(vunmap(alloc_info, total_size, 0) == 0);
-		return;
+		bug(__builtin_add_overflow(alloc_info->size, sizeof(struct alloc_info) + sizeof(size_t), &total_size) == true); /* Also a check for corruption */
+		bug(vunmap(alloc_info, total_size, 0) != 0); /* Bad pointer, but it happens to be mapped since a page fault would happen if not */
+	} else {
+		slab_cache_free(pool->cache, alloc_info);
+		if (atomic_sub_fetch(&pool->refcount, 1) == 0)
+			attempt_delete_mempool(alloc_info->pool);
 	}
-
-	slab_cache_free(pool->cache, alloc_info);
-	if (atomic_sub_fetch(&pool->refcount, 1) == 0)
-		attempt_delete_mempool(alloc_info->pool);
 }
 
 void* krealloc(void* old, size_t new_size, mm_t mm_flags) {
@@ -161,8 +208,6 @@ void* krealloc(void* old, size_t new_size, mm_t mm_flags) {
 
 	struct alloc_info* old_alloc_info = (struct alloc_info*)old - 1;
 	size_t old_size = old_alloc_info->size;
-	if (old_size == new_size && old_alloc_info->pool->cache->mm_flags == mm_flags)
-		return old;
 
 	void* new = kmalloc(new_size, mm_flags);
 	if (!new)
@@ -177,5 +222,6 @@ void* krealloc(void* old, size_t new_size, mm_t mm_flags) {
 
 void heap_init(void) {
 	self_mempool.cache = slab_cache_create(sizeof(struct mempool), HEAP_ALIGN, MM_ZONE_NORMAL, NULL, NULL);
-	assert(self_mempool.cache != NULL);
+	if (!self_mempool.cache)
+		panic("Failed to create self mempool cache!");
 }
