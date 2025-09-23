@@ -2,7 +2,7 @@
 #include <lunar/sched/preempt.h>
 #include <lunar/core/cpu.h>
 
-static softirq_handler_t softirq_vec[SOFTIRQ_COUNT];
+static softirq_handler_t softirq_vec[SOFTIRQ_COUNT] = { NULL };
 
 int register_softirq(softirq_handler_t action, int type) {
 	if (type < 0 || type >= SOFTIRQ_COUNT)
