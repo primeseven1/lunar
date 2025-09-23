@@ -12,6 +12,7 @@
 #include <lunar/init/status.h>
 #include <lunar/mm/vmm.h>
 #include <lunar/sched/scheduler.h>
+#include <lunar/sched/preempt.h>
 #include <lunar/lib/string.h>
 #include "traps.h"
 #include "i8259.h"
@@ -215,20 +216,28 @@ int interrupt_allow_entry_if_synced(struct isr* isr) {
 }
 
 static bool irq_enter(struct isr* isr) {
-	if (interrupt_get_vector(isr) < INTERRUPT_EXCEPTION_COUNT || isr->irq.irq == -1)
+	if (interrupt_get_vector(isr) < INTERRUPT_EXCEPTION_COUNT || isr->irq.irq == -1) {
+		if (init_status_get() >= INIT_STATUS_SCHED)
+			current_thread()->preempt_count += HARDIRQ_OFFSET;
 		return true;
+	}
 
 	spinlock_lock(&isr->lock);
 
 	bool can_enter = atomic_load(&isr->inflight) >= 0;
-	if (can_enter)
+	if (can_enter) {
+		if (init_status_get() >= INIT_STATUS_SCHED)
+			current_thread()->preempt_count += HARDIRQ_OFFSET;
 		atomic_add_fetch(&isr->inflight, 1);
+	}
 
 	spinlock_unlock(&isr->lock);
 	return can_enter;
 }
 
 static void irq_exit(struct isr* isr) {
+	if (init_status_get() >= INIT_STATUS_SCHED)
+		current_thread()->preempt_count -= HARDIRQ_OFFSET;
 	if (interrupt_get_vector(isr) >= INTERRUPT_EXCEPTION_COUNT && isr->irq.irq != -1)
 		atomic_sub_fetch(&isr->inflight, 1);
 }
@@ -267,7 +276,7 @@ void __asmlinkage __isr_entry(struct context* ctx) {
 	if (unlikely(bad_cpu)) /* NMI or MCE, not safe to reschedule */
 		swap_cpu();
 	else if (current_cpu()->need_resched)
-		schedule();
+		schedule(); /* Safe here, in_interrupt() returns false after irq_exit() */
 }
 
 __diag_pop();
