@@ -47,5 +47,6 @@ void preempt_cpu_init(void) {
 
 	printk(PRINTK_DBG "sched: LAPIC timer calibrated at %u ticks per %u us on CPU %u\n", 
 			ticks, TIMER_TRIGGER_TIME_USEC, current_cpu()->sched_processor_id);
-	bug(register_softirq(sched_tick, SOFTIRQ_TIMER) != 0);
+	if (current_cpu()->sched_processor_id == 0)
+		bug(register_softirq(sched_tick, SOFTIRQ_TIMER) != 0);
 }
