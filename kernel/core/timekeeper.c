@@ -35,7 +35,7 @@ static inline time_t scale_ticks_to_ns(time_t ticks, unsigned long long freq) {
 }
 
 struct timespec timekeeper_time(void) {
-	unsigned long irq = local_irq_save();
+	irqflags_t irq = local_irq_save();
 
 	struct timekeeper_source* timekeeper = current_cpu()->timekeeper;
 	time_t ticks = timekeeper ? ticks = timekeeper->get_ticks() : 0;
@@ -46,7 +46,7 @@ struct timespec timekeeper_time(void) {
 }
 
 void timekeeper_stall(time_t usec) {
-	unsigned long irq_state = local_irq_save();
+	irqflags_t irq_state = local_irq_save();
 
 	struct timekeeper_source* timekeeper = current_cpu()->timekeeper;
 	bug(timekeeper == NULL); /* Trying to stall with no timekeeper when expecting a real stall can be bad */

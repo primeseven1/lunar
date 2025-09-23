@@ -67,11 +67,20 @@ struct isr {
 
 /**
  * @brief Allocate an interrupt
+ *
+ * This function tries to allocate an interrupt from one of the
+ * available 256 vectors. After allocating, register the interrupt with
+ * interrupt_register().
+ *
+ * @return Unlikely to return NULL
  */
 struct isr* interrupt_alloc(void);
 
 /**
- * @brief Free an interrupt structure
+ * @brief Free an interrupt
+ *
+ * Make sure to call interrupt_unregister() first!
+ *
  * @param isr The ISR to free
  *
  * @retval 0 Success
@@ -99,7 +108,8 @@ int interrupt_register(struct isr* isr, void (*func)(struct isr*, struct context
  * @brief Unregister an interrupt
  *
  * Software generated IRQ's and exceptions cannot be unregistered.
- * Same with interrupts that cannot be masked.
+ * Same with interrupts that cannot be masked. The reason for this is that the interrupt
+ * will be synced before unregistering.
  *
  * @param isr The ISR to unregister
  *
@@ -113,7 +123,8 @@ int interrupt_unregister(struct isr* isr);
 /**
  * @brief Wait for ISR's to finish execution
  *
- * Not safe to call from an interrupt context.
+ * Not safe to call from an interrupt context. This function does NOT wait
+ * for pending softirq's or work scheduled with sched_workqueue_add
  *
  * @param isr The ISR to wait for
  *
@@ -141,28 +152,3 @@ int interrupt_get_vector(const struct isr* isr);
 
 void interrupts_cpu_init(void);
 void interrupts_init(void);
-
-/**
- * @brief Enable interrupts on the current processor
- */
-static inline void local_irq_enable(void) {
-	__asm__ volatile("sti" : : : "memory");
-}
-
-/**
- * @brief Disable interrupts on the current processor
- */
-static inline void local_irq_disable(void) {
-	__asm__ volatile("cli" : : : "memory");
-}
-
-static inline unsigned long local_irq_save(void) {
-	unsigned long flags = read_cpu_flags();
-	local_irq_disable();
-	return flags;
-}
-
-static inline void local_irq_restore(unsigned long flags) {
-	if (flags & CPU_FLAG_INTERRUPT)
-		local_irq_enable();
-}

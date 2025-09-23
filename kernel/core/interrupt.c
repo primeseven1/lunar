@@ -80,7 +80,7 @@ int interrupt_get_vector(const struct isr* isr) {
 }
 
 struct isr* interrupt_alloc(void) {
-	unsigned long irq;
+	irqflags_t irq;
 	spinlock_lock_irq_save(&isr_free_list_lock, &irq);
 
 	struct isr* isr;
@@ -104,7 +104,7 @@ int interrupt_free(struct isr* isr) {
 	if (vector == INT_MAX || vector < INTERRUPT_EXCEPTION_COUNT)
 		return -EINVAL;
 
-	unsigned long irq;
+	irqflags_t irq;
 	spinlock_lock_irq_save(&isr_free_list_lock, &irq);
 	isr_free_list[vector] = false;
 	spinlock_unlock_irq_restore(&isr_free_list_lock, &irq);
@@ -185,7 +185,7 @@ int interrupt_synchronize(struct isr* isr) {
 	if (vector == INT_MAX || isr->irq.irq == -1)
 		return -EINVAL;
 
-	unsigned long irq;
+	irqflags_t irq;
 	spinlock_lock_irq_save(&isr->lock, &irq);
 
 	if (atomic_load(&isr->inflight) >= 0)
@@ -203,7 +203,7 @@ int interrupt_allow_entry_if_synced(struct isr* isr) {
 	if (interrupt_get_vector(isr) == INT_MAX || isr->irq.irq == -1)
 		return -EINVAL;
 
-	unsigned long irq;
+	irqflags_t irq;
 	spinlock_lock_irq_save(&isr->lock, &irq);
 
 	int err = 0;

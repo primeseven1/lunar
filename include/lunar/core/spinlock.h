@@ -1,6 +1,6 @@
 #pragma once
 
-#include <lunar/types.h>
+#include <lunar/core/irq.h>
 
 typedef atomic(bool) spinlock_t;
 
@@ -33,7 +33,7 @@ bool spinlock_try_lock(spinlock_t* lock);
  * @param lock The lock to acquire
  * @param flags A pointer to a stack allocated variable for the IRQ state
  */
-void spinlock_lock_irq_save(spinlock_t* lock, unsigned long* flags);
+void spinlock_lock_irq_save(spinlock_t* lock, irqflags_t* flags);
 
 /**
  * @brief Release a spinlock, and restore the IRQ state
@@ -41,7 +41,7 @@ void spinlock_lock_irq_save(spinlock_t* lock, unsigned long* flags);
  * @param lock The lock to release
  * @param flags The pointer to the IRQ state
  */
-void spinlock_unlock_irq_restore(spinlock_t* lock, unsigned long* flags);
+void spinlock_unlock_irq_restore(spinlock_t* lock, irqflags_t* flags);
 
 /**
  * @brief Try acquiring a spinlock, save and disable the IRQ state, and restore IRQ's on failure
@@ -52,7 +52,7 @@ void spinlock_unlock_irq_restore(spinlock_t* lock, unsigned long* flags);
  * @retval true The lock was acquired, and IRQ's are disabled
  * @retval false The lock could not be acquired, and the IRQ state is what it was before trying the lock
  */
-bool spinlock_try_lock_irq_save(spinlock_t* lock, unsigned long* flags);
+bool spinlock_try_lock_irq_save(spinlock_t* lock, irqflags_t* flags);
 
 static inline void spinlock_init(spinlock_t* lock) {
 	atomic_store_explicit(lock, false, ATOMIC_RELAXED);

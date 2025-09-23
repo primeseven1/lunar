@@ -235,7 +235,7 @@ int apic_send_ipi(struct cpu* target_cpu, const struct isr* isr, int targets, bo
 	if (maskable && vector == 0)
 		return -EINVAL;
 
-	unsigned long irq = local_irq_save();
+	irqflags_t irq = local_irq_save();
 	lapic_send_ipi(id, vector, delivm, APIC_TRIGGER_EDGE, targets);
 	local_irq_restore(irq);
 

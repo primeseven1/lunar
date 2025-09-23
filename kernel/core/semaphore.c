@@ -2,7 +2,7 @@
 #include <lunar/sched/kthread.h>
 
 int semaphore_wait(struct semaphore* sem, int flags) {
-	unsigned long irq;
+	irqflags_t irq;
 	spinlock_lock_irq_save(&sem->lock, &irq);
 
 	if (--sem->count < 0) {
@@ -30,7 +30,7 @@ int semaphore_wait(struct semaphore* sem, int flags) {
 }
 
 int semaphore_wait_timed(struct semaphore *sem, time_t timeout_ms, int flags) {
-	unsigned long irq;
+	irqflags_t irq;
 	int reason = 0;
 	struct thread* thread = current_thread();
 
@@ -69,7 +69,7 @@ int semaphore_wait_timed(struct semaphore *sem, time_t timeout_ms, int flags) {
 }
 
 void semaphore_signal(struct semaphore* sem) {
-	unsigned long irq;
+	irqflags_t irq;
 	spinlock_lock_irq_save(&sem->lock, &irq);
 
 	if (++sem->count <= 0 && !list_empty(&sem->wait_queue)) {
@@ -82,7 +82,7 @@ void semaphore_signal(struct semaphore* sem) {
 }
 
 int semaphore_reset(struct semaphore* sem) {
-	unsigned long irq;
+	irqflags_t irq;
 	spinlock_lock_irq_save(&sem->lock, &irq);
 
 	int ret = -EBUSY;
@@ -99,7 +99,7 @@ out:
 bool semaphore_try(struct semaphore* sem) {
 	bool ret = false;
 
-	unsigned long irq;
+	irqflags_t irq;
 	spinlock_lock_irq_save(&sem->lock, &irq);
 
 	if (sem->count > 0) {

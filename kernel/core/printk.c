@@ -12,7 +12,7 @@ static void (*printk_hooks[5])(const struct printk_msg*) = { 0 };
 static unsigned int printk_level = CONFIG_PRINTK_LEVEL;
 
 int printk_set_hook(void (*hook)(const struct printk_msg*)) {
-	unsigned long flags;
+	irqflags_t flags;
 	spinlock_lock_irq_save(&printk_lock, &flags);
 
 	int ret = -ENOSPC;
@@ -36,7 +36,7 @@ out:
 }
 
 int printk_remove_hook(void (*hook)(const struct printk_msg*)) {
-	unsigned long flags;
+	irqflags_t flags;
 	spinlock_lock_irq_save(&printk_lock, &flags);
 
 	int ret = -EFAULT;
@@ -56,7 +56,7 @@ int printk_set_level(unsigned int level) {
 	if (level > PRINTK_DBG_N)
 		return -EINVAL;
 
-	unsigned long flags;
+	irqflags_t flags;
 	spinlock_lock_irq_save(&printk_lock, &flags);
 	printk_level = level;
 	spinlock_unlock_irq_restore(&printk_lock, &flags);
@@ -84,7 +84,7 @@ static const char* printk_level_string(unsigned int level) {
 }
 
 int vprintk(const char* fmt, va_list va) {
-	unsigned long flags;
+	irqflags_t flags;
 	spinlock_lock_irq_save(&printk_lock, &flags);
 
 	char* buf = printk_buf;

@@ -24,7 +24,7 @@ int term_driver_register(void (*write)(const char*, size_t)) {
 
 	int ret = 0;
 
-	unsigned long flags;
+	irqflags_t flags;
 	spinlock_lock_irq_save(&hooks_lock, &flags);
 
 	struct term_hook* pos;
@@ -45,7 +45,7 @@ out:
 }
 
 void term_write(const char* str, size_t count) {
-	unsigned long flags;
+	irqflags_t flags;
 	spinlock_lock_irq_save(&hooks_lock, &flags);
 
 	struct list_node* pos;
