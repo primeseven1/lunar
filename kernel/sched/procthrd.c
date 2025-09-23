@@ -127,7 +127,7 @@ struct proc* proc_create(void) {
 	if (!proc)
 		return NULL;
 
-	unsigned long irq;
+	irqflags_t irq;
 	spinlock_lock_irq_save(&pid_lock, &irq);
 	proc->pid = alloc_id(pid_map, pid_max);
 	spinlock_unlock_irq_restore(&pid_lock, &irq);
@@ -157,7 +157,7 @@ int proc_destroy(struct proc* proc) {
 	if (atomic_load(&proc->thread_count))
 		return -EBUSY;
 
-	unsigned long irq;
+	irqflags_t irq;
 	spinlock_lock_irq_save(&pid_lock, &irq);
 	free_id(pid_map, proc->pid, pid_max);
 	spinlock_unlock_irq_restore(&pid_lock, &irq);
@@ -169,7 +169,7 @@ int proc_destroy(struct proc* proc) {
 
 int thread_attach_to_proc(struct thread* thread) {
 	struct proc* proc = thread->proc;
-	unsigned long irq;
+	irqflags_t irq;
 	spinlock_lock_irq_save(&proc->thread_lock, &irq);
 
 	int err = 0;
@@ -188,7 +188,7 @@ err:
 
 int thread_detach_from_proc(struct thread* thread) {
 	struct proc* proc = thread->proc;
-	unsigned long irq;
+	irqflags_t irq;
 	spinlock_lock_irq_save(&proc->thread_lock, &irq);
 
 	int err = 0;

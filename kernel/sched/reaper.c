@@ -19,7 +19,7 @@ static int reaper_thread(void* arg) {
 	while (init_status_get() < INIT_STATUS_SCHED)
 		cpu_relax();
 
-	unsigned long irq;
+	irqflags_t irq;
 	struct runqueue* rq = &current_cpu()->runqueue;
 	bool sleep = true;
 	while (1) {

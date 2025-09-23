@@ -4,7 +4,7 @@
 #include <lunar/core/cpu.h>
 
 static inline struct thread* current_thread(void) {
-	unsigned long irq = local_irq_save();
+	irqflags_t irq = local_irq_save();
 	struct thread* current = current_cpu()->runqueue.current;
 	local_irq_restore(irq);
 	return current;

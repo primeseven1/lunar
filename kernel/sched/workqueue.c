@@ -21,7 +21,7 @@ static int worker_thread(void* arg) {
 		semaphore_wait(sem, 0);
 		struct work work;
 
-		unsigned long irq;
+		irqflags_t irq;
 		spinlock_lock_irq_save(lock, &irq);
 		if (ringbuffer_dequeue(ringbuffer, &work) != 0) {
 			spinlock_unlock_irq_restore(lock, &irq);
@@ -40,7 +40,7 @@ static int __sched_workqueue_add(struct ringbuffer* wq,
 	int ret = 0;
 	struct work work = { .fn = fn, .arg = arg };
 
-	unsigned long irq;
+	irqflags_t irq;
 	spinlock_lock_irq_save(wq_lock, &irq);
 
 	if (ringbuffer_enqueue(wq, &work) != 0)

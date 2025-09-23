@@ -32,7 +32,7 @@ int sched_thread_attach(struct runqueue* rq, struct thread* thread, int prio) {
 	if (prio > SCHED_PRIO_MAX)
 		prio = SCHED_PRIO_MAX;
 
-	unsigned long irq;
+	irqflags_t irq;
 	spinlock_lock_irq_save(&rq->lock, &irq);
 	if (rq->policy->ops->thread_attach)
 		rq->policy->ops->thread_attach(rq, thread, prio);
@@ -44,7 +44,7 @@ int sched_thread_attach(struct runqueue* rq, struct thread* thread, int prio) {
 }
 
 void sched_thread_detach(struct runqueue* rq, struct thread* thread) {
-	unsigned long irq;
+	irqflags_t irq;
 	spinlock_lock_irq_save(&rq->lock, &irq);
 	if (rq->policy->ops->thread_detach)
 		rq->policy->ops->thread_detach(rq, thread);
@@ -63,7 +63,7 @@ void sched_thread_detach(struct runqueue* rq, struct thread* thread) {
 }
 
 int sched_enqueue(struct runqueue* rq, struct thread* thread) {
-	unsigned long irq;
+	irqflags_t irq;
 	spinlock_lock_irq_save(&rq->lock, &irq);
 
 	assert(thread->attached);
@@ -82,7 +82,7 @@ int sched_enqueue(struct runqueue* rq, struct thread* thread) {
 }
 
 int sched_dequeue(struct runqueue* rq, struct thread* thread) {
-	unsigned long irq;
+	irqflags_t irq;
 	spinlock_lock_irq_save(&rq->lock, &irq);
 
 	assert(thread->attached == true);
@@ -94,7 +94,7 @@ int sched_dequeue(struct runqueue* rq, struct thread* thread) {
 }
 
 struct thread* sched_pick_next(struct runqueue* rq) {
-	unsigned long irq;
+	irqflags_t irq;
 	spinlock_lock_irq_save(&rq->lock, &irq);
 	struct thread* ret = rq->policy->ops->pick_next(rq);
 	spinlock_unlock_irq_restore(&rq->lock, &irq);
@@ -151,7 +151,7 @@ static int __sched_wakeup_locked(struct thread* thread, int wakeup_err) {
 int sched_wakeup(struct thread* thread, int wakeup_err) {
 	struct runqueue* rq = &thread->target_cpu->runqueue;
 
-	unsigned long irq;
+	irqflags_t irq;
 	spinlock_lock_irq_save(&rq->lock, &irq);
 	int ret = __sched_wakeup_locked(thread, wakeup_err);
 	spinlock_unlock_irq_restore(&rq->lock, &irq);
@@ -169,7 +169,7 @@ int sched_change_prio(struct thread* thread, int prio) {
 	if (prio > SCHED_PRIO_MAX)
 		prio = SCHED_PRIO_MAX;
 
-	unsigned long irq;
+	irqflags_t irq;
 	spinlock_lock_irq_save(&rq->lock, &irq);
 
 	int err = rq->policy->ops->change_prio(rq, thread, prio);
@@ -219,7 +219,7 @@ void sched_tick(void) {
 
 int schedule(void) {
 	bug(in_interrupt() == true);
-	unsigned long irq = local_irq_save();
+	irqflags_t irq = local_irq_save();
 
 	struct cpu* cpu = current_cpu();
 	struct runqueue* rq = &cpu->runqueue;
@@ -264,7 +264,7 @@ int schedule(void) {
 }
 
 int sched_yield(void) {
-	unsigned long irq = local_irq_save();
+	irqflags_t irq = local_irq_save();
 
 	struct cpu* cpu = current_cpu();
 	struct runqueue* rq = &cpu->runqueue;
@@ -294,7 +294,7 @@ void sched_prepare_sleep(time_t ms, int flags) {
 		sleep_end = timespec_to_ns(&ts) + (ms * 1000000);
 	}
 
-	unsigned long irq = local_irq_save();
+	irqflags_t irq = local_irq_save();
 
 	struct runqueue* rq = &current_cpu()->runqueue;
 	struct thread* current = rq->current;
