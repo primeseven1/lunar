@@ -1,7 +1,7 @@
 #pragma once
 
-#include <crescent/common.h>
-#include <crescent/types.h>
+#include <lunar/common.h>
+#include <lunar/types.h>
 
 typedef u8 uacpi_u8;
 typedef u16 uacpi_u16;

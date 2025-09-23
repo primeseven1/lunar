@@ -34,7 +34,7 @@ ifeq ($(CONFIG_UBSAN), y)
 CFLAGS += -fsanitize=undefined
 endif
 
-OUTPUT := ./crescent
+OUTPUT := ./lunar
 ifeq ($(CONFIG_KASLR), y)
 LDSCRIPT := ./kernel/linker_x86_64_kaslr.ld
 else
@@ -78,7 +78,7 @@ clean:
 	@echo "[CLEAN] ."
 
 ISO_ROOT := tools/testing/iso
-ISO_OUTPUT := tools/testing/crescent.iso
+ISO_OUTPUT := tools/testing/lunar.iso
 
 iso: $(OUTPUT)
 	@cp $(OUTPUT) $(ISO_ROOT)

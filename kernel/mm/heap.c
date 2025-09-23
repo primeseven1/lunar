@@ -1,12 +1,12 @@
-#include <crescent/common.h>
-#include <crescent/core/printk.h>
-#include <crescent/core/panic.h>
-#include <crescent/core/cpu.h>
-#include <crescent/init/status.h>
-#include <crescent/sched/kthread.h>
-#include <crescent/mm/heap.h>
-#include <crescent/mm/slab.h>
-#include <crescent/lib/string.h>
+#include <lunar/common.h>
+#include <lunar/core/printk.h>
+#include <lunar/core/panic.h>
+#include <lunar/core/cpu.h>
+#include <lunar/init/status.h>
+#include <lunar/sched/kthread.h>
+#include <lunar/mm/heap.h>
+#include <lunar/mm/slab.h>
+#include <lunar/lib/string.h>
 
 #define HEAP_CANARY_XOR 0xdecafc0ffeeUL
 #define HEAP_ALIGN 16

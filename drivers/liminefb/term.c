@@ -1,6 +1,6 @@
-#include <crescent/mm/heap.h>
-#include <crescent/lib/string.h>
-#include <crescent/core/term.h>
+#include <lunar/mm/heap.h>
+#include <lunar/lib/string.h>
+#include <lunar/core/term.h>
 #include "flanterm/src/flanterm_backends/fb.h"
 #include "term.h"
 

@@ -1,14 +1,14 @@
-#include <crescent/common.h>
-#include <crescent/asm/ctl.h>
-#include <crescent/asm/cpuid.h>
-#include <crescent/compiler.h>
-#include <crescent/core/cpu.h>
-#include <crescent/core/panic.h>
-#include <crescent/core/printk.h>
-#include <crescent/core/limine.h>
-#include <crescent/mm/buddy.h>
-#include <crescent/mm/hhdm.h>
-#include <crescent/lib/string.h>
+#include <lunar/common.h>
+#include <lunar/asm/ctl.h>
+#include <lunar/asm/cpuid.h>
+#include <lunar/compiler.h>
+#include <lunar/core/cpu.h>
+#include <lunar/core/panic.h>
+#include <lunar/core/printk.h>
+#include <lunar/core/limine.h>
+#include <lunar/mm/buddy.h>
+#include <lunar/mm/hhdm.h>
+#include <lunar/lib/string.h>
 #include "internal.h"
 
 #define HUGEPAGE_1G 0x40000000

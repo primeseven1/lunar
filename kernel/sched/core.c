@@ -1,14 +1,14 @@
-#include <crescent/compiler.h>
-#include <crescent/asm/wrap.h>
-#include <crescent/asm/errno.h>
-#include <crescent/mm/heap.h>
-#include <crescent/core/spinlock.h>
-#include <crescent/core/cpu.h>
-#include <crescent/core/printk.h>
-#include <crescent/core/apic.h>
-#include <crescent/core/time.h>
-#include <crescent/sched/scheduler.h>
-#include <crescent/sched/preempt.h>
+#include <lunar/compiler.h>
+#include <lunar/asm/wrap.h>
+#include <lunar/asm/errno.h>
+#include <lunar/mm/heap.h>
+#include <lunar/core/spinlock.h>
+#include <lunar/core/cpu.h>
+#include <lunar/core/printk.h>
+#include <lunar/core/apic.h>
+#include <lunar/core/time.h>
+#include <lunar/sched/scheduler.h>
+#include <lunar/sched/preempt.h>
 #include "internal.h"
 
 int sched_thread_attach(struct runqueue* rq, struct thread* thread, int prio) {

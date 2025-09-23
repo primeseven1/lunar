@@ -4,7 +4,7 @@ set -e
 
 DEVICE=$1
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ISO="$SCRIPT_DIR/../tools/testing/crescent.iso"
+ISO="$SCRIPT_DIR/../tools/testing/lunar.iso"
 
 usage() {
 	echo "Usage: $0 <block-device>"

@@ -1,6 +1,6 @@
-#include <crescent/common.h>
-#include <crescent/core/limine.h>
-#include <crescent/mm/hhdm.h>
+#include <lunar/common.h>
+#include <lunar/core/limine.h>
+#include <lunar/mm/hhdm.h>
 
 static volatile struct limine_hhdm_request __limine_request hhdm_request = {
 	.request.id = LIMINE_HHDM_REQUEST,

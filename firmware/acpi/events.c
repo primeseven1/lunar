@@ -1,7 +1,7 @@
-#include <crescent/core/panic.h>
-#include <crescent/core/timekeeper.h>
-#include <crescent/core/printk.h>
-#include <crescent/core/interrupt.h>
+#include <lunar/core/panic.h>
+#include <lunar/core/timekeeper.h>
+#include <lunar/core/printk.h>
+#include <lunar/core/interrupt.h>
 
 #include <uacpi/uacpi.h>
 #include <uacpi/utilities.h>

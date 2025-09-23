@@ -63,7 +63,7 @@ def main() -> int:
         limine.do_testing_setup(script_abspath_dir)
         return 0
 
-    iso: str = os.path.join(script_abspath_dir, "..", "tools", "testing", "crescent.iso")
+    iso: str = os.path.join(script_abspath_dir, "..", "tools", "testing", "lunar.iso")
     qemu_args: str = parse_cmdline_args(iso)
     return run_x86_64(qemu_args)
 

@@ -1,13 +1,13 @@
-#include <crescent/common.h>
-#include <crescent/asm/msr.h>
-#include <crescent/asm/wrap.h>
-#include <crescent/core/cpu.h>
-#include <crescent/core/panic.h>
-#include <crescent/core/apic.h>
-#include <crescent/core/printk.h>
-#include <crescent/mm/buddy.h>
-#include <crescent/mm/vmm.h>
-#include <crescent/mm/heap.h>
+#include <lunar/common.h>
+#include <lunar/asm/msr.h>
+#include <lunar/asm/wrap.h>
+#include <lunar/core/cpu.h>
+#include <lunar/core/panic.h>
+#include <lunar/core/apic.h>
+#include <lunar/core/printk.h>
+#include <lunar/mm/buddy.h>
+#include <lunar/mm/vmm.h>
+#include <lunar/mm/heap.h>
 
 #include <uacpi/tables.h>
 #include <uacpi/acpi.h>

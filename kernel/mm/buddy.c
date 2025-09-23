@@ -1,13 +1,13 @@
-#include <crescent/common.h>
-#include <crescent/core/spinlock.h>
-#include <crescent/core/limine.h>
-#include <crescent/core/printk.h>
-#include <crescent/core/trace.h>
-#include <crescent/core/panic.h>
-#include <crescent/mm/buddy.h>
-#include <crescent/mm/mm.h>
-#include <crescent/mm/hhdm.h>
-#include <crescent/lib/string.h>
+#include <lunar/common.h>
+#include <lunar/core/spinlock.h>
+#include <lunar/core/limine.h>
+#include <lunar/core/printk.h>
+#include <lunar/core/trace.h>
+#include <lunar/core/panic.h>
+#include <lunar/mm/buddy.h>
+#include <lunar/mm/mm.h>
+#include <lunar/mm/hhdm.h>
+#include <lunar/lib/string.h>
 #include "internal.h"
 
 /* Must be volatile, so that way the null check doesn't get optimized away */

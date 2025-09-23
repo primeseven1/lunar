@@ -1,4 +1,4 @@
-# Crescent
+# Lunar
 A 64 bit operating system kernel built from scratch
 
 This project is in **early development**. Expect bugs and rapid changes.

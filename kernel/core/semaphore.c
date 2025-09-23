@@ -1,5 +1,5 @@
-#include <crescent/core/semaphore.h>
-#include <crescent/sched/kthread.h>
+#include <lunar/core/semaphore.h>
+#include <lunar/sched/kthread.h>
 
 int semaphore_wait(struct semaphore* sem, int flags) {
 	unsigned long irq;

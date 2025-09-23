@@ -1,8 +1,8 @@
-#include <crescent/common.h>
-#include <crescent/asm/errno.h>
-#include <crescent/lib/string.h>
-#include <crescent/lib/hashtable.h>
-#include <crescent/mm/heap.h>
+#include <lunar/common.h>
+#include <lunar/asm/errno.h>
+#include <lunar/lib/string.h>
+#include <lunar/lib/hashtable.h>
+#include <lunar/mm/heap.h>
 
 #define FNV1A64_PRIME 0x00000100000001b3ull
 #define FNV1A64_OFFSET 0xcbf29ce484222325ull

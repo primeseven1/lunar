@@ -1,5 +1,5 @@
-#include <crescent/common.h>
-#include <crescent/core/limine.h>
+#include <lunar/common.h>
+#include <lunar/core/limine.h>
 
 /* clang-format off */
 

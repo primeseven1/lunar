@@ -1,10 +1,10 @@
-#include <crescent/common.h>
-#include <crescent/core/cmdline.h>
-#include <crescent/core/limine.h>
-#include <crescent/core/printk.h>
-#include <crescent/mm/vmm.h>
-#include <crescent/lib/hashtable.h>
-#include <crescent/lib/string.h>
+#include <lunar/common.h>
+#include <lunar/core/cmdline.h>
+#include <lunar/core/limine.h>
+#include <lunar/core/printk.h>
+#include <lunar/mm/vmm.h>
+#include <lunar/lib/hashtable.h>
+#include <lunar/lib/string.h>
 
 static struct hashtable* cmdline_hashtable = NULL;
 

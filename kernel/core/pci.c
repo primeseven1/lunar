@@ -1,6 +1,6 @@
-#include <crescent/core/pci.h>
-#include <crescent/core/printk.h>
-#include <crescent/core/module.h>
+#include <lunar/core/pci.h>
+#include <lunar/core/printk.h>
+#include <lunar/core/module.h>
 
 static const struct pci_hooks* pci_hooks = NULL;
 

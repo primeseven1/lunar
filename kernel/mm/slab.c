@@ -1,11 +1,11 @@
-#include <crescent/common.h>
-#include <crescent/compiler.h>
-#include <crescent/mm/slab.h>
-#include <crescent/mm/vmm.h>
-#include <crescent/core/printk.h>
-#include <crescent/core/trace.h>
-#include <crescent/core/panic.h>
-#include <crescent/lib/string.h>
+#include <lunar/common.h>
+#include <lunar/compiler.h>
+#include <lunar/mm/slab.h>
+#include <lunar/mm/vmm.h>
+#include <lunar/core/printk.h>
+#include <lunar/core/trace.h>
+#include <lunar/core/panic.h>
+#include <lunar/lib/string.h>
 
 /* The maximum size a slab can be before the object count goes to SLAB_AFTER_CUTOFF_COUNT */
 #define SLAB_SIZE_CUTOFF 512

@@ -1,17 +1,17 @@
-#include <crescent/common.h>
-#include <crescent/compiler.h>
-#include <crescent/asm/ctl.h>
-#include <crescent/core/cpu.h>
-#include <crescent/core/spinlock.h>
-#include <crescent/core/limine.h>
-#include <crescent/core/panic.h>
-#include <crescent/core/trace.h>
-#include <crescent/core/printk.h>
-#include <crescent/mm/hhdm.h>
-#include <crescent/mm/buddy.h>
-#include <crescent/mm/vmm.h>
-#include <crescent/mm/vma.h>
-#include <crescent/lib/string.h>
+#include <lunar/common.h>
+#include <lunar/compiler.h>
+#include <lunar/asm/ctl.h>
+#include <lunar/core/cpu.h>
+#include <lunar/core/spinlock.h>
+#include <lunar/core/limine.h>
+#include <lunar/core/panic.h>
+#include <lunar/core/trace.h>
+#include <lunar/core/printk.h>
+#include <lunar/mm/hhdm.h>
+#include <lunar/mm/buddy.h>
+#include <lunar/mm/vmm.h>
+#include <lunar/mm/vma.h>
+#include <lunar/lib/string.h>
 #include "internal.h"
 
 static struct mm kernel_mm_struct;

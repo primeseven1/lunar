@@ -1,4 +1,4 @@
-#include <crescent/lib/string.h>
+#include <lunar/lib/string.h>
 
 void* memset(void* dest, int val, size_t count) {
 	u8* d = dest;

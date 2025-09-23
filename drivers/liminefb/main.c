@@ -1,6 +1,6 @@
-#include <crescent/common.h>
-#include <crescent/core/module.h>
-#include <crescent/core/limine.h>
+#include <lunar/common.h>
+#include <lunar/core/module.h>
+#include <lunar/core/limine.h>
 #include "term.h"
 
 static volatile struct limine_framebuffer_request __limine_request fb_request = {

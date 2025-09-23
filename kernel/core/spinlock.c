@@ -1,6 +1,6 @@
-#include <crescent/asm/wrap.h>
-#include <crescent/core/spinlock.h>
-#include <crescent/core/interrupt.h>
+#include <lunar/asm/wrap.h>
+#include <lunar/core/spinlock.h>
+#include <lunar/core/interrupt.h>
 
 void spinlock_lock(spinlock_t* lock) {
 	while (atomic_test_and_set_explicit(lock, ATOMIC_ACQUIRE))

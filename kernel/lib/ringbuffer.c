@@ -1,6 +1,6 @@
-#include <crescent/lib/ringbuffer.h>
-#include <crescent/lib/string.h>
-#include <crescent/mm/heap.h>
+#include <lunar/lib/ringbuffer.h>
+#include <lunar/lib/string.h>
+#include <lunar/mm/heap.h>
 
 int ringbuffer_init(struct ringbuffer* rb, unsigned long capacity, size_t element_size) {
 	if (capacity == 0 || (capacity & (capacity - 1)))

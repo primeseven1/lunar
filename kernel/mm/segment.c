@@ -1,11 +1,11 @@
-#include <crescent/common.h>
-#include <crescent/compiler.h>
-#include <crescent/core/cpu.h>
-#include <crescent/core/panic.h>
-#include <crescent/core/printk.h>
-#include <crescent/asm/segment.h>
-#include <crescent/lib/string.h>
-#include <crescent/mm/vmm.h>
+#include <lunar/common.h>
+#include <lunar/compiler.h>
+#include <lunar/core/cpu.h>
+#include <lunar/core/panic.h>
+#include <lunar/core/printk.h>
+#include <lunar/asm/segment.h>
+#include <lunar/lib/string.h>
+#include <lunar/mm/vmm.h>
 
 #define SEGMENT_COUNT 5
 

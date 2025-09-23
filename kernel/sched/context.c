@@ -1,8 +1,8 @@
-#include <crescent/core/panic.h>
-#include <crescent/asm/ctl.h>
-#include <crescent/asm/cpuid.h>
-#include <crescent/mm/slab.h>
-#include <crescent/lib/string.h>
+#include <lunar/core/panic.h>
+#include <lunar/asm/ctl.h>
+#include <lunar/asm/cpuid.h>
+#include <lunar/mm/slab.h>
+#include <lunar/lib/string.h>
 #include "internal.h"
 
 static bool fxsave = false;

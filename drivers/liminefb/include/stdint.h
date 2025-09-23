@@ -1,6 +1,6 @@
 #pragma once
 
-#include <crescent/types.h>
+#include <lunar/types.h>
 
 /* Should only be used by flanterm, even though it makes no difference */
 typedef i8 int8_t;

@@ -1,8 +1,8 @@
-#include <crescent/lib/string.h>
-#include <crescent/core/cmdline.h>
-#include <crescent/core/printk.h>
-#include <crescent/core/cpu.h>
-#include <crescent/core/panic.h>
+#include <lunar/lib/string.h>
+#include <lunar/core/cmdline.h>
+#include <lunar/core/printk.h>
+#include <lunar/core/cpu.h>
+#include <lunar/core/panic.h>
 #include "internal.h"
 
 extern const struct sched_policy _ld_kernel_schedpolicies_start[];

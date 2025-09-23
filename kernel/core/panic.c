@@ -1,11 +1,11 @@
-#include <crescent/asm/wrap.h>
-#include <crescent/core/panic.h>
-#include <crescent/core/interrupt.h>
-#include <crescent/core/apic.h>
-#include <crescent/core/printk.h>
-#include <crescent/core/trace.h>
-#include <crescent/init/status.h>
-#include <crescent/lib/format.h>
+#include <lunar/asm/wrap.h>
+#include <lunar/core/panic.h>
+#include <lunar/core/interrupt.h>
+#include <lunar/core/apic.h>
+#include <lunar/core/printk.h>
+#include <lunar/core/trace.h>
+#include <lunar/init/status.h>
+#include <lunar/lib/format.h>
 
 static SPINLOCK_DEFINE(panic_lock);
 

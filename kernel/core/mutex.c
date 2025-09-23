@@ -1,8 +1,8 @@
-#include <crescent/core/mutex.h>
-#include <crescent/core/panic.h>
-#include <crescent/core/printk.h>
-#include <crescent/init/status.h>
-#include <crescent/sched/kthread.h>
+#include <lunar/core/mutex.h>
+#include <lunar/core/panic.h>
+#include <lunar/core/printk.h>
+#include <lunar/init/status.h>
+#include <lunar/sched/kthread.h>
 
 static inline void mutex_set_owner(mutex_t* lock, struct thread* thread) {
 	atomic_store(&lock->owner, thread);

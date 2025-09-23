@@ -1,8 +1,8 @@
 #pragma once
 
-#include <crescent/compiler.h>
-#include <crescent/asm/errno.h>
-#include <crescent/sched/scheduler.h>
+#include <lunar/compiler.h>
+#include <lunar/asm/errno.h>
+#include <lunar/sched/scheduler.h>
 
 /*
  * NOTES:

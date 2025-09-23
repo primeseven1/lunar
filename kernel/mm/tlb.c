@@ -1,10 +1,10 @@
-#include <crescent/asm/wrap.h>
-#include <crescent/mm/vmm.h>
-#include <crescent/core/interrupt.h>
-#include <crescent/core/cpu.h>
-#include <crescent/core/apic.h>
-#include <crescent/sched/kthread.h>
-#include <crescent/init/status.h>
+#include <lunar/asm/wrap.h>
+#include <lunar/mm/vmm.h>
+#include <lunar/core/interrupt.h>
+#include <lunar/core/cpu.h>
+#include <lunar/core/apic.h>
+#include <lunar/sched/kthread.h>
+#include <lunar/init/status.h>
 #include "internal.h"
 
 static atomic(void*) shootdown_address;

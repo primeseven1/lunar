@@ -1,8 +1,8 @@
-#include <crescent/core/timekeeper.h>
-#include <crescent/core/cpu.h>
-#include <crescent/core/cmdline.h>
-#include <crescent/asm/cpuid.h>
-#include <crescent/mm/heap.h>
+#include <lunar/core/timekeeper.h>
+#include <lunar/core/cpu.h>
+#include <lunar/core/cmdline.h>
+#include <lunar/asm/cpuid.h>
+#include <lunar/mm/heap.h>
 
 static bool tsc_usable(void) {
 	/* On CPU's with multiple cores, the TSC's may have issues with drift, so this timekeeper can be disabled */

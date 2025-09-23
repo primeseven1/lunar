@@ -1,9 +1,9 @@
-#include <crescent/asm/errno.h>
-#include <crescent/core/module.h>
-#include <crescent/lib/string.h>
-#include <crescent/asm/cpuid.h>
-#include <crescent/core/printk.h>
-#include <crescent/core/io.h>
+#include <lunar/asm/errno.h>
+#include <lunar/core/module.h>
+#include <lunar/lib/string.h>
+#include <lunar/asm/cpuid.h>
+#include <lunar/core/printk.h>
+#include <lunar/core/io.h>
 
 static void e9hack_printk_hook(const struct printk_msg* msg) {
 	const char* time_string = msg->time;

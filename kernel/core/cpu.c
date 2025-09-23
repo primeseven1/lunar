@@ -1,14 +1,14 @@
-#include <crescent/common.h>
-#include <crescent/asm/wrap.h>
-#include <crescent/core/limine.h>
-#include <crescent/core/cpu.h>
-#include <crescent/core/panic.h>
-#include <crescent/core/printk.h>
-#include <crescent/lib/string.h>
-#include <crescent/mm/buddy.h>
-#include <crescent/mm/vmm.h>
-#include <crescent/mm/hhdm.h>
-#include <crescent/init/head.h>
+#include <lunar/common.h>
+#include <lunar/asm/wrap.h>
+#include <lunar/core/limine.h>
+#include <lunar/core/cpu.h>
+#include <lunar/core/panic.h>
+#include <lunar/core/printk.h>
+#include <lunar/lib/string.h>
+#include <lunar/mm/buddy.h>
+#include <lunar/mm/vmm.h>
+#include <lunar/mm/hhdm.h>
+#include <lunar/init/head.h>
 
 /* Must be marked as volatile, otherwise checking the response pointer will be optimized away */
 static volatile struct limine_mp_request __limine_request mp_request = {

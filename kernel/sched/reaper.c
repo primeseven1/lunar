@@ -1,7 +1,7 @@
-#include <crescent/asm/wrap.h>
-#include <crescent/sched/kthread.h>
-#include <crescent/init/status.h>
-#include <crescent/core/cpu.h>
+#include <lunar/asm/wrap.h>
+#include <lunar/sched/kthread.h>
+#include <lunar/init/status.h>
+#include <lunar/core/cpu.h>
 #include "internal.h"
 
 static inline void reap_thread(struct runqueue* rq, struct thread* thread) {

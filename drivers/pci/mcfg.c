@@ -1,8 +1,8 @@
-#include <crescent/mm/heap.h>
-#include <crescent/core/printk.h>
-#include <crescent/core/io.h>
-#include <crescent/core/panic.h>
-#include <crescent/lib/string.h>
+#include <lunar/mm/heap.h>
+#include <lunar/core/printk.h>
+#include <lunar/core/io.h>
+#include <lunar/core/panic.h>
+#include <lunar/lib/string.h>
 
 #include <uacpi/uacpi.h>
 #include <uacpi/acpi.h>
