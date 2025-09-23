@@ -382,7 +382,7 @@ void uacpi_kernel_free_spinlock(uacpi_handle handle) {
 }
 
 uacpi_cpu_flags uacpi_kernel_lock_spinlock(uacpi_handle handle) {
-	unsigned long flags;
+	irqflags_t flags;
 	spinlock_t* lock = handle;
 	spinlock_lock_irq_save(lock, &flags);
 	return flags;
@@ -392,7 +392,7 @@ void uacpi_kernel_unlock_spinlock(uacpi_handle handle, uacpi_cpu_flags flags) {
 	spinlock_unlock_irq_restore((spinlock_t*)handle, &flags);
 }
 
-static_assert(sizeof(uacpi_cpu_flags) == sizeof(unsigned long), "sizeof(uacpi_cpu_flags) == sizeof(unsigned long)");
+static_assert(sizeof(uacpi_cpu_flags) == sizeof(irqflags_t), "sizeof(uacpi_cpu_flags) == sizeof(unsigned long)");
 
 struct uacpi_work {
 	uacpi_work_type type;
@@ -418,7 +418,7 @@ static void work_list_grow(void* arg) {
 		list_node_init(&pointers[i]->link);
 	}
 
-	unsigned long irq_flags;
+	irqflags_t irq_flags;
 	spinlock_lock_irq_save(&work_free_list_lock, &irq_flags);
 
 	for (size_t i = 0; i < count && pointers[i]; i++)
@@ -428,7 +428,7 @@ static void work_list_grow(void* arg) {
 }
 
 static struct uacpi_work* alloc_work_atomic(void) {
-	unsigned long irq_flags;
+	irqflags_t irq_flags;
 	spinlock_lock_irq_save(&work_free_list_lock, &irq_flags);
 
 	struct uacpi_work* work = NULL;
@@ -442,7 +442,7 @@ static struct uacpi_work* alloc_work_atomic(void) {
 }
 
 static void free_work_atomic(struct uacpi_work* work) {
-	unsigned long irq_flags;
+	irqflags_t irq_flags;
 	spinlock_lock_irq_save(&work_free_list_lock, &irq_flags);
 
 	memset(work, 0, sizeof(*work));
