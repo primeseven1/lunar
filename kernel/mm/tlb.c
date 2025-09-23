@@ -40,7 +40,7 @@ static void do_shootdown(const struct smp_cpus* cpus, void* address, size_t size
 
 void tlb_invalidate(void* address, size_t size) {
 	const struct smp_cpus* cpus = smp_cpus_get();
-	unsigned long irq = local_irq_save();
+	irqflags_t irq = local_irq_save();
 
 	if (likely(init_status_get() >= INIT_STATUS_SCHED)) {
 		struct thread* current = current_thread();

@@ -395,7 +395,7 @@ void vmm_init(void) {
 }
 
 void vmm_switch_mm_struct(struct mm* mm) {
-	unsigned long irq = local_irq_save();
+	irqflags_t irq = local_irq_save();
 
 	atomic_thread_fence(ATOMIC_SEQ_CST);
 	ctl3_write(hhdm_physical(mm->pagetable));
