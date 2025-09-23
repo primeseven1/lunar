@@ -99,7 +99,7 @@ void sched_init(void);
  * @brief Switch to another runnable thread.
  *
  * If the thread was not prepared for sleep (via sched_prepare_for_sleep()), then the return value of this
- * function is undefined and should be ignored in this case.
+ * function is undefined and should be ignored in this case. A bug is triggered if in_interrupt() returns true.
  *
  * @retval 0 Thread woke up normally
  * @retval -EAGAIN Preemptions are disabled, a bug is triggered if the current task isn't runnable.

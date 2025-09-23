@@ -218,6 +218,7 @@ void sched_tick(void) {
 }
 
 int schedule(void) {
+	bug(in_interrupt() == true);
 	unsigned long irq = local_irq_save();
 
 	struct cpu* cpu = current_cpu();
@@ -229,6 +230,7 @@ int schedule(void) {
 		return -EAGAIN;
 	}
 
+	/* If there is no thread to run, see if the current thread is still runnable. If not, pick idle */
 	struct thread* next = sched_pick_next(rq);
 	if (!next) {
 		if (atomic_load(&prev->state) == THREAD_RUNNING)
@@ -243,17 +245,19 @@ int schedule(void) {
 		return 0;
 	}
 
+	/* If the state is modified (eg. by sched_thread_exit), then don't make the thread ready */
 	int prev_state = atomic_load(&prev->state);
 	if (prev_state == THREAD_RUNNING)
 		atomic_store(&prev->state, THREAD_READY);
 	else if (prev_state == THREAD_ZOMBIE)
-		semaphore_signal(&rq->reaper_sem);
+		semaphore_signal(&rq->reaper_sem); /* Signal the current CPU's semaphore, safe to do since IRQ's are disabled */
 	atomic_store(&next->state, THREAD_RUNNING);
 
 	rq->current = next;
 	cpu->need_resched = false;
 	context_switch(prev, next);
 
+	/* The reason is only valid if a sleep is prepared, otherwise an undefined value is returned */
 	int reason = atomic_load(&prev->wakeup_err);
 	local_irq_restore(irq);
 	return reason;
@@ -279,10 +283,13 @@ int sched_yield(void) {
 }
 
 void sched_prepare_sleep(time_t ms, int flags) {
+	bug(in_interrupt() == true);
+
+	/* First determine the end of the sleep for the scheduler */
 	time_t sleep_end = 0;
 	if (ms == 0 && !(flags & SCHED_SLEEP_BLOCK)) {
 		return;
-	} else if (ms != 0) {
+	} else if (ms != 0) { /* If zero, the thread is blocking without a timeout */
 		struct timespec ts = timekeeper_time();
 		sleep_end = timespec_to_ns(&ts) + (ms * 1000000);
 	}
@@ -292,14 +299,19 @@ void sched_prepare_sleep(time_t ms, int flags) {
 	struct runqueue* rq = &current_cpu()->runqueue;
 	struct thread* current = rq->current;
 
+	/* what are we doing calling sched_prepare_sleep() twice?? */
+	int prev_state = atomic_load(&current->state);
+	bug(prev_state == THREAD_BLOCKED || prev_state == THREAD_SLEEPING);
+
 	if (flags & SCHED_SLEEP_BLOCK)
 		atomic_store(&current->state, THREAD_BLOCKED);
 	else
 		atomic_store(&current->state, THREAD_SLEEPING);
 	if (flags & SCHED_SLEEP_INTERRUPTIBLE)
 		atomic_store(&current->sleep_interruptable, true);
+
+	/* Check if the thread is blocking with no timeout */
 	if (sleep_end) {
-		assert(list_node_linked(&current->sleep_link) == false);
 		current->wakeup_time = sleep_end;
 		spinlock_lock(&rq->lock);
 		list_add(&rq->sleepers, &current->sleep_link);
@@ -314,14 +326,15 @@ _Noreturn void sched_thread_exit(void) {
 
 	struct runqueue* rq = &current_cpu()->runqueue;
 	struct thread* current = rq->current;
-	atomic_store(&current->state, THREAD_ZOMBIE);
 
+	atomic_store(&current->state, THREAD_ZOMBIE);
 	spinlock_lock(&rq->zombie_lock);
 	list_add(&rq->zombies, &current->zombie_link);
 	spinlock_unlock(&rq->zombie_lock);
 
 	local_irq_enable();
 	schedule();
+
 	__builtin_unreachable();
 }
 
