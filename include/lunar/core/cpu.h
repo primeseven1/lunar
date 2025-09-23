@@ -19,6 +19,7 @@ struct cpu {
 	spinlock_t workqueue_lock;
 	bool need_resched;
 	struct timekeeper_source* timekeeper;
+	unsigned long softirqs_pending;
 };
 
 struct smp_cpus {

@@ -8,6 +8,7 @@
 #include <lunar/core/cpu.h>
 #include <lunar/core/interrupt.h>
 #include <lunar/core/trace.h>
+#include <lunar/core/softirq.h>
 #include <lunar/core/apic.h>
 #include <lunar/init/status.h>
 #include <lunar/mm/vmm.h>
@@ -240,6 +241,14 @@ static void irq_exit(struct isr* isr) {
 		current_thread()->preempt_count -= HARDIRQ_OFFSET;
 	if (interrupt_get_vector(isr) >= INTERRUPT_EXCEPTION_COUNT && isr->irq.irq != -1)
 		atomic_sub_fetch(&isr->inflight, 1);
+
+	local_irq_enable();
+
+	current_thread()->preempt_count += SOFTIRQ_OFFSET;
+	do_pending_softirqs();
+	current_thread()->preempt_count -= SOFTIRQ_OFFSET;
+
+	local_irq_disable();
 }
 
 static inline bool check_cpu(u8 vector) {
