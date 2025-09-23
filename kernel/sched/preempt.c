@@ -6,6 +6,7 @@
 #include <lunar/core/apic.h>
 #include <lunar/core/printk.h>
 #include <lunar/core/panic.h>
+#include <lunar/core/softirq.h>
 #include <lunar/core/timekeeper.h>
 #include <lunar/mm/mm.h>
 #include <lunar/mm/vmm.h>
@@ -26,7 +27,7 @@ static u32 lapic_timer_get_ticks_for_preempt(void) {
 static void lapic_timer(struct isr* isr, struct context* ctx) {
 	(void)isr;
 	(void)ctx;
-	sched_tick();
+	raise_softirq(SOFTIRQ_TIMER);
 }
 
 static struct isr* lapic_timer_isr = NULL;
@@ -46,4 +47,5 @@ void preempt_cpu_init(void) {
 
 	printk(PRINTK_DBG "sched: LAPIC timer calibrated at %u ticks per %u us on CPU %u\n", 
 			ticks, TIMER_TRIGGER_TIME_USEC, current_cpu()->sched_processor_id);
+	bug(register_softirq(sched_tick, SOFTIRQ_TIMER) != 0);
 }

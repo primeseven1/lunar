@@ -21,6 +21,14 @@ static inline void preempt_enable(void) {
 #define HARDIRQ_OFFSET (1ul << HARDIRQ_SHIFT)
 #define SOFTIRQ_OFFSET (1ul << SOFTIRQ_SHIFT)
 
+static inline bool in_softirq(void) {
+	return (current_thread()->preempt_count & SOFTIRQ_MASK) != 0;
+}
+
+static inline bool in_hardirq(void) {
+	return (current_thread()->preempt_count & HARDIRQ_MASK) != 0;
+}
+
 static inline bool in_interrupt(void) {
-	return (current_thread()->preempt_count & (HARDIRQ_MASK | SOFTIRQ_MASK)) != 0;
+	return in_hardirq() || in_softirq();
 }
