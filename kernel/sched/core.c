@@ -202,16 +202,14 @@ void sched_tick(void) {
 
 	struct timespec ts_now = timekeeper_time();
 	time_t now = timespec_to_ns(&ts_now);
-	struct thread* pos, *tmp;
-	list_for_each_entry_safe(pos, tmp, &rq->sleepers, sleep_link) {
-		if (now >= pos->wakeup_time) {
-			int err = 0;
-			if (atomic_load(&pos->state) == THREAD_BLOCKED)
-				err = -ETIMEDOUT;
-			__sched_wakeup_locked(pos, err);
-			if (current == cpu->runqueue.idle)
-				cpu->need_resched = true;
-		}
+	while (!list_empty(&rq->sleepers)) {
+		struct thread* thread = list_first_entry(&rq->sleepers, struct thread, sleep_link);
+		if (now < thread->wakeup_time)
+			break; /* List is ordered */
+		int err = atomic_load(&thread->state) == THREAD_BLOCKED ? -ETIMEDOUT : 0;
+		__sched_wakeup_locked(thread, err);
+		if (current == cpu->runqueue.idle)
+			cpu->need_resched = true;
 	}
 
 	spinlock_unlock(&rq->lock);
@@ -282,14 +280,14 @@ int sched_yield(void) {
 	return 0;
 }
 
-void sched_prepare_sleep(time_t ms, int flags) {
+int sched_prepare_sleep(time_t ms, int flags) {
 	bug(in_interrupt() == true);
 
 	/* First determine the end of the sleep for the scheduler */
 	time_t sleep_end = 0;
-	if (ms == 0 && !(flags & SCHED_SLEEP_BLOCK)) {
-		return;
-	} else if (ms != 0) { /* If zero, the thread is blocking without a timeout */
+	if (!(flags & SCHED_SLEEP_BLOCK) && ms == 0)
+		return -EINVAL;
+	if (ms != 0) {
 		struct timespec ts = timekeeper_time();
 		sleep_end = timespec_to_ns(&ts) + (ms * 1000000);
 	}
@@ -299,26 +297,39 @@ void sched_prepare_sleep(time_t ms, int flags) {
 	struct runqueue* rq = &current_cpu()->runqueue;
 	struct thread* current = rq->current;
 
-	/* what are we doing calling sched_prepare_sleep() twice?? */
 	int prev_state = atomic_load(&current->state);
-	bug(prev_state == THREAD_BLOCKED || prev_state == THREAD_SLEEPING);
+	bug(prev_state == THREAD_BLOCKED || prev_state == THREAD_SLEEPING ||
+			list_node_linked(&current->sleep_link));
 
+	atomic_store(&current->sleep_interruptable, (flags & SCHED_SLEEP_INTERRUPTIBLE) != 0);
 	if (flags & SCHED_SLEEP_BLOCK)
 		atomic_store(&current->state, THREAD_BLOCKED);
 	else
 		atomic_store(&current->state, THREAD_SLEEPING);
-	if (flags & SCHED_SLEEP_INTERRUPTIBLE)
-		atomic_store(&current->sleep_interruptable, true);
 
 	/* Check if the thread is blocking with no timeout */
 	if (sleep_end) {
 		current->wakeup_time = sleep_end;
 		spinlock_lock(&rq->lock);
-		list_add(&rq->sleepers, &current->sleep_link);
+
+		/* Now put the thread in order by wakeup time */
+		struct thread* pos;
+		bool inserted = false;
+		list_for_each_entry(pos, &rq->sleepers, sleep_link) {
+			if (current->wakeup_time < pos->wakeup_time) {
+				list_add_before(&pos->sleep_link, &current->sleep_link);
+				inserted = true;
+				break;
+			}
+		}
+		if (!inserted)
+			list_add_tail(&rq->sleepers, &current->sleep_link);
+
 		spinlock_unlock(&rq->lock);
 	}
 
 	local_irq_restore(irq);
+	return 0;
 }
 
 _Noreturn void sched_thread_exit(void) {

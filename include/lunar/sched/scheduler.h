@@ -147,8 +147,11 @@ int sched_yield(void);
  *
  * @param ms The number of milliseconds to sleep for (or a timeout if flags & SCHED_SLEEP_BLOCK is set and ms is not zero).
  * @param flags Flags for the sleep (SCHED_SLEEP_*)
+ *
+ * @retval -EINVAL ms is zero and SCHED_SLEEP_BLOCK isn't set
+ * @retval 0 Successful
  */
-void sched_prepare_sleep(time_t ms, int flags);
+int sched_prepare_sleep(time_t ms, int flags);
 
 /**
  * @brief Wake up a thread
