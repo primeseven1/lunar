@@ -47,6 +47,14 @@ static inline void list_add_between(struct list_node* prev, struct list_node* ne
 	__list_add(node, prev, next);
 }
 
+static inline void list_add_before(struct list_node* pos, struct list_node* node) {
+	__list_add(node, pos->prev, pos);
+}
+
+static inline void list_add_after(struct list_node* pos, struct list_node* node) {
+	__list_add(node, pos, pos->next);
+}
+
 static inline void __list_remove(struct list_node* prev, struct list_node* next) {
 	next->prev = prev;
 	prev->next = next;
