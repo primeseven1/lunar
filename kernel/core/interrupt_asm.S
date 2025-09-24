@@ -45,10 +45,6 @@ asm_isr_\n:
 .type isr_common, @function
 .align 0x10
 asm_isr_common:
-	/* 
-	 * The CPU already disables interrupts for us, since the IDT entry flags
-	 * are set to 0x8e on all entries.
-	 */
 	cld
 
 	swapgs_if_needed
@@ -115,7 +111,6 @@ asm_isr_common:
 	popq %r14
 	popq %r15
 
-	cli /* C code may have decided to re-enable interrupts */
 	swapgs_if_needed
 	addq $16, %rsp /* Remove vector + error code */
 	iretq
