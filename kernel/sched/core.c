@@ -189,6 +189,8 @@ int sched_change_prio(struct thread* thread, int prio) {
 }
 
 void sched_tick(void) {
+	irqflags_t irq_flags = local_irq_save();
+
 	struct cpu* cpu = current_cpu();
 	struct runqueue* rq = &cpu->runqueue;
 	struct thread* current = rq->current;
@@ -213,6 +215,7 @@ void sched_tick(void) {
 	}
 
 	spinlock_unlock(&rq->lock);
+	local_irq_restore(irq_flags);
 }
 
 int schedule(void) {

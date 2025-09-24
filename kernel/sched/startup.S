@@ -6,11 +6,12 @@
 asm_kthread_start:
 	andq $-16, %rsp
 
-	pushq $0 /* Fake return address */
-	pushq $0 /* Fake stack frame */
+	/* Fake frame */
+	pushq $0
+	pushq $0
 	xorq %rbp, %rbp
 
-	/* The thread function and thread arguments are already in rdi/rsi at this point */
+	/* rdi/rsi already has the function/argument */
 	call __kthread_start
 	ud2
 .size asm_kthread_start, . - asm_kthread_start
