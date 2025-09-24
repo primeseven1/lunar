@@ -9,9 +9,10 @@
  * the correct value gets swapped.
  */
 .macro swapgs_if_needed
-	cmpq $SEGMENT_KERNEL_CODE, 24(%rsp) /* Check to see if the interrupt happened in kernel mode */
+	cmpq $SEGMENT_KERNEL_CODE, 24(%rsp)
 	je 1f
-	swapgs /* Only gets executed if the interrupt happened in user mode */
+	swapgs
+	lfence
 1:
 .endm
 
@@ -51,7 +52,6 @@ asm_isr_common:
 	cld
 
 	swapgs_if_needed
-	lfence /* Speculative execution barrier */
 
 	pushq %r15
 	pushq %r14
@@ -76,8 +76,7 @@ asm_isr_common:
 
 	/*
 	 * Align the stack by 16, save the alignment in rbx since that register
-	 * must be preserved throughout function calls (system v abi). This is not
-	 * very likely to happen in this context.
+	 * must be preserved throughout function calls (system v abi).
 	 */
 	movq %rsp, %rbx
 	andq $15, %rbx
@@ -98,7 +97,6 @@ asm_isr_common:
 	/* Remove fake stack frame and realign the stack */
 	leaq 16(%rsp,%rbx), %rsp
 
-	/* Now just restore the context, these registers may have been modified if this interrupt was for a task preemption */
 	popq %rax
 	movq %rax, %cr2
 	popq %rax
@@ -117,13 +115,12 @@ asm_isr_common:
 	popq %r14
 	popq %r15
 
-	cli /* C code may have decided to re-enable interrupts, so disable this before handling swapgs */
+	cli /* C code may have decided to re-enable interrupts */
 	swapgs_if_needed
 	addq $16, %rsp /* Remove vector + error code */
 	iretq
 .size asm_isr_common, . - asm_isr_common
 
-/* Now just set up all ISR stubs */
 .altmacro
 .set i, 0
 .rept 256
