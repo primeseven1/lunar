@@ -85,9 +85,27 @@ struct mem_area {
 	unsigned int layer_count; /* MAX_ORDER + 1 */
 	struct {
 		unsigned long* free_list;
-		mutex_t lock;
+		bool atomic;
+		union {
+			mutex_t mutex;
+			spinlock_t spinlock;
+		};
 	} pages; /* For managing the actual memory in the list */
 };
+
+static inline void mem_area_lock(struct mem_area* area, irqflags_t* irq_flags) {
+	if (area->pages.atomic)
+		spinlock_lock_irq_save(&area->pages.spinlock, irq_flags);
+	else
+		mutex_lock(&area->pages.mutex);
+}
+
+static inline void mem_area_unlock(struct mem_area* area, irqflags_t* irq_flags) {
+	if (area->pages.atomic)
+		spinlock_unlock_irq_restore(&area->pages.spinlock, irq_flags);
+	else
+		mutex_unlock(&area->pages.mutex);
+}
 
 static unsigned long find_first_free(unsigned long* free_list, unsigned int layer) {
 	u8* free_list8 = (u8*)free_list;
@@ -257,12 +275,18 @@ struct zone {
  *
  * Acquires area->lock
  */
-static struct mem_area* select_mem_area(struct zone* zone, unsigned int order, unsigned int* layer, unsigned long* block) {
+static struct mem_area* select_mem_area(struct zone* zone, unsigned int order,
+		unsigned int* layer, unsigned long* block, bool atomic, irqflags_t* irq_flags) {
 	unsigned long block_count = (PAGE_SIZE << order) >> PAGE_SHIFT;
 	for (int timeout = 0; timeout < 10; timeout++) {
 		struct mem_area* best = NULL;
 		for (unsigned long i = 0; i < zone->area_count; i++) {
 			struct mem_area* a = &zone->areas[i];
+			if (a->pages.atomic != atomic)
+				continue;
+			if (a->layer_count <= order)
+				continue;
+
 			unsigned long used = atomic_load(&a->used_4k_blocks);
 			unsigned long free = a->total_4k_blocks - used;
 
@@ -275,14 +299,14 @@ static struct mem_area* select_mem_area(struct zone* zone, unsigned int order, u
 		if (!best)
 			continue;
 
-		mutex_lock(&best->pages.lock);
+		mem_area_lock(best, irq_flags);
 
 		*layer = best->layer_count - order - 1u;
 		*block = find_first_free(best->pages.free_list, *layer);
 		if (*block != ULONG_MAX)
 			return best;
 
-		mutex_unlock(&best->pages.lock);
+		mem_area_unlock(best, irq_flags);
 	}
 
 	return NULL;
@@ -312,7 +336,7 @@ static struct mem_area* get_mem_area(struct zone* zone, physaddr_t addr) {
  * Allocate pages from a memory zone, this function makes sure the memory
  * region is actually system RAM before returning the address.
  */
-static physaddr_t __alloc_pages(struct zone* zone, unsigned int order) {
+static physaddr_t __alloc_pages(struct zone* zone, mm_t mm_flags, unsigned int order) {
 	size_t alloc_size = PAGE_SIZE << order;
 	unsigned long block4k_count = alloc_size >> PAGE_SHIFT;
 
@@ -321,7 +345,9 @@ static physaddr_t __alloc_pages(struct zone* zone, unsigned int order) {
 
 	unsigned int layer;
 	unsigned long block;
-	struct mem_area* area = select_mem_area(zone, order, &layer, &block);
+	irqflags_t irq_flags;
+	bool atomic = !!(mm_flags & MM_ATOMIC);
+	struct mem_area* area = select_mem_area(zone, order, &layer, &block, atomic, &irq_flags);
 	if (!area)
 		goto out;
 
@@ -335,8 +361,8 @@ retry:
 	if (block == ULONG_MAX) {
 		block = find_first_free(area->pages.free_list, layer);
 		if (block == ULONG_MAX) {
-			mutex_unlock(&area->pages.lock);
-			area = select_mem_area(zone, order, &layer, &block);
+			mem_area_unlock(area, &irq_flags);
+			area = select_mem_area(zone, order, &layer, &block, atomic, &irq_flags);
 			if (!area)
 				goto out;
 		}
@@ -376,7 +402,7 @@ retry:
 	}
 out:
 	if (area)
-		mutex_unlock(&area->pages.lock);
+		mem_area_unlock(area, &irq_flags);
 	return ret;
 }
 
@@ -391,14 +417,16 @@ static int __free_pages(struct zone* zone, physaddr_t addr, unsigned int order) 
 	unsigned long block4k_count = alloc_size >> PAGE_SHIFT;
 	unsigned long block = (addr - area->base) / alloc_size;
 
-	mutex_lock(&area->pages.lock);
+	irqflags_t irq_flags;
+	mem_area_lock(area, &irq_flags);
 
 	int ret = _free_block(area, layer, block);
 	if (ret)
 		goto cleanup;
 	atomic_sub_fetch(&area->used_4k_blocks, block4k_count);
+
 cleanup:
-	mutex_unlock(&area->pages.lock);
+	mem_area_unlock(area, &irq_flags);
 	return ret;
 }
 
@@ -490,10 +518,10 @@ physaddr_t alloc_pages(mm_t mm_flags, unsigned int order) {
 	}
 
 	/* Have retries here, so that way we can see if another thread frees any memory */
-	const unsigned int max_retries = 10;
+	const unsigned int max_retries = mm_flags & MM_ATOMIC ? 0 : 10;
 	unsigned int retries = max_retries;
 	do {
-		physaddr_t physical = __alloc_pages(zone, order);
+		physaddr_t physical = __alloc_pages(zone, mm_flags, order);
 		if (physical) {
 			mem_in_use += (1u << order) << PAGE_SHIFT;
 			return physical;
@@ -587,9 +615,10 @@ static unsigned int get_layer_count(size_t size) {
 /* All structures for this zone are statically allocated */
 static void dma_zone_init(physaddr_t last_usable) {
 	size_t rest = unlikely(last_usable < DMA_SIZE) ? last_usable : DMA_SIZE;
-	const size_t max_area_size = (1 << MAX_ORDER) * PAGE_SIZE;
+	const size_t max_area_size = (1u << MAX_ORDER) * PAGE_SIZE;
+	const unsigned long atomic_count = 1;
 
-	size_t i;
+	unsigned long i;
 	for (i = 0; i < DMA_AREA_COUNT; i++) {
 		dma_areas[i].base = i * max_area_size;
 		dma_areas[i].pages.free_list = dma_area_free_lists[i];
@@ -598,7 +627,11 @@ static void dma_zone_init(physaddr_t last_usable) {
 		dma_areas[i].layer_count = get_layer_count(max_area_size);
 		dma_areas[i].total_4k_blocks = 1u << (dma_areas[i].layer_count - 1);
 		atomic_store(&dma_areas[i].used_4k_blocks, 0);
-		mutex_init(&dma_areas[i].pages.lock);
+		dma_areas[i].pages.atomic = i < atomic_count;
+		if (dma_areas[i].pages.atomic)
+			spinlock_init(&dma_areas[i].pages.spinlock);
+		else
+			mutex_init(&dma_areas[i].pages.mutex);
 		rest -= dma_areas[i].real_size;
 	}
 	dma_zone.zone_type = MM_ZONE_DMA;
@@ -613,7 +646,7 @@ static void dma_zone_init(physaddr_t last_usable) {
  * Initialize a memory area, free_list_zone is the zone the free list should be allocated from,
  * so this function can be used when not every zone is initialized yet.
  */
-static int init_area(struct mem_area* area, mm_t free_list_zone, physaddr_t base, size_t real_size) {
+static int init_area(struct mem_area* area, mm_t free_list_zone, physaddr_t base, size_t real_size, bool atomic) {
 	u64 rounded_size = round_power2(PAGE_SIZE, real_size);
 	unsigned int layer_count = get_layer_count(rounded_size);
 	if (layer_count == 1)
@@ -631,7 +664,11 @@ static int init_area(struct mem_area* area, mm_t free_list_zone, physaddr_t base
 	area->total_4k_blocks = 1 << (layer_count - 1);
 	atomic_store_explicit(&area->used_4k_blocks, 0, ATOMIC_RELAXED);
 	area->pages.free_list = hhdm_virtual(free_list);
-	mutex_init(&area->pages.lock);
+	area->pages.atomic = atomic;
+	if (atomic)
+		spinlock_init(&area->pages.spinlock);
+	else
+		mutex_init(&area->pages.mutex);
 	memset(area->pages.free_list, 0, free_list_size);
 
 	/* Allocate the invalid area, if there is one */
@@ -659,6 +696,9 @@ static int zone_init(struct zone* zone, mm_t zone_type, mm_t alloc_zone,
 	unsigned long area_count = zone_size / max_area_size;
 	if (unlikely(area_count == 0))
 		area_count = 1;
+	unsigned long atomic_count = (area_count * 5 + 99) / 100;
+	if (atomic_count == 0)
+		atomic_count = 1;
 
 	unsigned int area_order = get_order(sizeof(struct mem_area) * area_count);
 	physaddr_t _areas = alloc_pages(alloc_zone, area_order);
@@ -669,7 +709,7 @@ static int zone_init(struct zone* zone, mm_t zone_type, mm_t alloc_zone,
 	size_t rest = zone_size;
 	for (unsigned long i = 0; i < area_count; i++) {
 		size_t area_size = rest > max_area_size ? max_area_size : rest;
-		int err = init_area(&areas[i], alloc_zone, min_start, area_size);
+		int err = init_area(&areas[i], alloc_zone, min_start, area_size, i < atomic_count);
 		if (likely(err == 0)) {
 			min_start += area_size;
 			rest -= area_size;
