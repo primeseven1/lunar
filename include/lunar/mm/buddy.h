@@ -2,7 +2,7 @@
 
 #include <lunar/mm/mm.h>
 
-#define MAX_ORDER 12
+#define MAX_ORDER 11
 
 /**
  * @brief Get the amount of memory in use by the system

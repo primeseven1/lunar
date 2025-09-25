@@ -259,7 +259,7 @@ struct zone {
  */
 static struct mem_area* select_mem_area(struct zone* zone, unsigned int order, unsigned int* layer, unsigned long* block) {
 	unsigned long block_count = (PAGE_SIZE << order) >> PAGE_SHIFT;
-	for (int timeout = 0; timeout < 10; timeout--) {
+	for (int timeout = 0; timeout < 10; timeout++) {
 		struct mem_area* best = NULL;
 		for (unsigned long i = 0; i < zone->area_count; i++) {
 			struct mem_area* a = &zone->areas[i];
@@ -402,15 +402,17 @@ cleanup:
 	return ret;
 }
 
-/* DMA zone is maxed out to 16MiB, so we know 12 is the maximum */
-#define DMA_MAX_ORDER 12
+#define DMA_SIZE 0x1000000
+#define DMA_AREA_COUNT ((DMA_SIZE >> MAX_ORDER) >> PAGE_SHIFT)
+#define MAX_AREA_BMP_SIZE (((1 << (MAX_ORDER + 1)) >> 3) + 1)
 
-/* 
- * Since the DMA zone is maxed out to 16MiB, so this can be created statically 
- * since the free list will only be a couple of pages 
- */
-static struct mem_area dma_area;
-static unsigned long dma_area_free_list[((1 << (DMA_MAX_ORDER + 1)) / sizeof(unsigned long))];
+/* Sanity check */
+#if (DMA_SIZE >> MAX_ORDER) < PAGE_SIZE
+#error "MAX order too large for DMA_SIZE"
+#endif /* (DMA_SIZE >> MAX_ORDER) < PAGE_SIZE */
+
+static struct mem_area dma_areas[DMA_AREA_COUNT];
+static unsigned long dma_area_free_lists[DMA_AREA_COUNT][MAX_AREA_BMP_SIZE / sizeof(unsigned long)] = { 0 };
 static struct zone dma_zone;
 
 /* 
@@ -582,28 +584,29 @@ static unsigned int get_layer_count(size_t size) {
 	return layers;
 }
 
-/* Initializes the DMA zone, all structures for this zone are statically allocated */
+/* All structures for this zone are statically allocated */
 static void dma_zone_init(physaddr_t last_usable) {
+	size_t rest = unlikely(last_usable < DMA_SIZE) ? last_usable : DMA_SIZE;
+	const size_t max_area_size = (1 << MAX_ORDER) * PAGE_SIZE;
+
+	size_t i;
+	for (i = 0; i < DMA_AREA_COUNT; i++) {
+		dma_areas[i].base = i * max_area_size;
+		dma_areas[i].pages.free_list = dma_area_free_lists[i];
+		dma_areas[i].size = max_area_size;
+		dma_areas[i].real_size = (i == DMA_AREA_COUNT - 1) ? rest : max_area_size;
+		dma_areas[i].layer_count = get_layer_count(max_area_size);
+		dma_areas[i].total_4k_blocks = 1u << (dma_areas[i].layer_count - 1);
+		atomic_store(&dma_areas[i].used_4k_blocks, 0);
+		mutex_init(&dma_areas[i].pages.lock);
+		rest -= dma_areas[i].real_size;
+	}
 	dma_zone.zone_type = MM_ZONE_DMA;
-
-	size_t dma_size = 0x1000000;
-	if (unlikely(last_usable < dma_size))
-		dma_size = last_usable;
-
-	dma_zone.area_count = 1;
-	dma_area.base = 0;
-	dma_area.pages.free_list = dma_area_free_list;
-	dma_area.size = round_power2(PAGE_SIZE, dma_size);
-	dma_area.real_size = dma_size;
-	dma_zone.areas = &dma_area;
-
-	dma_area.layer_count = get_layer_count(dma_size);
-	dma_area.total_4k_blocks = 1 << (dma_area.layer_count - 1);
-	mutex_init(&dma_area.pages.lock);
-	memset(dma_area_free_list, 0, sizeof(dma_area_free_list));
+	dma_zone.areas = dma_areas;
+	dma_zone.area_count = i;
 
 	/* Allocate the first page of memory, an error should never happen in this context */
-	assert(_alloc_block(&dma_area, dma_area.layer_count - 1, 0) == 0);
+	bug(_alloc_block(&dma_areas[0], dma_areas[0].layer_count - 1, 0) != 0);
 }
 
 /* 
@@ -616,7 +619,7 @@ static int init_area(struct mem_area* area, mm_t free_list_zone, physaddr_t base
 	if (layer_count == 1)
 		return -ELOOP;
 
-	size_t free_list_size = (1 << layer_count) + 1;
+	size_t free_list_size = ((1 << layer_count) >> 3) + 1;
 	physaddr_t free_list = alloc_pages(free_list_zone, get_order(free_list_size));
 	if (!free_list)
 		return -ENOMEM;
@@ -667,21 +670,20 @@ static int zone_init(struct zone* zone, mm_t zone_type, mm_t alloc_zone,
 	for (unsigned long i = 0; i < area_count; i++) {
 		size_t area_size = rest > max_area_size ? max_area_size : rest;
 		int err = init_area(&areas[i], alloc_zone, min_start, area_size);
+		if (likely(err == 0)) {
+			min_start += area_size;
+			rest -= area_size;
+			continue;
+		}
 
-		/* -ELOOP here means that the area is just too small, so just don't bother with it */
 		if (err == -ELOOP) {
-			if (unlikely(--area_count == 0)) {
+			if (unlikely(--area_count == 0)) { /* Don't bother with the zone */
 				free_pages(_areas, area_order);
 				return err;
 			}
 			break;
-		} else if (err) {
-			return err;
 		}
-
-		/* Now adjust the sizes for the next area */
-		min_start += area_size;
-		rest -= area_size;
+		return err;
 	}
 
 	zone->area_count = area_count;
@@ -691,31 +693,37 @@ static int zone_init(struct zone* zone, mm_t zone_type, mm_t alloc_zone,
 	return 0;
 }
 
+#define DMA32_START 0x1000000
+#define DMA32_END 0x100000000
+#define NORMAL_START 0x100000000
+#define NORMAL_END PHYSADDR_MAX
+
 void buddy_init(void) {
 	mem_total = mmap_total_usable();
 
 	physaddr_t last_usable = mmap_get_last_usable();
 	dma_zone_init(last_usable);
 
-	/* Any other error the -ELOOP here typically means a problem with the allocator */
-	int err = zone_init(&__dma32_zone, MM_ZONE_DMA32, MM_ZONE_DMA, last_usable, 0x1000000, 0x100000000);
-	if (unlikely(err == -ELOOP)) {
-		dma32_zone = &dma_zone;
-		normal_zone = &dma_zone;
-		printk(PRINTK_DBG "mm: Linking dma32 and normal zones to the dma zone\n");
-		return;
-	} else {
-		assert(err == 0);
+	int err = zone_init(&__dma32_zone, MM_ZONE_DMA32, MM_ZONE_DMA, last_usable, DMA32_START, DMA32_END);
+	if (unlikely(err)) {
+		if (unlikely(err == -ELOOP)) {
+			dma32_zone = &dma_zone;
+			normal_zone = &dma_zone;
+			printk(PRINTK_DBG "mm: Linking dma32 and normal zones to the dma zone\n");
+			return;
+		}
+		panic("Failed to initialize zone DMA32: %i", err);
 	}
 	dma32_zone = &__dma32_zone;
 
-	err = zone_init(&__normal_zone, MM_ZONE_NORMAL, MM_ZONE_DMA32, last_usable, 0x100000000, PHYSADDR_MAX);
-	if (err == -ELOOP) {
-		normal_zone = dma32_zone;
-		printk(PRINTK_DBG "mm: Linking normal zone to the dma32 zone\n");
-		return;
-	} else {
-		assert(err == 0);
+	err = zone_init(&__normal_zone, MM_ZONE_NORMAL, MM_ZONE_DMA32, last_usable, NORMAL_START, NORMAL_END);
+	if (err) {
+		if (likely(err == -ELOOP)) {
+			normal_zone = dma32_zone;
+			printk(PRINTK_DBG "mm: Linking normal zone to the dma32 zone\n");
+			return;
+		}
+		panic("Failed to initialize zone normal: %i", err);
 	}
 	normal_zone = &__normal_zone;
 }
