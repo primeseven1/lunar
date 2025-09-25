@@ -134,20 +134,20 @@ static unsigned long find_first_free(unsigned long* free_list, unsigned int laye
 }
 
 static inline void __alloc_block(unsigned long* free_list, unsigned long block_count, unsigned long block) {
-	size_t byte_index = (block_count + block - 1) / 8;
-	unsigned int bit_index = (block_count + block - 1) % 8;
+	size_t byte_index = (block_count + block - 1) >> 3;
+	unsigned int bit_index = (block_count + block - 1) & 7;
 	((u8*)free_list)[byte_index] |= (1 << bit_index);
 }
 
 static inline void __free_block(unsigned long* free_list, unsigned long block_count, unsigned long block) {
-	size_t byte_index = (block_count + block - 1) / 8;
-	unsigned int bit_index = (block_count + block - 1) % 8;
+	size_t byte_index = (block_count + block - 1) >> 3;
+	unsigned int bit_index = (block_count + block - 1) & 7;
 	((u8*)free_list)[byte_index] &= ~(1 << bit_index);
 }
 
 static inline bool __is_block_free(unsigned long* free_list, unsigned long block_count, unsigned long block) {
-	size_t byte_index = (block_count + block - 1) / 8;
-	unsigned int bit_index = (block_count + block - 1) % 8;
+	size_t byte_index = (block_count + block - 1) >> 3;
+	unsigned int bit_index = (block_count + block - 1) & 7;
 	return ((((u8*)free_list)[byte_index] & (1 << bit_index)) == 0);
 }
 
@@ -258,46 +258,51 @@ struct zone {
  * Acquires area->lock
  */
 static struct mem_area* select_mem_area(struct zone* zone, unsigned int order, unsigned int* layer, unsigned long* block) {
-	struct mem_area* best = &zone->areas[0];
-
-	unsigned long i = 1;
 	unsigned long block_count = (PAGE_SIZE << order) >> PAGE_SHIFT;
-
-	unsigned long timeout = 20;
-	while (timeout--) {
-		if (i == zone->area_count - 1)
-			i = 0;
-		for (; i < zone->area_count; i++) {
+	for (int timeout = 0; timeout < 10; timeout--) {
+		struct mem_area* best = NULL;
+		for (unsigned long i = 0; i < zone->area_count; i++) {
 			struct mem_area* a = &zone->areas[i];
-			unsigned long used_4k = atomic_load(&a->used_4k_blocks);
-			unsigned long free = a->total_4k_blocks - used_4k;
-			if (free >= block_count && used_4k < atomic_load(&best->used_4k_blocks))
+			unsigned long used = atomic_load(&a->used_4k_blocks);
+			unsigned long free = a->total_4k_blocks - used;
+
+			if (free < block_count)
+				continue;
+			if (!best || used < atomic_load(&best->used_4k_blocks))
 				best = a;
 		}
 
+		if (!best)
+			continue;
+
 		mutex_lock(&best->pages.lock);
+
 		*layer = best->layer_count - order - 1u;
 		*block = find_first_free(best->pages.free_list, *layer);
 		if (*block != ULONG_MAX)
 			return best;
 
-		/*
-		 * Reaching here means that either there was no contiguous block,
-		 * or somebody got to this area before we did
-		 */
 		mutex_unlock(&best->pages.lock);
 	}
 
 	return NULL;
 }
 
-/* Get a memory area based on an address. This function performs no locking, unlike select_mem_area. */
+/* Get a memory area based on an address. */
 static struct mem_area* get_mem_area(struct zone* zone, physaddr_t addr) {
-	struct mem_area* areas = zone->areas;
-	for (unsigned long i = 0; i < zone->area_count; i++) {
-		physaddr_t area_end = areas[i].base + areas[i].total_4k_blocks * PAGE_SIZE;
-		if (addr >= areas[i].base && addr < area_end)
-			return &areas[i];
+	unsigned long low = 0;
+	unsigned long high = zone->area_count;
+
+	while (low < high) {
+		unsigned long mid = low + ((high - low) >> 1);
+		struct mem_area* area = &zone->areas[mid];
+		physaddr_t area_end = area->base + (area->total_4k_blocks << PAGE_SHIFT);
+		if (addr < area->base)
+			high = mid;
+		else if (addr >= area_end)
+			low = mid + 1;
+		else
+			return area;
 	}
 
 	return NULL;
@@ -418,8 +423,8 @@ static struct zone* dma32_zone;
 static struct zone* normal_zone;
 
 /* 
- * Get a memory zone from MM flags, this function will allocate
- * select the most restrictive zone if multiple zones are set.
+ * Get a memory zone from MM flags, this function must select
+ * the most restrictive zone if multiple zones are set for whatever reason.
  */
 static struct zone* get_zone_mm(mm_t mm_flags) {
 	if (mm_flags & MM_ZONE_DMA)
@@ -431,25 +436,30 @@ static struct zone* get_zone_mm(mm_t mm_flags) {
 	return NULL;
 }
 
-/* Get a memory zone from a physical memory address */
+/*
+ * Checks if an address range is in a memory zone, this function does assume
+ * that all memory areas are ordered.
+ */
+static inline bool in_zone(struct zone* zone, physaddr_t base, physaddr_t top) {
+	struct mem_area* first_area = &zone->areas[0];
+	struct mem_area* last_area = &zone->areas[zone->area_count - 1];
+	return (base >= first_area->base && top <= last_area->base + last_area->real_size);
+}
+
+/*
+ * Gets a memory zone from a physical memory address, this function
+ * returns NULL if the address range falls inside of two different zones
+ */
 static struct zone* get_zone_addr(physaddr_t addr, size_t size) {
 	physaddr_t addr_top;
 	if (__builtin_add_overflow(addr, size, &addr_top))
 		return NULL;
 
-	/* Only one area for the DMA zone */
-	if (addr >= dma_area.base && addr_top <= dma_area.base + dma_area.real_size)
+	if (in_zone(&dma_zone, addr, addr_top))
 		return &dma_zone;
-
-	/* This code is not affected whether or not the first area is the same as the last area */
-	struct mem_area* first_area = &dma32_zone->areas[0];
-	struct mem_area* last_area = &dma32_zone->areas[dma32_zone->area_count - 1];
-	if (addr >= first_area->base && addr_top <= last_area->base + last_area->real_size)
+	if (in_zone(dma32_zone, addr, addr_top))
 		return dma32_zone;
-
-	first_area = &normal_zone->areas[0];
-	last_area = &normal_zone->areas[normal_zone->area_count - 1];
-	if (addr >= first_area->base && addr_top <= last_area->base + last_area->real_size)
+	if (in_zone(normal_zone, addr, addr_top))
 		return normal_zone;
 
 	return NULL;
