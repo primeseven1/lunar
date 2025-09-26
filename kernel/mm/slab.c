@@ -2,6 +2,8 @@
 #include <lunar/compiler.h>
 #include <lunar/mm/slab.h>
 #include <lunar/mm/vmm.h>
+#include <lunar/mm/buddy.h>
+#include <lunar/mm/hhdm.h>
 #include <lunar/core/printk.h>
 #include <lunar/core/trace.h>
 #include <lunar/core/panic.h>
@@ -11,19 +13,34 @@
 #define SLAB_SIZE_CUTOFF 512
 #define SLAB_AFTER_CUTOFF_OBJ_COUNT 16
 
+static inline void* slab_alloc_struct(mm_t mm_flags, size_t size) {
+	if (mm_flags & MM_ATOMIC)
+		return hhdm_virtual(alloc_pages(mm_flags, get_order(size)));
+	return vmap(NULL, size, MMU_READ | MMU_WRITE, VMM_ALLOC, &mm_flags);
+}
+
+static inline int slab_free_struct(void* ptr, mm_t mm_flags, size_t size) {
+	int err = 0;
+	if (mm_flags & MM_ATOMIC)
+		free_pages(hhdm_physical(ptr), get_order(size));
+	else
+		err = vunmap(ptr, size, 0);
+	return err;
+}
+
 static int slab_init(struct slab_cache* cache, struct slab* slab) {
 	size_t map_size = (cache->obj_count + 7) >> 3;
 	size_t slab_size = cache->obj_size * cache->obj_count;
 
 	/* Allocate free list bitmap */
-	slab->free = vmap(NULL, map_size, MMU_READ | MMU_WRITE, VMM_ALLOC, NULL);
+	slab->free = slab_alloc_struct(cache->mm_flags, map_size);
 	if (!slab->free)
 		return -ENOMEM;
 
 	/* Allocate a virtual address for the slab base */
-	slab->base = vmap(NULL, slab_size, MMU_READ | MMU_WRITE, VMM_ALLOC, &cache->mm_flags);
+	slab->base = slab_alloc_struct(cache->mm_flags, slab_size);
 	if (!slab->base) {
-		assert(vunmap(slab->free, map_size, 0) == 0);
+		bug(slab_free_struct(slab->free, cache->mm_flags, map_size) != 0);
 		return -ENOMEM;
 	}
 
@@ -33,13 +50,13 @@ static int slab_init(struct slab_cache* cache, struct slab* slab) {
 }
 
 static int slab_cache_grow(struct slab_cache* cache) {
-	struct slab* slab = vmap(NULL, sizeof(*slab), MMU_READ | MMU_WRITE, VMM_ALLOC, NULL);
+	struct slab* slab = slab_alloc_struct((cache->mm_flags & MM_ATOMIC) | MM_ZONE_NORMAL, sizeof(*slab));
 	if (!slab)
 		return -ENOMEM;
 
 	int err = slab_init(cache, slab);
 	if (err) {
-		assert(vunmap(slab, sizeof(*slab), 0) == 0);
+		bug(slab_free_struct(slab, (cache->mm_flags & MM_ATOMIC) | MM_ZONE_NORMAL, sizeof(*slab)) != 0);
 		return err;
 	}
 
@@ -107,7 +124,7 @@ static struct slab* slab_release(struct slab_cache* cache, void* obj) {
 	size_t bit_index = obj_num & 7;
 
 	/* Check for a double free here since the caller can't check directly */
-	assert((slab->free[byte_index] & (1 << bit_index)) != 0);
+	bug((slab->free[byte_index] & (1 << bit_index)) == 0);
 	slab->free[byte_index] &= ~(1 << bit_index);
 
 	/* Now call the destructor and return the slab the free happened on */
@@ -117,8 +134,23 @@ static struct slab* slab_release(struct slab_cache* cache, void* obj) {
 	return slab;
 }
 
+static inline void slab_cache_lock(struct slab_cache* cache, irqflags_t* irq_flags) {
+	if (cache->mm_flags & MM_ATOMIC)
+		spinlock_lock_irq_save(&cache->spinlock, irq_flags);
+	else
+		mutex_lock(&cache->mutex);
+}
+
+static inline void slab_cache_unlock(struct slab_cache* cache, irqflags_t* irq_flags) {
+	if (cache->mm_flags & MM_ATOMIC)
+		spinlock_unlock_irq_restore(&cache->spinlock, irq_flags);
+	else
+		mutex_unlock(&cache->mutex);
+}
+
 void* slab_cache_alloc(struct slab_cache* cache) {
-	mutex_lock(&cache->lock);
+	irqflags_t irq_flags;
+	slab_cache_lock(cache, &irq_flags);
 
 	/* Allocate from partial slabs first */
 	struct list_head* list = NULL;
@@ -138,7 +170,7 @@ void* slab_cache_alloc(struct slab_cache* cache) {
 
 	struct slab* slab = list_first_entry(list, struct slab, link);
 	ret = slab_take(cache, slab);
-	assert(ret != NULL); /* Since we've already grown the cache, if this happens something bad has happened */
+	bug(ret == NULL); /* If this happens something bad has happened since the cache grew successfuly */
 
 	/* Check to see if the slab is in the appropriate list. If not, move it. */
 	if (slab->in_use == 1) {
@@ -150,12 +182,13 @@ void* slab_cache_alloc(struct slab_cache* cache) {
 	}
 
 out:
-	mutex_unlock(&cache->lock);
+	slab_cache_unlock(cache, &irq_flags);
 	return ret;
 }
 
 void slab_cache_free(struct slab_cache* cache, void* obj) {
-	mutex_lock(&cache->lock);
+	irqflags_t irq_flags;
+	slab_cache_lock(cache, &irq_flags);
 
 	struct slab* slab = slab_release(cache, obj);
 	if (!slab) {
@@ -174,7 +207,7 @@ void slab_cache_free(struct slab_cache* cache, void* obj) {
 	}
 
 out:
-	mutex_unlock(&cache->lock);
+	slab_cache_unlock(cache, &irq_flags);
 }
 
 struct slab_cache* slab_cache_create(size_t obj_size, size_t align, 
@@ -197,29 +230,38 @@ struct slab_cache* slab_cache_create(size_t obj_size, size_t align,
 	cache->obj_count = cache->obj_size < SLAB_SIZE_CUTOFF ? (PAGE_SIZE * 2) / cache->obj_size : SLAB_AFTER_CUTOFF_OBJ_COUNT;
 	cache->align = align;
 	cache->mm_flags = mm_flags;
-	mutex_init(&cache->lock);
+	if (mm_flags & MM_ATOMIC)
+		spinlock_init(&cache->spinlock);
+	else
+		mutex_init(&cache->mutex);
 
 	return cache;
 }
 
+static inline bool slab_cache_try_lock(struct slab_cache* cache, irqflags_t* irq_flags) {
+	if (cache->mm_flags & MM_ATOMIC)
+		return spinlock_try_lock_irq_save(&cache->spinlock, irq_flags);
+	return mutex_try_lock(&cache->mutex);
+}
+
 int slab_cache_destroy(struct slab_cache* cache) {
-	if (!mutex_try_lock(&cache->lock))
+	irqflags_t irq_flags;
+	if (!slab_cache_try_lock(cache, &irq_flags))
 		return -EWOULDBLOCK;
 	if (!list_empty(&cache->partial) || !list_empty(&cache->full)) {
-		mutex_unlock(&cache->lock);
+		slab_cache_unlock(cache, &irq_flags);
 		return -EBUSY;
 	}
 
 	struct slab* slab, *tmp;
 	list_for_each_entry_safe(slab, tmp, &cache->empty, link) {
 		list_remove(&slab->link);
-		assert(vunmap(slab->base, cache->obj_size * cache->obj_count, 0) == 0);
-		assert(vunmap(slab->free, (cache->obj_count + 7) >> 3, 0) == 0);
-		assert(vunmap(slab, sizeof(*slab), 0) == 0);
+		bug(slab_free_struct(slab->base, cache->mm_flags, cache->obj_size * cache->obj_count) != 0);
+		bug(slab_free_struct(slab->free, cache->mm_flags, (cache->obj_count + 7) >> 3) != 0);
+		bug(slab_free_struct(slab, (cache->mm_flags & MM_ATOMIC) | MM_ZONE_NORMAL, sizeof(*slab)) != 0);
 	}
 
-	/* No need to release the lock here, but this also acts as a memory fence */
-	mutex_unlock(&cache->lock);
+	slab_cache_unlock(cache, &irq_flags);
 	bug(vunmap(cache, sizeof(*cache), 0) != 0);
 	return 0;
 }

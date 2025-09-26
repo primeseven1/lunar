@@ -21,13 +21,16 @@ struct slab_cache {
 	unsigned long obj_count;
 	size_t align;
 	mm_t mm_flags;
-	mutex_t lock;
+	union {
+		mutex_t mutex;
+		spinlock_t spinlock;
+	};
 };
 
 /**
  * @brief Create a new slab cache
  *
- * If zero is passed to align, it will set it to 8.
+ * If zero is passed to align, it will set it to 8. Not safe to call from an atomic context.
  *
  * @param obj_size The size of the object. This will be rounded to the alignment
  * @param align The alignment of the object, must be a power of 2
@@ -43,8 +46,8 @@ struct slab_cache* slab_cache_create(size_t obj_size, size_t align,
 /**
  * @brief Destroy a slab cache
  * 
- * This function will make sure no slabs are empty before
- * attempting to destroy
+ * This function will make sure no slabs are empty before attempting to destroy.
+ * Not safe to call from an atomic context.
  *
  * @param cache The cache to destroy
  *
@@ -57,7 +60,8 @@ int slab_cache_destroy(struct slab_cache* cache);
 /**
  * @brief Allocate memory from a slab cache
  *
- * This function will automatically try to grow the cache if all slabs are full. 
+ * This function will automatically try to grow the cache if all slabs are full.
+ * Safe to call from an interrupt context assuming the cache was created with MM_ATOMIC.
  *
  * @param cache The cache to allocate from
  * @return NULL if there is no memory available, otherwise you get a mapped virtual address
@@ -67,8 +71,8 @@ void* slab_cache_alloc(struct slab_cache* cache);
 /**
  * @brief Free memory from a slab cache
  *
- * If the object isn't in any slab, it will print an error message
- * and just return.
+ * If the object isn't in any slab, it will print an error message and just return.
+ * Safe to call from an interrupt context assuming the cache was created with MM_ATOMIC.
  *
  * @param obj The object to free
  */
