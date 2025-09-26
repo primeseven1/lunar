@@ -14,6 +14,7 @@
 #include <lunar/lib/string.h>
 #include <lunar/mm/heap.h>
 #include <lunar/mm/vmm.h>
+#include <lunar/mm/slab.h>
 
 #include <uacpi/status.h>
 #include <uacpi/kernel_api.h>
@@ -401,58 +402,9 @@ struct uacpi_work {
 	struct list_node link;
 };
 
-static LIST_HEAD_DEFINE(work_free_list);
-static SPINLOCK_DEFINE(work_free_list_lock);
-
-/* Usually scheduled in a workqueue */
-static void work_list_grow(void* arg) {
-	size_t count = 16;
-	if (arg)
-		count = (size_t)arg;
-
-	struct uacpi_work** pointers = kzalloc(sizeof(*pointers) * count, MM_ZONE_NORMAL);
-	for (size_t i = 0; i < count; i++) {
-		pointers[i] = kzalloc(sizeof(pointers[0]), MM_ZONE_NORMAL);
-		if (!pointers[i])
-			break;
-		list_node_init(&pointers[i]->link);
-	}
-
-	irqflags_t irq_flags;
-	spinlock_lock_irq_save(&work_free_list_lock, &irq_flags);
-
-	for (size_t i = 0; i < count && pointers[i]; i++)
-		list_add(&work_free_list, &pointers[i]->link);
-
-	spinlock_unlock_irq_restore(&work_free_list_lock, &irq_flags);
-}
-
-static struct uacpi_work* alloc_work_atomic(void) {
-	irqflags_t irq_flags;
-	spinlock_lock_irq_save(&work_free_list_lock, &irq_flags);
-
-	struct uacpi_work* work = NULL;
-	if (!list_empty(&work_free_list)) {
-		work = list_first_entry(&work_free_list, struct uacpi_work, link);
-		list_remove(&work->link);
-	}
-
-	spinlock_unlock_irq_restore(&work_free_list_lock, &irq_flags);
-	return work;
-}
-
-static void free_work_atomic(struct uacpi_work* work) {
-	irqflags_t irq_flags;
-	spinlock_lock_irq_save(&work_free_list_lock, &irq_flags);
-
-	memset(work, 0, sizeof(*work));
-	list_add(&work_free_list, &work->link);
-
-	spinlock_unlock_irq_restore(&work_free_list_lock, &irq_flags);
-}
-
 static atomic(size_t) gpe_work_counter = atomic_init(0);
 static atomic(size_t) notify_work_counter = atomic_init(0);
+static struct slab_cache* work_cache = NULL;
 
 static void uacpi_work(void* arg) {
 	struct uacpi_work* work = arg;
@@ -461,35 +413,35 @@ static void uacpi_work(void* arg) {
 		atomic_sub_fetch(&gpe_work_counter, 1);
 	else
 		atomic_sub_fetch(&notify_work_counter, 1);
-	free_work_atomic(work);
+	slab_cache_free(work_cache, work);
 }
 
 uacpi_status uacpi_kernel_schedule_work(uacpi_work_type type, uacpi_work_handler handler, uacpi_handle ctx) {
-	struct uacpi_work* work = alloc_work_atomic();
-	if (!work) {
-		sched_workqueue_add(work_list_grow, NULL);
+	struct uacpi_work* work = slab_cache_alloc(work_cache);
+	if (!work)
 		return UACPI_STATUS_OUT_OF_MEMORY;
-	}
 
 	work->type = type;
 	work->handler = handler;
 	work->ctx = ctx;
 
 	/* GPE's run on the BSP to account for buggy firmware */
-	struct cpu* target_cpu;
+	struct cpu* target_cpu = NULL;
 	if (type == UACPI_WORK_GPE_EXECUTION) {
 		target_cpu = smp_cpus_get()->cpus[0];
 		atomic_add_fetch(&gpe_work_counter, 1);
 	} else {
-		target_cpu = current_cpu();
 		atomic_add_fetch(&notify_work_counter, 1);
 	}
 
-	/* Now enqueue the work to run */
-	int err = sched_workqueue_add_on(target_cpu, uacpi_work, work);
-	while (err == -EAGAIN) {
-		err = sched_workqueue_add_on(target_cpu, uacpi_work, work);
-		cpu_relax();
+	int err = target_cpu ? sched_workqueue_add_on(target_cpu, uacpi_work, work) : sched_workqueue_add(uacpi_work, work);
+	if (err) {
+		if (type == UACPI_WORK_GPE_EXECUTION)
+			atomic_sub_fetch(&gpe_work_counter, 1);
+		else
+			atomic_sub_fetch(&notify_work_counter, 1);
+		slab_cache_free(work_cache, work);
+		return UACPI_STATUS_INTERNAL_ERROR;
 	}
 
 	return UACPI_STATUS_OK;
@@ -519,14 +471,12 @@ uacpi_status uacpi_kernel_wait_for_work_completion(void) {
 
 uacpi_status uacpi_kernel_initialize(uacpi_init_level current_init_lvl) {
 	switch (current_init_lvl) {
-	case UACPI_INIT_LEVEL_EARLY:
-		break;
 	case UACPI_INIT_LEVEL_SUBSYSTEM_INITIALIZED:
-		work_list_grow((void*)64);
+		work_cache = slab_cache_create(sizeof(struct uacpi_work), _Alignof(struct uacpi_work), MM_ZONE_NORMAL | MM_ATOMIC, NULL, NULL);
+		if (!work_cache)
+			return UACPI_STATUS_OUT_OF_MEMORY;
 		break;
-	case UACPI_INIT_LEVEL_NAMESPACE_LOADED:
-		break;
-	case UACPI_INIT_LEVEL_NAMESPACE_INITIALIZED:
+	default:
 		break;
 	}
 
@@ -534,4 +484,17 @@ uacpi_status uacpi_kernel_initialize(uacpi_init_level current_init_lvl) {
 }
 
 void uacpi_kernel_deinitialize(void) {
+	uacpi_kernel_wait_for_work_completion();
+
+	struct list_node* pos, *tmp;
+	list_for_each_safe(pos, tmp, &uacpi_interrupts) {
+		struct uacpi_irq_ctx* ctx = list_entry(pos, struct uacpi_irq_ctx, link);
+		interrupt_unregister(ctx->isr);
+		interrupt_free(ctx->isr);
+		list_remove(pos);
+	}
+
+	if (work_cache)
+		slab_cache_destroy(work_cache);
+	work_cache = NULL;
 }
