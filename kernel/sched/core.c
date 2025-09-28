@@ -218,17 +218,14 @@ void sched_tick(void) {
 	local_irq_restore(irq_flags);
 }
 
-int schedule(void) {
-	bug(in_interrupt() == true);
-	irqflags_t irq = local_irq_save();
-
+struct thread* atomic_schedule(void) {
 	struct cpu* cpu = current_cpu();
 	struct runqueue* rq = &cpu->runqueue;
 
 	struct thread* prev = rq->current;
 	if (prev->preempt_count) {
-		assert(atomic_load(&prev->state) == THREAD_RUNNING);
-		return -EAGAIN;
+		bug(atomic_load(&prev->state) != THREAD_RUNNING);
+		return NULL;
 	}
 
 	/* If there is no thread to run, see if the current thread is still runnable. If not, pick idle */
@@ -242,8 +239,7 @@ int schedule(void) {
 
 	if (prev == next) {
 		cpu->need_resched = false;
-		local_irq_restore(irq);
-		return 0;
+		return NULL;
 	}
 
 	/* If the state is modified (eg. by sched_thread_exit), then don't make the thread ready */
@@ -252,10 +248,25 @@ int schedule(void) {
 		atomic_store(&prev->state, THREAD_READY);
 	else if (prev_state == THREAD_ZOMBIE)
 		semaphore_signal(&rq->reaper_sem); /* Signal the current CPU's semaphore, safe to do since IRQ's are disabled */
-	atomic_store(&next->state, THREAD_RUNNING);
 
 	rq->current = next;
 	cpu->need_resched = false;
+	atomic_store(&next->state, THREAD_RUNNING);
+
+	return next;
+}
+
+int schedule(void) {
+	bug(in_interrupt() == true);
+	irqflags_t irq = local_irq_save();
+
+	struct thread* prev = current_cpu()->runqueue.current;
+	struct thread* next = atomic_schedule();
+	if (!next) {
+		local_irq_restore(irq);
+		return 0;
+	}
+
 	context_switch(prev, next);
 
 	/* The reason is only valid if a sleep is prepared, otherwise an undefined value is returned */

@@ -7,11 +7,20 @@
 
 static bool fxsave = false;
 
+void atomic_context_switch(struct thread* prev, struct thread* next, struct context* ctx) {
+	prev->ctx.general = *ctx;
+	if (fxsave)
+		__asm__ volatile("fxsave (%0)" : : "r"(prev->ctx.extended) : "memory");
+	*ctx = next->ctx.general;
+	if (fxsave)
+		__asm__ volatile("fxrstor (%0)" : : "r"(next->ctx.extended) : "memory");
+}
+
 void context_switch(struct thread* prev, struct thread* next) {
 	if (fxsave)
 		__asm__ volatile("fxsave (%0)" : : "r"(prev->ctx.extended) : "memory");
 	asm_context_switch(&prev->ctx.general, &next->ctx.general);
-	if (fxsave)
+	if (fxsave) /* Resuming on the previous thread */
 		__asm__ volatile("fxrstor (%0)" : : "r"(prev->ctx.extended) : "memory");
 }
 
