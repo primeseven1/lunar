@@ -34,3 +34,29 @@ int kulltostr(char* dest, unsigned long long x, unsigned int base, size_t dsize)
  * @retval -EINVAL Invalid base
  */
 int klltostr(char* dest, long long x, unsigned int base, size_t dsize);
+
+/**
+ * @brief Convert a string to an unsigned long long
+ *
+ * @param str The string to convert
+ * @param base The base of the integer
+ * @param res The pointer to the result
+ *
+ * @retval 0 Successful
+ * @retval -ERANGE Overflow
+ * @retval -EINVAL str is NULL, invalid string, or invalid base
+ */
+int kstrtoull(const char* str, unsigned int base, unsigned long long* res);
+
+/**
+ * @brief Convert a string to a long long
+ *
+ * @param str The string to convert
+ * @param base The base of the integer
+ * @param res The pointer to the result
+ *
+ * @retval 0 Successful
+ * @retval -ERANGE Overflow
+ * @retval -EINVAL str is NULL, invalid string, or invalid base
+ */
+int kstrtoll(const char* str, unsigned int base, long long* res);
