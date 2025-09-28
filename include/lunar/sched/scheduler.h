@@ -95,6 +95,9 @@ struct runqueue {
 void sched_cpu_init(void);
 void sched_init(void);
 
+void atomic_context_switch(struct thread* prev, struct thread* next, struct context* ctx);
+struct thread* atomic_schedule(void);
+
 /**
  * @brief Switch to another runnable thread.
  *
