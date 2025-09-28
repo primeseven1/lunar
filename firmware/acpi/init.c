@@ -1,4 +1,5 @@
 #include <lunar/core/cmdline.h>
+#include <lunar/lib/convert.h>
 
 #include <acpi/acpi_init.h>
 #include <uacpi/uacpi.h>
@@ -30,7 +31,10 @@ static uacpi_log_level get_loglevel_from_cmdline(void) {
 	if (!acpi_log_level)
 		return UACPI_LOG_ERROR;
 
-	uacpi_log_level level = *acpi_log_level - '0';
+	unsigned long long level;
+	if (kstrtoull(acpi_log_level, 0, &level))
+		return UACPI_LOG_ERROR;
+
 	switch (level) {
 	case UACPI_LOG_TRACE:
 	case UACPI_LOG_DEBUG:
