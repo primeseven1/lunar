@@ -283,8 +283,12 @@ void __asmlinkage __isr_entry(struct context* ctx) {
 		isr->irq.eoi(isr);
 
 	if (unlikely(ctx->vector == INTERRUPT_MACHINE_CHECK_VECTOR || ctx->vector == INTERRUPT_MACHINE_CHECK_VECTOR)) {
-		swap_cpu();
-	} else if (current_cpu()->need_resched) {
+		if (bad_cpu)
+			swap_cpu();
+		return;
+	}
+
+	if (current_cpu()->need_resched) {
 		struct thread* prev = current_cpu()->runqueue.current;
 		struct thread* next = atomic_schedule();
 		if (next)
