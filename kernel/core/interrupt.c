@@ -252,7 +252,7 @@ static void irq_exit(struct isr* isr) {
 }
 
 static inline bool check_cpu(u8 vector) {
-	if (vector == INTERRUPT_NMI_VECTOR || vector == INTERRUPT_MACHINE_CHECK_VECTOR)
+	if (unlikely(vector == INTERRUPT_NMI_VECTOR || vector == INTERRUPT_MACHINE_CHECK_VECTOR))
 		return !rdmsr(MSR_GS_BASE);
 	return false;
 }
@@ -282,10 +282,14 @@ void __asmlinkage __isr_entry(struct context* ctx) {
 	if (isr->irq.eoi)
 		isr->irq.eoi(isr);
 
-	if (unlikely(bad_cpu)) /* NMI or MCE, not safe to reschedule */
+	if (unlikely(ctx->vector == INTERRUPT_MACHINE_CHECK_VECTOR || ctx->vector == INTERRUPT_MACHINE_CHECK_VECTOR)) {
 		swap_cpu();
-	else if (current_cpu()->need_resched)
-		schedule(); /* Safe here, in_interrupt() returns false after irq_exit() */
+	} else if (current_cpu()->need_resched) {
+		struct thread* prev = current_cpu()->runqueue.current;
+		struct thread* next = atomic_schedule();
+		if (next)
+			atomic_context_switch(prev, next, ctx);
+	}
 }
 
 __diag_pop();
