@@ -19,6 +19,7 @@
 #include <lunar/mm/heap.h>
 #include <lunar/sched/scheduler.h>
 #include <lunar/sched/kthread.h>
+#include <lunar/lib/convert.h>
 
 #include <acpi/acpi_init.h>
 
@@ -34,6 +35,23 @@ static inline void log_ram_usage(void) {
 	u64 total;
 	u64 mem = get_free_memory(&total);
 	printk("RAM usage: %ld KiB / %ld KiB\n", mem >> 10, total >> 10);
+}
+
+static void set_loglevel(void) {
+	const char* loglevel = cmdline_get("loglevel");
+	if (!loglevel)
+		return;
+
+	unsigned long long level;
+	int err = kstrtoull(loglevel, 0, &level);
+	if (err != 0) {
+		printk(PRINTK_ERR "init: Failed to parse integer for cmdline: %i\n", err);
+		return;
+	}
+
+	err = printk_set_level(level);
+	if (err)
+		printk(PRINTK_ERR "init: Failed to set loglevel %llu: %i\n", level, err);
 }
 
 __diag_push();
@@ -86,19 +104,10 @@ _Noreturn __asmlinkage void kernel_main(void) {
 	int err = cmdline_parse();
 
 	term_init(); /* Allow the user to actually see errors */
-	if (unlikely(err)) {
+	if (unlikely(err))
 		printk(PRINTK_ERR "init: Failed to parse cmdline! err: %i\n", err);
-	} else {
-		const char* loglevel = cmdline_get("loglevel");
-		if (loglevel) {
-			unsigned int level = *loglevel - '0';
-			err = printk_set_level(level);
-			if (err == -EINVAL)
-				printk(PRINTK_WARN "init: Failed to set cmdline loglevel, invalid level: %u", level);
-			else if (err)
-				printk(PRINTK_WARN "init: Failed to set cmdline loglevel, err: %i", err);
-		}
-	}
+	else
+		set_loglevel();
 
 	if (err_e9hack && err_e9hack != -ENOENT)
 		printk(PRINTK_WARN "init: e9hack module init failed (is this real hardware?) err %i\n", err_e9hack);
