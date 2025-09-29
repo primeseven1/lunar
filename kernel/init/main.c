@@ -7,6 +7,7 @@
 #include <lunar/core/module.h>
 #include <lunar/core/trace.h>
 #include <lunar/core/printk.h>
+#include <lunar/core/softirq.h>
 #include <lunar/core/panic.h>
 #include <lunar/core/pci.h>
 #include <lunar/core/cpu.h>
@@ -69,6 +70,7 @@ _Noreturn __asmlinkage void ap_kernel_main(struct limine_mp_info* mp_info) {
 	apic_ap_init();
 	timekeeper_cpu_init();
 	sched_cpu_init();
+	softirq_cpu_init();
 
 	ctl3_write(ctl3_read()); /* Flush again */
 	cpu_init_finish();
@@ -123,6 +125,7 @@ _Noreturn __asmlinkage void kernel_main(void) {
 		panic("Failed to initialize APIC, err: %i", err);
 	timekeeper_init();
 	sched_init();
+	softirq_cpu_init();
 	cpu_startup_aps();
 	init_status_set(INIT_STATUS_SCHED);
 
