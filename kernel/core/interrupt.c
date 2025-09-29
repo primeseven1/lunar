@@ -219,7 +219,7 @@ int interrupt_allow_entry_if_synced(struct isr* isr) {
 static bool irq_enter(struct isr* isr) {
 	if (interrupt_get_vector(isr) < INTERRUPT_EXCEPTION_COUNT || isr->irq.irq == -1) {
 		if (init_status_get() >= INIT_STATUS_SCHED)
-			current_thread()->preempt_count += HARDIRQ_OFFSET;
+			preempt_offset(HARDIRQ_OFFSET);
 		return true;
 	}
 
@@ -228,7 +228,7 @@ static bool irq_enter(struct isr* isr) {
 	bool can_enter = atomic_load(&isr->inflight) >= 0;
 	if (can_enter) {
 		if (init_status_get() >= INIT_STATUS_SCHED)
-			current_thread()->preempt_count += HARDIRQ_OFFSET;
+			preempt_offset(HARDIRQ_OFFSET);
 		atomic_add_fetch(&isr->inflight, 1);
 	}
 
@@ -236,25 +236,34 @@ static bool irq_enter(struct isr* isr) {
 	return can_enter;
 }
 
+static inline bool is_resched_a_bad_idea(u8 vector) {
+	return vector == INTERRUPT_NMI_VECTOR || vector == INTERRUPT_MACHINE_CHECK_VECTOR || vector == INTERRUPT_DOUBLE_FAULT_VECTOR;
+}
+
 static void irq_exit(struct isr* isr) {
 	if (init_status_get() >= INIT_STATUS_SCHED)
-		current_thread()->preempt_count -= HARDIRQ_OFFSET;
+		preempt_offset(-HARDIRQ_OFFSET);
 	if (interrupt_get_vector(isr) >= INTERRUPT_EXCEPTION_COUNT && isr->irq.irq != -1)
 		atomic_sub_fetch(&isr->inflight, 1);
+	if (unlikely(is_resched_a_bad_idea(interrupt_get_vector(isr))))
+		return;
+
+	struct thread* current = current_thread();
+	if (current->preempt_count & SOFTIRQ_MASK)
+		return;
+
+	preempt_offset(SOFTIRQ_OFFSET);
 
 	local_irq_enable();
+	do_pending_softirqs(false);
 
-	current_thread()->preempt_count += SOFTIRQ_OFFSET;
-	do_pending_softirqs();
-	current_thread()->preempt_count -= SOFTIRQ_OFFSET;
+	preempt_offset(-SOFTIRQ_OFFSET);
 
 	local_irq_disable();
 }
 
-static inline bool check_cpu(u8 vector) {
-	if (unlikely(vector == INTERRUPT_NMI_VECTOR || vector == INTERRUPT_MACHINE_CHECK_VECTOR))
-		return !rdmsr(MSR_GS_BASE);
-	return false;
+static inline bool check_cpu(void) {
+	return !rdmsr(MSR_GS_BASE);
 }
 
 static inline void swap_cpu(void) {
@@ -266,7 +275,7 @@ __diag_ignore("-Wmissing-prototypes");
 
 void __asmlinkage __isr_entry(struct context* ctx) {
 	bug(ctx->vector >= INTERRUPT_COUNT);
-	bool bad_cpu = check_cpu(ctx->vector);
+	bool bad_cpu = unlikely(is_resched_a_bad_idea(ctx->vector)) ? check_cpu() : false;
 	if (unlikely(bad_cpu))
 		swap_cpu();
 
@@ -282,7 +291,7 @@ void __asmlinkage __isr_entry(struct context* ctx) {
 	if (isr->irq.eoi)
 		isr->irq.eoi(isr);
 
-	if (unlikely(ctx->vector == INTERRUPT_MACHINE_CHECK_VECTOR || ctx->vector == INTERRUPT_MACHINE_CHECK_VECTOR)) {
+	if (unlikely(is_resched_a_bad_idea(ctx->vector))) {
 		if (bad_cpu)
 			swap_cpu();
 		return;
