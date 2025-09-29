@@ -14,6 +14,14 @@ static inline void preempt_enable(void) {
 	current->preempt_count--;
 }
 
+static inline void preempt_offset(long count) {
+	barrier();
+	struct thread* current = current_thread();
+	bug(__builtin_add_overflow(current->preempt_count, count, &current->preempt_count));
+	bug(current->preempt_count < 0);
+	barrier();
+}
+
 #define HARDIRQ_SHIFT 8ul
 #define SOFTIRQ_SHIFT 16ul
 #define HARDIRQ_MASK (0xFFul << HARDIRQ_SHIFT)
