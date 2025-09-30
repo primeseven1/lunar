@@ -41,6 +41,7 @@ enum thread_rings {
 struct work {
 	void (*fn)(void*);
 	void* arg;
+	struct list_node link;
 };
 
 struct proc {
