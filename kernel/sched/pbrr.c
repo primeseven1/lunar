@@ -233,6 +233,13 @@ static void rr_thread_attach(struct runqueue* rq, struct thread* thread, int pos
 	pbrr_thread_attach(rq, thread, SCHED_PRIO_MAX);
 }
 
+static int rr_change_prio(struct runqueue* rq, struct thread* thread, int posix_prio) {
+	(void)rq;
+	(void)thread;
+	(void)posix_prio;
+	return -ENOTSUP;
+}
+
 static const struct sched_policy_ops rr_ops = {
 	.init = pbrr_init,
 	.thread_attach = rr_thread_attach,
@@ -240,7 +247,7 @@ static const struct sched_policy_ops rr_ops = {
 	.enqueue = pbrr_enqueue,
 	.dequeue = pbrr_dequeue,
 	.pick_next = pbrr_pick_next,
-	.change_prio = NULL,
+	.change_prio = rr_change_prio,
 	.on_tick = pbrr_on_tick,
 	.on_yield = pbrr_on_yield
 };
