@@ -216,21 +216,26 @@ int interrupt_allow_entry_if_synced(struct isr* isr) {
 	return err;
 }
 
-static bool irq_enter(struct isr* isr) {
-	if (interrupt_get_vector(isr) < INTERRUPT_EXCEPTION_COUNT || isr->irq.irq == -1) {
-		if (init_status_get() >= INIT_STATUS_SCHED)
-			preempt_offset(HARDIRQ_OFFSET);
-		return true;
+static bool irq_enter(struct isr* isr, bool* nested) {
+	*nested = false;
+
+	struct thread* thread = current_thread();
+	int status = init_status_get();
+	if (likely(status >= INIT_STATUS_SCHED)) {
+		*nested = !!(thread->preempt_count & HARDIRQ_MASK);
+		preempt_offset(HARDIRQ_OFFSET);
 	}
+
+	if (interrupt_get_vector(isr) < INTERRUPT_EXCEPTION_COUNT || isr->irq.irq == -1)
+		return true;
 
 	spinlock_lock(&isr->lock);
 
 	bool can_enter = atomic_load(&isr->inflight) >= 0;
-	if (can_enter) {
-		if (init_status_get() >= INIT_STATUS_SCHED)
-			preempt_offset(HARDIRQ_OFFSET);
+	if (can_enter)
 		atomic_add_fetch(&isr->inflight, 1);
-	}
+	else if (!*nested) /* Impossible for can_enter to be false when the scheduler isn't initialized */
+		preempt_offset(-HARDIRQ_OFFSET);
 
 	spinlock_unlock(&isr->lock);
 	return can_enter;
@@ -240,26 +245,11 @@ static inline bool is_resched_a_bad_idea(u8 vector) {
 	return vector == INTERRUPT_NMI_VECTOR || vector == INTERRUPT_MACHINE_CHECK_VECTOR || vector == INTERRUPT_DOUBLE_FAULT_VECTOR;
 }
 
-static void irq_exit(struct isr* isr) {
-	if (init_status_get() >= INIT_STATUS_SCHED)
+static void irq_exit(struct isr* isr, bool nested) {
+	if (likely(init_status_get() >= INIT_STATUS_SCHED) && !nested)
 		preempt_offset(-HARDIRQ_OFFSET);
 	if (interrupt_get_vector(isr) >= INTERRUPT_EXCEPTION_COUNT && isr->irq.irq != -1)
 		atomic_sub_fetch(&isr->inflight, 1);
-	if (unlikely(is_resched_a_bad_idea(interrupt_get_vector(isr))))
-		return;
-
-	struct thread* current = current_thread();
-	if (current->preempt_count & SOFTIRQ_MASK)
-		return;
-
-	preempt_offset(SOFTIRQ_OFFSET);
-
-	local_irq_enable();
-	do_pending_softirqs(false);
-
-	preempt_offset(-SOFTIRQ_OFFSET);
-
-	local_irq_disable();
 }
 
 static inline bool check_cpu(void) {
@@ -280,13 +270,14 @@ void __asmlinkage __isr_entry(struct context* ctx) {
 		swap_cpu();
 
 	struct isr* isr = &isr_handlers[ctx->vector];
-	bool can_enter = irq_enter(isr);
+	bool nested;
+	bool can_enter = irq_enter(isr, &nested);
 	if (can_enter) {
 		if (likely(isr->func))
 			isr->func(isr, ctx);
 		else
 			printk(PRINTK_CRIT "core: Interrupt %lu happened, there is no handler for it!\n", ctx->vector);
-		irq_exit(isr);
+		irq_exit(isr, nested);
 	}
 	if (isr->irq.eoi)
 		isr->irq.eoi(isr);
@@ -295,6 +286,20 @@ void __asmlinkage __isr_entry(struct context* ctx) {
 		if (bad_cpu)
 			swap_cpu();
 		return;
+	}
+
+	if (unlikely(init_status_get() < INIT_STATUS_SCHED))
+		return;
+
+	struct thread* thread = current_thread();
+
+	/* Check to see if we were interrupted in a softirq. If so, don't run any softirqs */
+	if (!(thread->preempt_count & SOFTIRQ_MASK)) {
+		preempt_offset(SOFTIRQ_OFFSET);
+		local_irq_enable();
+		do_pending_softirqs(false);
+		preempt_offset(-SOFTIRQ_OFFSET);
+		local_irq_disable();
 	}
 
 	if (current_cpu()->need_resched) {
