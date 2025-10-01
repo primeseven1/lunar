@@ -14,8 +14,14 @@
 #define SLAB_AFTER_CUTOFF_OBJ_COUNT 16
 
 static inline void* slab_alloc_struct(mm_t mm_flags, size_t size) {
-	if (mm_flags & MM_ATOMIC)
-		return hhdm_virtual(alloc_pages(mm_flags, get_order(size)));
+	if (mm_flags & MM_ATOMIC) {
+		void* ptr = hhdm_virtual(alloc_pages(mm_flags, get_order(size)));
+		if (ptr)
+			memset(ptr, 0, size);
+		return ptr;
+	}
+
+	/* vmap will zero the memory */
 	return vmap(NULL, size, MMU_READ | MMU_WRITE, VMM_ALLOC, &mm_flags);
 }
 
