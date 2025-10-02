@@ -7,6 +7,8 @@
 #error "LP64 not used, cannot compile!"
 #endif /* __LP64__ */
 
+#define BIGGEST_ALIGNMENT __BIGGEST_ALIGNMENT__
+
 #define SCHAR_MAX 0x7f
 #define SCHAR_MIN (-SCHAR_MAX - 1)
 #define UCHAR_MAX 0xffU
