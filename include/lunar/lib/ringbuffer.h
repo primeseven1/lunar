@@ -4,11 +4,17 @@
 #include <lunar/core/spinlock.h>
 #include <lunar/mm/heap.h>
 
+struct rb_slot {
+	atomic(unsigned long) seq;
+	__attribute__((aligned(BIGGEST_ALIGNMENT))) u8 data[];
+};
+
 struct ringbuffer {
-	void* buffer;
+	struct rb_slot* buffer;
 	size_t element_size;
 	unsigned long capacity;
-	unsigned long head, tail;
+	atomic(unsigned long) head;
+	atomic(unsigned long) tail;
 };
 
 /**
@@ -50,3 +56,9 @@ int ringbuffer_enqueue(struct ringbuffer* rb, const void* element);
  * @return -ENODATA when there is nothing in the ringbuffer, 0 on success
  */
 int ringbuffer_dequeue(struct ringbuffer* rb, void* element);
+
+/**
+ * @brief Free any resources used by the ringbuffer
+ * @param rb The ringbuffer to destroy
+ */
+void ringbuffer_destroy(struct ringbuffer* rb);
