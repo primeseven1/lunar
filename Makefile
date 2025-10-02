@@ -10,6 +10,7 @@ CFLAGS = -c -MMD -MP -std=c11 -I./include \
 	 -Wmissing-prototypes -Wno-attributes \
 	 -mno-red-zone -mgeneral-regs-only \
 	 -O$(CONFIG_OPTIMIZATION)
+SPARSE_CFLAGS = -D__BIGGEST_ALIGNMENT__=16 # shut up sparse about __BIGGEST_ALIGNMENT__ not being defined
 LDFLAGS = -static -nostdlib --no-dynamic-linker \
 	  -ztext -zmax-page-size=0x1000 \
 	  -O$(CONFIG_OPTIMIZATION)
@@ -70,7 +71,7 @@ $(OUTPUT): $(S_OBJECT_FILES) $(C_OBJECT_FILES) $(LDSCRIPT)
 
 %.o: %.c
 	@echo "[CC] $<"
-	@sparse $(CFLAGS) $<
+	@sparse $(CFLAGS) $(SPARSE_CFLAGS) $<
 	@$(CC) $(CFLAGS) $< -o $@
 
 clean:
