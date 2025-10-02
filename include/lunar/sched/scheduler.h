@@ -70,6 +70,7 @@ struct thread {
 	size_t stack_size;
 	struct {
 		struct context general; /* General purpose registers */
+		void* thread_local; /* Unused for kernel threads */
 		void* extended; /* SSE, AVX, etc.. */
 	} ctx; /* For the task switcher, obviously */
 	struct list_node proc_link; /* Link for proc->threads */

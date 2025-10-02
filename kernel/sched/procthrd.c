@@ -68,6 +68,7 @@ struct thread* thread_create(struct proc* proc, size_t stack_size) {
 	thread->stack_size = stack_size;
 
 	memset(&thread->ctx.general, 0, sizeof(thread->ctx.general));
+	thread->ctx.thread_local = NULL; /* unused for now */
 	thread->ctx.extended = ext_ctx_alloc();
 	if (!thread->ctx.extended)
 		goto err_ctx;
