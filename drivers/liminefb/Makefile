@@ -11,7 +11,7 @@ C_SOURCE_FILES += ./drivers/liminefb/main.c ./drivers/liminefb/term.c
 
 ./drivers/liminefb/%.o: ./drivers/liminefb/%.c
 	@echo "[CC] $<"
-	@sparse $(CFLAGS) $(LIMINEFB_CFLAGS) $(FLANTERM_CFLAGS) $<
+	@sparse $(CFLAGS) $(SPARSE_CFLAGS) $(LIMINEFB_CFLAGS) $(FLANTERM_CFLAGS) $<
 	@$(CC) $(CFLAGS) $(LIMINEFB_CFLAGS) $(FLANTERM_CFLAGS) $< -o $@
 
 ./drivers/liminefb/flanterm/src/%.o: ./drivers/liminefb/flanterm/src/%.c
