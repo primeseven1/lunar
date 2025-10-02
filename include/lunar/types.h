@@ -125,6 +125,10 @@ enum atomic_orders {
 #define atomic_xor_fetch(obj, n) __atomic_xor_fetch(&(obj)->__x, n, ATOMIC_ACQ_REL)
 #define atomic_fetch_nand(obj, n) __atomic_fetch_nand(&(obj)->__x, n, ATOMIC_ACQ_REL)
 #define atomic_nand_fetch(obj, n) __atomic_nand_fetch(&(obj)->__x, n, ATOMIC_ACQ_REL)
+#define atomic_compare_exchange_strong(obj, expected, desired) \
+	__atomic_compare_exchange_n(&(obj)->__x, expected, desired, false, ATOMIC_ACQ_REL, ATOMIC_ACQUIRE)
+#define atomic_compare_exchange_weak(obj, expected, desired) \
+	__atomic_compare_exchange_n(&(obj)->__x, expected, desired, true, ATOMIC_ACQ_REL, ATOMIC_ACQUIRE)
 
 #define atomic_load_explicit(obj, order) __atomic_load_n(&(obj)->__x, order)
 #define atomic_store_explicit(obj, v, order) __atomic_store_n(&(obj)->__x, v, order)
@@ -143,3 +147,7 @@ enum atomic_orders {
 #define atomic_xor_fetch_explicit(obj, n, order) __atomic_xor_fetch(&(obj)->__x, n, order)
 #define atomic_fetch_nand_explicit(obj, n, order) __atomic_fetch_nand(&(obj)->__x, n, order)
 #define atomic_nand_fetch_explicit(obj, n, order) __atomic_nand_fetch(&(obj)->__x, n, order)
+#define atomic_compare_exchange_strong_explicit(obj, expected, desired, succ, fail) \
+	__atomic_compare_exchange_n(&(obj)->__x, expected, desired, false, succ, fail)
+#define atomic_compare_exchange_weak_explicit(obj, expected, desired, succ, fail) \
+	__atomic_compare_exchange_n(&(obj)->__x, expected, desired, true, succ, fail)
