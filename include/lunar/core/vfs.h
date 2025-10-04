@@ -64,5 +64,6 @@ ssize_t vfs_write(struct vfs_node* n, const void* buf, size_t size, u64 off, int
 int vfs_getattr(struct vfs_node* n, struct vfs_attr* attr);
 int vfs_setattr(struct vfs_node* n, const struct vfs_attr* attr);
 int vfs_lookup(struct vfs_node* dir, const char* name, struct vfs_node** out);
+int vfs_register(struct filesystem_type* type);
 
 void vfs_init(void);
