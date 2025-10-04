@@ -1,4 +1,5 @@
 #include <lunar/core/vfs.h>
+#include <lunar/core/panic.h>
 #include <lunar/mm/heap.h>
 #include <lunar/lib/string.h>
 #include <lunar/lib/hashtable.h>
@@ -132,6 +133,12 @@ int vfs_lookup(struct vfs_node* dir, const char* name, struct vfs_node** out) {
 	return 0;
 }
 
+int vfs_register(struct filesystem_type* type) {
+	return hashtable_insert(fs_table, type->name, strlen(type->name), type);
+}
+
 void vfs_init(void) {
 	fs_table = hashtable_create(20, sizeof(struct filesystem_type));
+	if (!fs_table)
+		panic("Failed to create file system table");
 }
