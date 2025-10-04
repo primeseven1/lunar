@@ -49,7 +49,7 @@ LDFLAGS += -L$(LIBGCC_DIR)
 
 all: $(OUTPUT)
 
-BUILD_MAKEFILES = $(shell find ./kernel ./drivers ./firmware -type f -name 'Makefile')
+BUILD_MAKEFILES = $(shell find ./kernel ./drivers ./firmware ./fs -type f -name 'Makefile')
 -include $(BUILD_MAKEFILES)
 
 S_OBJECT_FILES := $(patsubst %.S, %.o, $(S_SOURCE_FILES))
