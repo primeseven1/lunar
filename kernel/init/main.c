@@ -3,6 +3,7 @@
 #include <lunar/asm/wrap.h>
 #include <lunar/asm/segment.h>
 #include <lunar/init/status.h>
+#include <lunar/core/vfs.h>
 #include <lunar/core/limine.h>
 #include <lunar/core/module.h>
 #include <lunar/core/trace.h>
@@ -135,6 +136,8 @@ _Noreturn __asmlinkage void kernel_main(void) {
 	acpi_status = acpi_finish_init();
 	if (unlikely(acpi_status != UACPI_STATUS_OK))
 		panic("acpi_finish_init(): %s", uacpi_status_to_string(acpi_status));
+
+	vfs_init();
 
 	log_ram_usage();
 	printk(PRINTK_CRIT "init: kernel_main thread ended!\n");
