@@ -1,0 +1,5 @@
+config FS_TMPFS
+	bool "initrd"
+	default y
+	help
+	  "Enable initial ramdisk support"
