@@ -202,7 +202,7 @@ void sched_tick(void) {
 	else if (current == rq->idle)
 		cpu->need_resched = true;
 
-	struct timespec ts_now = timekeeper_time();
+	struct timespec ts_now = timekeeper_time(TIMEKEEPER_FROMBOOT);
 	time_t now = timespec_to_ns(&ts_now);
 	while (!list_empty(&rq->sleepers)) {
 		struct thread* thread = list_first_entry(&rq->sleepers, struct thread, sleep_link);
@@ -302,7 +302,7 @@ int sched_prepare_sleep(time_t ms, int flags) {
 	if (!(flags & SCHED_SLEEP_BLOCK) && ms == 0)
 		return -EINVAL;
 	if (ms != 0) {
-		struct timespec ts = timekeeper_time();
+		struct timespec ts = timekeeper_time(TIMEKEEPER_FROMBOOT);
 		sleep_end = timespec_to_ns(&ts) + (ms * 1000000);
 	}
 
