@@ -33,7 +33,7 @@ struct tsc_priv {
 	u64 offset;
 };
 
-static time_t get_ticks(void) {
+static time_t fb_ticks(void) {
 	struct timekeeper_source* source = current_cpu()->timekeeper;
 	u64 offset = ((struct tsc_priv*)source->private)->offset;
 	return rdtsc_serialized() - offset;
@@ -91,14 +91,15 @@ static int init(struct timekeeper_source** out) {
 	}
 	((struct tsc_priv*)source->private)->offset = get_bsp_offset();
 
-	source->get_ticks = get_ticks;
-	source->freq = freq;
+	source->fb_ticks = fb_ticks;
+	source->fb_freq = freq;
 	*out = source;
 	return 0;
 }
 
 static struct timekeeper __timekeeper tsc_timekeeper = {
 	.name = "tsc",
+	.type = TIMEKEEPER_FROMBOOT,
 	.init = init,
 	.rating = 90, /* Good with invariant TSC, and very fast */
 	.early = false

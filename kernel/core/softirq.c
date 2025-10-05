@@ -29,7 +29,7 @@ int raise_softirq(int num) {
 void do_pending_softirqs(bool daemon) {
 	time_t max_ns = daemon ? 5000000 : 1000000;
 
-	struct timespec ts = timekeeper_time();
+	struct timespec ts = timekeeper_time(TIMEKEEPER_FROMBOOT);
 	time_t start_ns = timespec_to_ns(&ts);
 
 	int reent = 10;
@@ -44,7 +44,7 @@ void do_pending_softirqs(bool daemon) {
 					softirq_vec[i]();
 			}
 
-			ts = timekeeper_time();
+			ts = timekeeper_time(TIMEKEEPER_FROMBOOT);
 			if (timespec_to_ns(&ts) - start_ns >= max_ns)
 				break;
 		}

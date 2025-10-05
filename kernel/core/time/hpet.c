@@ -46,7 +46,7 @@ static inline void hpet_write(unsigned int reg, u64 x) {
 	writeq(hpet_virtual + reg, x);
 }
 
-static time_t get_ticks(void) {
+static time_t fb_ticks(void) {
 	return hpet_read(HPET_REG_COUNTER);	
 }
 
@@ -85,8 +85,8 @@ static int init(struct timekeeper_source** out) {
 		err = -EIO;
 		goto err_cleanup;
 	}
-	_hpet_source.freq = 1000000000000000ull / femtoperiod;
-	_hpet_source.get_ticks = get_ticks;
+	_hpet_source.fb_freq = 1000000000000000ull / femtoperiod;
+	_hpet_source.fb_ticks = fb_ticks;
 	_hpet_source.private = NULL;
 
 	/* Make sure the HPET is disabled and set the initial count to zero */
@@ -117,6 +117,7 @@ err_cleanup:
 
 static struct timekeeper __timekeeper hpet_timekeeper = {
 	.name = "hpet",
+	.type = TIMEKEEPER_FROMBOOT,
 	.init = init,
 	.rating = 60, /* Slow to access, but very accurate */
 	.early = true

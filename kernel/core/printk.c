@@ -100,7 +100,7 @@ int vprintk(const char* fmt, va_list va) {
 
 	char time_string[50];
 	const char* color = printk_level_string(level);
-	struct timespec ts = timekeeper_time();
+	struct timespec ts = timekeeper_time(TIMEKEEPER_FROMBOOT);
 	snprintf(time_string, sizeof(time_string), "%s[%5llu.%06llu]\033[0m ", 
 			color, ts.tv_sec, (time_t)ts.tv_nsec / 1000);
 
