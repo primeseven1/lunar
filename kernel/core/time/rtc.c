@@ -4,14 +4,30 @@
 #include <lunar/core/io.h>
 #include <lunar/mm/heap.h>
 
-static inline bool rtc_updating(void) {
-	outb(0x70, 0x0A);
-	return !!(inb(0x71) & 0x80);
-}
-
 static inline u8 cmos_read(u8 reg) {
 	outb(0x70, reg);
 	return inb(0x71);
+}
+
+enum rtc_regs {
+	RTC_REG_SECOND = 0x00,
+	RTC_REG_MINUTE = 0x02,
+	RTC_REG_HOUR = 0x04,
+	RTC_REG_DAY = 0x07,
+	RTC_REG_MONTH = 0x08,
+	RTC_REG_YEAR = 0x09,
+	RTC_REG_CENTURY = 0x32,
+	RTC_REG_STATUS_A = 0x0A,
+	RTC_REG_STATUS_B = 0x0B
+};
+
+enum rtc_flags {
+	RTC_FLAG_A_UIP = (1 << 7),
+	RTC_FLAG_B_24HR = (1 << 1)
+};
+
+static inline bool rtc_updating(void) {
+	return !!(cmos_read(RTC_REG_STATUS_A) & RTC_FLAG_A_UIP);
 }
 
 static inline u8 bcd_to_bin(u8 val) {
@@ -24,16 +40,16 @@ static void __rtc_read_time(u8* sec, u8* min, u8* hour, u8* day, u8* month, u16*
 	while (rtc_updating())
 		cpu_relax();
 
-	*sec = cmos_read(0x00);
-	*min = cmos_read(0x02);
-	*hour = cmos_read(0x04);
-	*day = cmos_read(0x07);
-	*month = cmos_read(0x08);
+	*sec = cmos_read(RTC_REG_SECOND);
+	*min = cmos_read(RTC_REG_MINUTE);
+	*hour = cmos_read(RTC_REG_HOUR);
+	*day = cmos_read(RTC_REG_DAY);
+	*month = cmos_read(RTC_REG_MONTH);
 
-	u8 year_low = cmos_read(0x09);
-	u8 cent = cmos_read(0x32);
+	u8 year_low = cmos_read(RTC_REG_YEAR);
+	u8 cent = cmos_read(RTC_REG_CENTURY);
 
-	u8 reg_b = cmos_read(0x0B);
+	u8 reg_b = cmos_read(RTC_REG_STATUS_B);
 	if (!(reg_b & 0x04)) {
 		*sec = bcd_to_bin(*sec);
 		*min = bcd_to_bin(*min);
@@ -45,7 +61,7 @@ static void __rtc_read_time(u8* sec, u8* min, u8* hour, u8* day, u8* month, u16*
 	}
 
 	*year = (cent * 100) + year_low;
-	if (!(reg_b & 0x02) && (*hour & 0x80))
+	if (!(reg_b & RTC_FLAG_B_24HR) && (*hour & 0x80))
 		*hour = ((*hour & 0x7F) + 12) % 24;
 }
 
@@ -77,6 +93,9 @@ static struct timespec wc_get(struct timekeeper_source* source) {
 	u8 sec, min, hour, day, month;
 	u16 year;
 	rtc_read_time(&sec, &min, &hour, &day, &month, &year);
+
+	if (year < 1970)
+		year += 2000;
 
 	static const int mdays[12] = { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
 
