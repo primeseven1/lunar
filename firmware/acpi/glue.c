@@ -215,7 +215,7 @@ void uacpi_kernel_free(void* ptr) {
 }
 
 uacpi_u64 uacpi_kernel_get_nanoseconds_since_boot(void) {
-	struct timespec ts = timekeeper_time();
+	struct timespec ts = timekeeper_time(TIMEKEEPER_FROMBOOT);
 	time_t ns = ts.tv_sec * 1000000000 + ts.tv_nsec;
 	return ns;
 }
