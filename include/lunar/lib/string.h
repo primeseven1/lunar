@@ -1,6 +1,7 @@
 #pragma once
 
 #include <lunar/types.h>
+#include <lunar/mm/mm.h>
 
 /**
  * @brief Set a block of memory to a specified value
@@ -209,3 +210,14 @@ char* strchr(const char* str, int c);
  * @return A pointer to the next token, or NULL if there are no more tokens
  */
 char* strtok_r(char* str, const char* delim, char** saveptr);
+
+/**
+ * @brief Duplicate a string on the heap
+ *
+ * Not safe to call from an atomic context.
+ * Memory should be freed using kfree after use.
+ *
+ * @param str The string to copy
+ * @return A pointer on the heap to the copied string
+ */
+char* kstrdup(const char* str, mm_t mm_flags);

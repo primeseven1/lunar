@@ -1,4 +1,5 @@
 #include <lunar/lib/string.h>
+#include <lunar/mm/heap.h>
 
 void* memset(void* dest, int val, size_t count) {
 	u8* d = dest;
@@ -195,4 +196,12 @@ char* strtok_r(char* str, const char* delim, char** saveptr) {
 		*str++ = '\0';
 	*saveptr = str;
 	return ret;
+}
+
+char* kstrdup(const char* str, mm_t mm_flags) {
+	size_t count = strlen(str) + 1;
+	char* copy = kmalloc(count, mm_flags);
+	if (copy)
+		memcpy(copy, str, count);
+	return copy;
 }
