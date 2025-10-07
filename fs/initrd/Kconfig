@@ -1,4 +1,4 @@
-config FS_TMPFS
+config FS_INITRD
 	bool "initrd"
 	default y
 	help
