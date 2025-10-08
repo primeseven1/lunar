@@ -11,10 +11,16 @@ struct hashtable_node {
 
 struct hashtable {
 	struct hashtable_node** heads;
-	size_t head_count;
+	unsigned int head_count;
 	size_t size;
 	size_t value_size;
 	mutex_t lock;
+};
+
+struct hashtable_iter {
+	struct hashtable* table;
+	struct hashtable_node* node;
+	size_t bucket;
 };
 
 /**
@@ -29,7 +35,7 @@ struct hashtable {
  *
  * @return A pointer to the new hashtable, NULL if memory could not be allocated
  */
-struct hashtable* hashtable_create(size_t head_count, size_t value_size);
+struct hashtable* hashtable_create(unsigned int head_count, size_t value_size);
 
 /**
  * @brief Insert a value into a hash table
@@ -78,3 +84,23 @@ int hashtable_remove(struct hashtable* table, const void* key, size_t key_size);
  * @param table The table to destroy
  */
 void hashtable_destroy(struct hashtable* table);
+
+struct hashtable_node* ____hashtable_iter_next(struct hashtable_iter* iter);
+bool __hashtable_iter_next(struct hashtable_iter* iter, void* value_out);
+
+static inline void __hashtable_iter_init(struct hashtable* table, struct hashtable_iter* iter) {
+	iter->table = table;
+	iter->bucket = 0;
+	iter->node = NULL;
+	mutex_lock(&table->lock);
+}
+
+static inline void __hashtable_iter_finalize(struct hashtable_iter* iter) {
+	mutex_unlock(&iter->table->lock);
+}
+
+#define hashtable_for_each_entry(table, iter, val) \
+	for (__hashtable_iter_init((table), (iter)); __hashtable_iter_next((iter), &(val)) || (__hashtable_iter_finalize((iter)), 0);)
+#define hashtable_for_each_entry_safe(table, iter, val, node) \
+	for (__hashtable_iter_init((table), (iter)); ((node) = ____hashtable_iter_next((iter))) != NULL || (__hashtable_iter_finalize((iter)), 0);) \
+		for (memcpy(&(val), (node)->value, (iter)->table->value_size); node != NULL; node = NULL)

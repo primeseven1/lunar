@@ -18,14 +18,14 @@ static inline u64 fnv1a64_hash(const void* bytes, size_t size) {
 	return hash;
 }
 
-struct hashtable* hashtable_create(size_t head_count, size_t value_size) {
+struct hashtable* hashtable_create(unsigned int head_count, size_t value_size) {
 	if (head_count == 0)
 		return NULL;
 	struct hashtable* table = kmalloc(sizeof(*table), MM_ZONE_NORMAL);
 	if (!table)
 		return NULL;
 
-	table->heads = kzalloc(head_count * sizeof(struct hashtable_node), MM_ZONE_NORMAL);
+	table->heads = kzalloc(head_count * sizeof(*table->heads), MM_ZONE_NORMAL);
 	if (!table->heads) {
 		kfree(table);
 		return NULL;
@@ -57,10 +57,10 @@ hashtable_node_create(const void* key, const void* value, size_t key_size, size_
 		kfree(node);
 		return NULL;
 	}
-	node->next = NULL;
 
 	memcpy(node->key, key, key_size);
 	memcpy(node->value, value, value_size);
+	node->next = NULL;
 
 	return node;
 }
@@ -184,4 +184,31 @@ void hashtable_destroy(struct hashtable* table) {
 
 	kfree(table->heads);
 	kfree(table);
+}
+
+struct hashtable_node* ____hashtable_iter_next(struct hashtable_iter* iter) {
+	if (iter->node) {
+		iter->node = iter->node->next;
+		if (iter->node)
+			return iter->node;
+	}
+
+	while (iter->bucket < iter->table->head_count) {
+		struct hashtable_node* head = iter->table->heads[iter->bucket++];
+		if (head) {
+			iter->node = head;
+			return iter->node;
+		}
+	}
+
+	return NULL;
+}
+
+bool __hashtable_iter_next(struct hashtable_iter* iter, void* value_out) {
+	struct hashtable_node* node = ____hashtable_iter_next(iter);
+	if (!node)
+		return false;
+
+	memcpy(value_out, node->value, iter->table->value_size);
+	return true;
 }
