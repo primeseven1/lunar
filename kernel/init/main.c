@@ -21,9 +21,10 @@
 #include <lunar/mm/heap.h>
 #include <lunar/sched/scheduler.h>
 #include <lunar/sched/kthread.h>
+#include <lunar/sched/preempt.h>
 #include <lunar/lib/convert.h>
-
 #include <acpi/acpi_init.h>
+#include "internal.h"
 
 static atomic(int) init_status = atomic_init(INIT_STATUS_NOTHING);
 int init_status_get(void) {
@@ -56,9 +57,6 @@ static void set_loglevel(void) {
 		printk(PRINTK_ERR "init: Failed to set loglevel %llu: %i\n", level, err);
 }
 
-__diag_push();
-__diag_ignore("-Wmissing-prototypes");
-
 _Noreturn __asmlinkage void ap_kernel_main(struct limine_mp_info* mp_info) {
 	ctl3_write(ctl3_read()); /* Flush TLB */
 
@@ -73,10 +71,26 @@ _Noreturn __asmlinkage void ap_kernel_main(struct limine_mp_info* mp_info) {
 	sched_cpu_init();
 	softirq_cpu_init();
 
-	ctl3_write(ctl3_read()); /* Flush again */
-	cpu_init_finish();
+	/* Flush again just in case, even though no memory should be shared at this point */
+	ctl3_write(ctl3_read());
 
+	/*
+	 * After cpu_init_finish(), INIT_STATUS_SCHED may be set. This allows mutexes and semaphores to work.
+	 * Since the BSP is still initializing, the BSP cannot try to block since IRQ's are off on the BSP.
+	 *
+	 * Disabling preempt with IRQ's enabled allows IPI's like TLB shootdowns to be delivered, but prevents
+	 * the CPU from running other threads that may take mutexes or try to wait on semaphores.
+	 */
+	cpu_init_finish();
+	preempt_disable();
 	local_irq_enable();
+	while (init_status_get() != INIT_STATUS_FINISHED)
+		cpu_halt();
+
+	/* One more flush just to be safe */
+	ctl3_write(ctl3_read());
+
+	preempt_enable();
 	sched_thread_exit();
 }
 
@@ -130,7 +144,8 @@ _Noreturn __asmlinkage void kernel_main(void) {
 	cpu_startup_aps();
 	init_status_set(INIT_STATUS_SCHED);
 
-	sched_change_prio(current_thread(), SCHED_PRIO_MAX);
+	/* Make sure any changes in PTE's by the AP's are seen by the BSP */
+	ctl3_write(ctl3_read());
 
 	pci_init();
 	acpi_status = acpi_finish_init();
@@ -138,12 +153,12 @@ _Noreturn __asmlinkage void kernel_main(void) {
 		panic("acpi_finish_init(): %s", uacpi_status_to_string(acpi_status));
 
 	vfs_init();
+	fs_drivers_load();
 
 	log_ram_usage();
 	printk(PRINTK_CRIT "init: kernel_main thread ended!\n");
+	init_status_set(INIT_STATUS_FINISHED);
 
 	local_irq_enable();
 	sched_thread_exit();
 }
-
-__diag_pop();
