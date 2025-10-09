@@ -11,7 +11,7 @@ def do_limine_setup(script_abspath_dir: str) -> int:
 
     # First clone the limine binary tree and build the limine utility
     url: str = "https://github.com/limine-bootloader/limine.git"
-    branch: str = "v8.x-binary"
+    branch: str = "v10.x-binary"
     result: sp.CompletedProcess = sp.run(f"git clone {url} --branch={branch} --depth 1",
                                          shell=True, stderr=sp.PIPE, text=True)
     if result.returncode:
