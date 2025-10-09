@@ -2,10 +2,10 @@ OUTPUT_FORMAT(elf64-x86-64)
 ENTRY(_start)
 
 PHDRS {
-	text PT_LOAD; /* Execute + Read */
-	rodata PT_LOAD; /* Read only */
-	data PT_LOAD; /* Write + Read */
-	dynamic PT_DYNAMIC; /* Write + Read */
+	text PT_LOAD FLAGS(5); /* Execute + Read */
+	rodata PT_LOAD FLAGS(4); /* Read only */
+	data PT_LOAD FLAGS(6); /* Write + Read */
+	dynamic PT_DYNAMIC FLAGS(6); /* Write + Read */
 }
 
 SECTIONS {
