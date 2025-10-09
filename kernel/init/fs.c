@@ -20,7 +20,7 @@ void fs_drivers_load(void) {
 		char* modname = kmalloc(size, MM_ZONE_NORMAL);
 		if (unlikely(!modname))
 			break;
-		snprintf("%s%s", size, prefix, modname);
+		snprintf(modname, size, "%s%s", prefix, start[i].name);
 		int err = module_load(modname);
 		if (err)
 			printk(PRINTK_WARN "init: Failed to load fs %s: %i\n", modname, err);
