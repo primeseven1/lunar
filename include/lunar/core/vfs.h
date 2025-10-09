@@ -60,7 +60,7 @@ struct filesystem_type {
 	void (*kill_sb)(struct vfs_superblock*);
 };
 
-#define __filesystem_type __attribute__((section(".fstypes"), aligned(8))
+#define __filesystem_type __attribute__((section(".fstypes"), aligned(8)))
 
 static inline void vfs_node_get(struct vfs_node* n) {
 	atomic_add_fetch(&n->refcount, 1);
