@@ -4,6 +4,7 @@
 #include <lunar/core/interrupt.h>
 #include <lunar/core/timekeeper.h>
 #include <lunar/core/semaphore.h>
+#include <lunar/core/cred.h>
 #include <lunar/lib/list.h>
 
 struct cpu;
@@ -47,6 +48,7 @@ struct work {
 struct proc {
 	pid_t pid; /* Process ID */
 	struct mm* mm_struct; /* Memory manager context */
+	struct cred cred;
 	u8* tid_map; /* Thread ID bitmap */
 	struct list_head threads; /* The list of threads for this process, linked with proc_link */
 	atomic(unsigned long) thread_count; /* The number of threads for this process, don't write without locking first */
