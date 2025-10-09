@@ -19,6 +19,11 @@ _ld_kernel_start = .;
 	KEEP(*(.schedpolicies .schedpolicies.*))
 	_ld_kernel_schedpolicies_end = .;
 
+	. = ALIGN(8);
+	_ld_kernel_fstypes_start = .;
+	KEEP(*(.fstypes .fstypes.*))
+	_ld_kernel_fstypes_end = .;
+
 	_ld_kernel_rodata_end = .;
 } :rodata
 
