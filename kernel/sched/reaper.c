@@ -12,13 +12,6 @@ static inline void reap_thread(struct runqueue* rq, struct thread* thread) {
 static int reaper_thread(void* arg) {
 	(void)arg;
 
-	/*
-	 * Wait until the scheduler is initialized, so that way there
-	 * is no race between the spinlock and mutex switch
-	 */
-	while (init_status_get() < INIT_STATUS_SCHED)
-		cpu_relax();
-
 	irqflags_t irq;
 	struct runqueue* rq = &current_cpu()->runqueue;
 	bool sleep = true;
