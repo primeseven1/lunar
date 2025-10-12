@@ -376,10 +376,11 @@ static struct thread* create_bootstrap_thread(struct runqueue* rq, void* exec, i
 		panic("Failed to create a bootstrap thread\n");
 
 	thread->target_cpu = current_cpu();
+	sched_thread_attach(rq, thread, prio);
+
 	atomic_store(&thread->state, state);
 	thread_set_ring(thread, THREAD_RING_KERNEL);
 	thread_set_exec(thread, exec);
-	sched_thread_attach(rq, thread, prio);
 
 	return thread;
 }
@@ -392,6 +393,7 @@ static void sched_bootstrap_processor(void) {
 
 	struct thread* thread = create_bootstrap_thread(rq, NULL, THREAD_RUNNING, SCHED_PRIO_DEFAULT);
 	rq->current = thread;
+
 	thread = create_bootstrap_thread(rq, idle_thread, THREAD_READY, SCHED_PRIO_MIN);
 	rq->idle = thread;
 
