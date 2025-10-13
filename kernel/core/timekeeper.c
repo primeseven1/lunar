@@ -19,7 +19,7 @@ static struct timekeeper* get_timekeeper(int type, bool early) {
 	for (unsigned long i = 0; i < count; i++) {
 		if (start[i].type != type)
 			continue;
-		if (start[i].rating == 0 || (!start[i].early && early) || (start[i].early && !early))
+		if (start[i].rating == 0 || start[i].early != early)
 			continue;
 
 		if (!best)
