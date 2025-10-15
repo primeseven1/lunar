@@ -267,6 +267,10 @@ static long long do_str_output(struct fmt* spec, char** dest, size_t* dsize, uni
 		len = l;
 	}
 
+	/* Handle number of characters to write */
+	if (spec->precision >= 0 && len > spec->precision)
+		len = spec->precision;
+
 	/* Check how many spaces we need for padding */
 	int spaces = 0;
 	if (len >= spec->field_width) {
@@ -286,8 +290,8 @@ static long long do_str_output(struct fmt* spec, char** dest, size_t* dsize, uni
 
 	/* Now write the string to the destination */
 	if (spec->qualifier == 'l') {
-		while (*arg->ws)
-			write_one(dest, *arg->ws++, dsize);
+		for (int i = 0; i < len; i++)
+			write_one(dest, arg->ws[i], dsize);
 	} else {
 		write_many(dest, arg->s, len, dsize);
 	}
