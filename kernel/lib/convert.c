@@ -45,7 +45,8 @@ int klltostr(char* dest, long long x, unsigned int base, size_t dsize) {
 			return -EOVERFLOW;
 		}
 		*dest++ = '-';
-		x = -x;
+		if (x != LLONG_MIN)
+			x = -x;
 	}
 
 	return kulltostr(dest, (unsigned long long)x, base, dsize);
