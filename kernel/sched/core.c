@@ -212,7 +212,7 @@ void sched_tick(void) {
 			break;
 
 		/* Can happen if a timer interrupt triggers before the CPU can reschedule */
-		if (thread == current) {
+		if (unlikely(thread == current)) {
 			cpu->need_resched = true;
 			break;
 		}
@@ -360,6 +360,12 @@ _Noreturn void sched_thread_exit(void) {
 
 	struct runqueue* rq = &current_cpu()->runqueue;
 	struct thread* current = rq->current;
+
+	/* 
+	 * Can happen if the thread calls sched_prepare_sleep(), but then the thread calls sched_thread_exit().
+	 * If that happens, the scheduler can start executing the thread again after schedule().
+	 */
+	bug(atomic_load(&current->state) != THREAD_RUNNING);
 
 	atomic_store(&current->state, THREAD_ZOMBIE);
 	spinlock_lock(&rq->zombie_lock);
