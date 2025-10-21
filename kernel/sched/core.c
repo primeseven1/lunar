@@ -206,8 +206,17 @@ void sched_tick(void) {
 	time_t now = timespec_to_ns(&ts_now);
 	while (!list_empty(&rq->sleepers)) {
 		struct thread* thread = list_first_entry(&rq->sleepers, struct thread, sleep_link);
+
+		/* List is ordered to keep interrupt latency fast */
 		if (now < thread->wakeup_time)
-			break; /* List is ordered */
+			break;
+
+		/* Can happen if a timer interrupt triggers before the CPU can reschedule */
+		if (thread == current) {
+			cpu->need_resched = true;
+			break;
+		}
+
 		int err = atomic_load(&thread->state) == THREAD_BLOCKED ? -ETIMEDOUT : 0;
 		__sched_wakeup_locked(thread, err);
 		if (current == cpu->runqueue.idle)
