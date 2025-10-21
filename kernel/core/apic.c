@@ -159,11 +159,8 @@ static bool apic_is_masked(const struct isr* isr) {
 }
 
 static void apic_unset_irq(struct isr* isr) {
-	while (1) {
-		if (likely(!apic_in_service(isr)) && !apic_is_pending(isr))
-			break;
+	while (apic_in_service(isr) || apic_is_pending(isr))
 		schedule();
-	}
 
 	isr->irq = (struct irq){ .eoi = NULL, .set_masked = NULL, .unset_irq = NULL,
 		.irq = -1, .cpu = NULL, .is_masked = NULL
