@@ -1,248 +1,321 @@
 #include <lunar/core/vfs.h>
 #include <lunar/core/panic.h>
-#include <lunar/mm/heap.h>
 #include <lunar/lib/string.h>
 #include <lunar/lib/hashtable.h>
 #include <lunar/sched/kthread.h>
 
-/* I have absolutely no idea how much of this code works */
-
-int vfs_open(struct vfs_node* n, int flags) {
-	if (!n)
-		return -EINVAL;
-	if (n->type == VFS_NODE_DIR)
-		return -EISDIR;
-	if (!n->ops || !n->ops->open)
-		return -ENOSYS;
-
-	mutex_lock(&n->lock);
-	int ret = n->ops->open(n, flags, &current_thread()->proc->cred);
-	mutex_unlock(&n->lock);
-
-	return ret;
-}
-
-int vfs_close(struct vfs_node* n, int flags) {
-	if (!n)
-		return -EINVAL;
-	if (n->type == VFS_NODE_DIR)
-		return -EISDIR;
-	if (!n->ops || !n->ops->close)
-		return -ENOSYS;
-
-	mutex_lock(&n->lock);
-	int ret = n->ops->close(n, flags, &current_thread()->proc->cred);
-	mutex_unlock(&n->lock);
-
-	return ret;
-}
-
-ssize_t vfs_read(struct vfs_node* n, void* buf, size_t size, u64 off, int flags) {
-	if (!n)
-		return -EINVAL;
-	if (n->type == VFS_NODE_DIR)
-		return -EISDIR;
-	if (!n->ops || !n->ops->read)
-		return -ENOSYS;
-
-	mutex_lock(&n->lock);
-	int ret = n->ops->read(n, buf, size, off, flags, &current_thread()->proc->cred);
-	mutex_unlock(&n->lock);
-
-	return ret;
-}
-
-ssize_t vfs_write(struct vfs_node* n, const void* buf, size_t size, u64 off, int flags) {
-	if (!n)
-		return -EINVAL;
-	if (n->type == VFS_NODE_DIR)
-		return -EISDIR;
-	if (!n->ops || !n->ops->write)
-		return -ENOSYS;
-
-	mutex_lock(&n->lock);
-	ssize_t ret = n->ops->write(n, buf, size, off, flags, &current_thread()->proc->cred);
-	mutex_unlock(&n->lock);
-
-	return ret;
-}
-
-struct mount_point {
-	struct vfs_superblock* sb;
-	struct vfs_node* mp, *parent;
-};
-
-static struct vfs_node _vfs_root = {
-	.type = VFS_NODE_DIR,
-	.fs_priv = NULL,
-	.lock = MUTEX_INITIALIZER(_vfs_root.lock),
-	.refcount = atomic_init(1),
-	.ops = NULL
-};
-static struct vfs_node* vfs_root = &_vfs_root;
-static struct vfs_superblock* vfs_root_sb = NULL;
+/* FIXME: This code is NOT very well tested!!!!! */
 
 static struct hashtable* fs_table;
-static struct hashtable* mount_table;
+static struct vnode* vfs_root = NULL;
 
-int vfs_lookup(struct vfs_node* dir, const char* name, struct vfs_node** out) {
-	if (!name || !out)
-		return -EINVAL;
+int vfs_register(const struct filesystem_type* type) {
+	return hashtable_insert(fs_table, type->name, strlen(type->name), &type);
+}
 
-	struct vfs_node* cur;
-	if (name[0] == '/' || !dir) {
-		if (vfs_root_sb)
-			cur = vfs_root_sb->root;
-		else
-			cur = vfs_root;
-	} else {
-		cur = dir;
+int vfs_open(struct vnode* node, int flags) {
+	if (node->type == VNODE_TYPE_DIR)
+		return -EISDIR;
+	if (!node->ops || !node->ops->open)
+		return -ENOSYS;
+
+	mutex_lock(&node->lock);
+	int ret = node->ops->open(node, flags, &current_thread()->proc->cred);
+	mutex_unlock(&node->lock);
+
+	return ret;
+}
+
+int vfs_close(struct vnode* node, int flags) {
+	if (node->type == VNODE_TYPE_DIR)
+		return -EISDIR;
+	if (!node->ops || !node->ops->close)
+		return -ENOSYS;
+
+	mutex_lock(&node->lock);
+	int ret = node->ops->close(node, flags, &current_thread()->proc->cred);
+	mutex_unlock(&node->lock);
+
+	return ret;
+}
+
+ssize_t vfs_read(struct vnode* node, void* buf, size_t size, off_t off, int flags) {
+	if (node->type == VNODE_TYPE_DIR)
+		return -EISDIR;
+	if (!node->ops || !node->ops->read)
+		return -ENOSYS;
+
+	mutex_lock(&node->lock);
+	int ret = node->ops->read(node, buf, size, off, flags, &current_thread()->proc->cred);
+	mutex_unlock(&node->lock);
+
+	return ret;
+}
+
+ssize_t vfs_write(struct vnode* node, const void* buf, size_t size, u64 off, int flags) {
+	if (node->type == VNODE_TYPE_DIR)
+		return -EISDIR;
+	if (!node->ops || !node->ops->write)
+		return -ENOSYS;
+
+	mutex_lock(&node->lock);
+	ssize_t ret = node->ops->write(node, buf, size, off, flags, &current_thread()->proc->cred);
+	mutex_unlock(&node->lock);
+
+	return ret;
+}
+
+int vfs_lookup(struct vnode* dir, const char* path, const char* lastcomp, int flags, struct vnode** out) {
+	(void)flags;
+
+	size_t pathlen = strlen(path);
+	if (pathlen == 0)
+		return -ENOENT;
+	if (pathlen > PATHNAME_MAX || (lastcomp && strlen(lastcomp) > NAME_MAX))
+		return -ENAMETOOLONG;
+
+	struct vnode* cur = dir;
+	if (!cur) {
+		cur = vfs_root;
+		if (!cur)
+			return -ENOENT;
 	}
-	vfs_node_get(cur);
-
-	char* path = kstrdup(name, MM_ZONE_NORMAL);
-	if (!path) {
-		vfs_node_put(cur);
+	char* tokens = kstrdup(path, MM_ZONE_NORMAL);
+	if (!tokens)
 		return -ENOMEM;
-	}
+
+	vnode_ref(cur);
+	int err = 0;
 
 	char* saveptr = NULL;
-	char* token;
-	struct vfs_node* next = NULL;
-
-	int err = 0;
-	for (token = strtok_r(path, "/", &saveptr); token != NULL; token = strtok_r(NULL, "/", &saveptr)) {
-		if (strcmp(token, ".") == 0)
-			continue;
-
-		mutex_lock(&cur->lock);
-
-		if (unlikely(!cur->ops || !cur->ops->lookup)) {
+	for (char* token = strtok_r(tokens, "/", &saveptr); token != NULL; token = strtok_r(NULL, "/", &saveptr)) {
+		if (cur->type != VNODE_TYPE_DIR) {
+			err = -ENOTDIR;
+			goto err_unref;
+		}
+		if (!cur->ops || !cur->ops->lookup) {
 			err = -ENOSYS;
-			goto err;
+			goto err_unref;
 		}
 
-		if (strcmp(token, "..") == 0) {
-			struct vfs_node* parent;
-			err = cur->ops->lookup(cur, NULL, VFS_LOOKUP_PARENT, &parent, &current_thread()->proc->cred);
-			if (err)
-				goto err;
-			if (cur == parent)
-				next = cur->mp_parent;
-		} else {
-			err = cur->ops->lookup(cur, token, 0, &next, &current_thread()->proc->cred);
-			if (err)
-				goto err;
+		if (strcmp(token, ".") == 0)
+			continue;
+		int lookup_flags = 0;
+		bool dotdot = strcmp(token, "..") == 0;
+		if (dotdot) {
+			if (vfs_root == cur)
+				continue;
+			lookup_flags |= VNODE_LOOKUP_FLAG_PARENT;
+		}
+
+		struct vnode* next;
+		mutex_lock(&cur->lock);
+
+		err = cur->ops->lookup(cur, token, lookup_flags, &next, &current_thread()->proc->cred);	
+		if (err)
+			goto err_unlock;
+
+		/* Handles mount crossing */
+		if (next->type == VNODE_TYPE_DIR && next->mounted_here) {
+			struct mount* mh = next->mounted_here;
+			vnode_ref(mh->root);
+			vnode_unref(next);
+			next = mh->root;
+		}
+
+		/* Handle .. leaving a mounted root */
+		if (cur == next && cur->mount && cur == cur->mount->root && cur->mount->parent) {
+			struct vnode* p = cur->mount->parent;
+			vnode_ref(p);
+			next = p;
 		}
 
 		mutex_unlock(&cur->lock);
-		vfs_node_put(cur);
+		vnode_unref(cur);
 		cur = next;
 	}
 
+	if (lastcomp) {
+		if (cur->type != VNODE_TYPE_DIR) {
+			err = -ENOTDIR;
+		} else if (!cur->ops || !cur->ops->lookup) {
+			err = -ENOSYS;
+		} else {
+			struct vnode* next;
+			mutex_lock(&cur->lock);
+			err = cur->ops->lookup(cur, lastcomp, 0, &next, &current_thread()->proc->cred);
+			mutex_unlock(&cur->lock);
+			if (err)
+				goto err_unref;
+			vnode_unref(cur);
+			cur = next;
+		}
+	}
+
 	*out = cur;
-	kfree(path);
+	kfree(tokens);
 	return 0;
-err:
-	kfree(path);
+err_unlock:
 	mutex_unlock(&cur->lock);
-	vfs_node_put(cur);
+err_unref:
+	vnode_unref(cur);
+	kfree(tokens);
 	return err;
 }
 
-int vfs_mount(const char* fs_name, const char* mp, struct vfs_node* backing, void* data) {
-	if (backing && backing->type == VFS_NODE_DIR)
-		return -EISDIR;
+int vfs_create(struct vnode* dir, const char* name, mode_t mode, int type, struct vnode** out) {
+	if (type < VNODE_TYPE_MIN || type > VNODE_TYPE_MAX)
+		return -EINVAL;
 
-	struct filesystem_type type;
-	int err = hashtable_search(fs_table, fs_name, strlen(fs_name), &type);
-	if (err)
-		return -ENODEV;
+	if (!dir) {
+		dir = vfs_root;
+		if (!dir)
+			return -ENOENT;
+	}
 
-	struct vfs_node* target;
-	err = vfs_lookup(NULL, mp, &target);
-	if (err)
-		return err;
-	if (target->type != VFS_NODE_DIR)
+	if (dir->type != VNODE_TYPE_DIR)
 		return -ENOTDIR;
-
-	struct mount_point* mp_struct = kmalloc(sizeof(*mp_struct), MM_ZONE_NORMAL);
-	if (!mp_struct) {
-		vfs_node_put(target);
-		return -ENOMEM;
-	}
-
-	mutex_lock(&target->lock);
-
-	struct vfs_superblock* sb;
-	err = type.mount(backing, data, &sb, &current_thread()->proc->cred);
-	if (err) {
-		vfs_node_put(target);
-		kfree(mp_struct);
-		return -EIO;
-	}
-
-	err = hashtable_insert(mount_table, mp, strlen(mp), &mp);
-	if (likely(err == 0)) {
-		mp_struct->sb = sb;
-		mp_struct->mp = target;
-		if (target->ops->lookup(target, NULL, VFS_LOOKUP_PARENT, &mp_struct->parent, NULL))
-			mp_struct->parent = vfs_root_sb->root;
-
-		target->fs_priv = sb->root;
-		target->mp_parent = mp_struct->parent;
-		target->ops = sb->root->ops;
-	} else {
-		sb->ops->unmount(sb, &current_thread()->proc->cred);
-	}
-
-	mutex_unlock(&target->lock);
-	return err;
-}
-
-int vfs_unmount(const char* target_path) {
-	struct mount_point* mp;
-	int err = hashtable_search(mount_table, target_path, strlen(target_path), &mp);
-	if (err)
-		return -ENOENT;
-	if (!mp->sb->ops || !mp->sb->ops->unmount)
+	if (!dir->ops || !dir->ops->create)
 		return -ENOSYS;
 
-	struct vfs_node* target;
-	err = vfs_lookup(NULL, target_path, &target);
-	if (err)
-		return err;
+	mutex_lock(&dir->lock);
+	int res = dir->ops->create(dir, name, mode, type, out, &current_thread()->proc->cred);
+	mutex_unlock(&dir->lock);
 
-	mutex_lock(&target->lock);
+	return res;
+}
 
-	if (mp->parent) {
-		target->fs_priv = mp->parent;
-		target->ops = mp->parent->ops;
-		target->mp_parent = NULL;
-	} else {
-		target->fs_priv = vfs_root_sb->root;
-		target->ops = vfs_root_sb->root->ops;
+static inline int mp_good(struct vnode* vnode) {
+	if (vnode->type != VNODE_TYPE_DIR)
+		return -ENOTDIR;
+	if (vnode->mounted_here)
+		return -EBUSY;
+	return 0;
+}
+
+int vfs_mount(const char* mp, const char* fs_name, struct vnode* backing, void* data) {
+	if (backing && backing->type == VNODE_TYPE_DIR)
+		return -EISDIR;
+
+	const struct filesystem_type* type;
+	if (hashtable_search(fs_table, fs_name, strlen(fs_name), &type))
+		return -ENODEV;
+	if (!type->mount)
+		return -ENOSYS;
+
+	int err = 0;
+
+	struct vnode* mp_vnode = NULL;
+	bool is_root = strcmp(mp, "/") == 0;
+	if (!is_root) {
+		err = vfs_lookup(NULL, mp, NULL, 0, &mp_vnode);
+		if (err)
+			return err;
+	} else if (vfs_root) {
+		return -EBUSY;
 	}
 
-	hashtable_remove(mount_table, target_path, strlen(target_path));
-	err = mp->sb->ops->unmount(mp->sb, &current_thread()->proc->cred);
-	kfree(mp);
+	if (mp_vnode)
+		mutex_lock(&mp_vnode->lock);
 
-	mutex_unlock(&target->lock);
-	vfs_node_put(target);
+	struct mount* m = kzalloc(sizeof(*m), MM_ZONE_NORMAL);
+	if (!m) {
+		err = -ENOMEM;
+		goto err_unlock;
+	}
+
+	m->type = type;
+	err = type->mount(m, backing, data);
+	if (err)
+		goto err_free;
+	if (unlikely(!m->root)) {
+		err = -EFAULT;
+		goto err_free;
+	}
+
+	m->root->mount = m;
+	vnode_ref(m->root);
+
+	if (is_root) {
+		m->parent = NULL;
+		vfs_root = m->root;
+	} else {
+		m->parent = mp_vnode;
+		vnode_ref(mp_vnode);
+		mp_vnode->mounted_here = m;
+	}
+	
+	if (mp_vnode) {
+		mutex_unlock(&mp_vnode->lock);
+		vnode_unref(mp_vnode);
+	}
+
+	return 0;
+err_free:
+	if (m) {
+		if (m->root) {
+			if (type->unmount)
+				type->unmount(m);
+			vnode_unref(m->root);
+		}
+		kfree(m);
+	}
+
+err_unlock:
+	if(mp_vnode) {
+		mutex_unlock(&mp_vnode->lock);
+		vnode_unref(mp_vnode);
+	}
+	if (is_root && m && vfs_root == m->root)
+		vfs_root = NULL;
 
 	return err;
 }
 
-int vfs_register(const struct filesystem_type* type) {
-	return hashtable_insert(fs_table, type->name, strlen(type->name), type);
+int vfs_unmount(const char* mp) {
+	bool is_root = strcmp(mp, "/") == 0;
+	if (is_root)
+		return -EPERM;
+
+	struct vnode* mp_vnode = NULL;
+	int err = vfs_lookup(NULL, mp, NULL, 0, &mp_vnode);
+	if (err)
+		return err;
+
+	mutex_lock(&mp_vnode->lock);
+
+	/* Make sure that the mount point is actually a mount point */
+	if (mp_good(mp_vnode) != -EBUSY) {
+		err = -EINVAL;
+		goto out_unlock;
+	}
+
+	/* Now check to make sure the file system is able to be unmounted */
+	struct mount* mnt = mp_vnode->mounted_here;
+	if (atomic_load(&mnt->root->refcount) > 1) {
+		err = -EBUSY;
+		goto out_unlock;
+	}
+	if (!mnt->type->unmount) {
+		err = -ENOSYS;
+		goto out_unlock;
+	}
+
+	err = mnt->type->unmount(mnt);
+	if (err)
+		goto out_unlock;
+
+	vnode_unref(mnt->root);
+	mp_vnode->mounted_here = NULL;
+	kfree(mnt);
+out_unlock:
+	mutex_unlock(&mp_vnode->lock);
+	vnode_unref(mp_vnode);
+	return err;
 }
 
 void vfs_init(void) {
-	fs_table = hashtable_create(20, sizeof(struct filesystem_type));
+	fs_table = hashtable_create(16, sizeof(struct filesystem_type));
 	if (unlikely(!fs_table))
 		panic("Failed to create file system table");
-	mount_table = hashtable_create(20, sizeof(char*));
-	if (unlikely(!mount_table))
-		panic("Failed to create mount table");
 }

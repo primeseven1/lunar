@@ -2,86 +2,171 @@
 
 #include <lunar/core/mutex.h>
 #include <lunar/core/cred.h>
+#include <lunar/core/abi.h>
 #include <lunar/mm/heap.h>
 
-enum vfs_node_types {
-	VFS_NODE_FILE,
-	VFS_NODE_DIR
+#define PATHNAME_MAX 4096
+#define NAME_MAX 255
+
+struct vnode;
+struct mount;
+struct filesystem_type;
+
+enum vnode_flags {
+	VNODE_FLAG_ROOT = (1 << 0)
 };
 
-#define VFS_LOOKUP_PARENT (1 << 0)
+/* More types will be added later */
+enum vnode_types {
+	VNODE_TYPE_MIN,
+	VNODE_TYPE_REGULAR = VNODE_TYPE_MIN,
+	VNODE_TYPE_DIR,
+	VNODE_TYPE_MAX = VNODE_TYPE_DIR
+};
 
-struct vfs_attr {
+enum vnode_lookup_flags {
+	VNODE_LOOKUP_FLAG_PARENT = (1 << 0)
+};
+
+struct vnode_ops {
+	int (*open)(struct vnode*, int flags, const struct cred*); /* Does whatever */
+	int (*close)(struct vnode*, int flags, const struct cred*); /* Does more whatever */
+	ssize_t (*read)(struct vnode*, void* buf, size_t size, off_t off, int flags, const struct cred*); /* Read from a vnode and store it in buf */
+	ssize_t (*write)(struct vnode*, const void* buf, size_t size, off_t off, int flags, const struct cred*); /* Write to a vnode from buf */
+	int (*lookup)(struct vnode* dir, const char* name, int flags, struct vnode** out, const struct cred*); /* Lookup a vnode by name */
+	int (*create)(struct vnode* dir, const char* name, mode_t mode, int type, struct vnode** out, const struct cred*);
+	void (*release)(struct vnode*); /* Free a vnode */
+};
+
+struct vnode {
 	int type;
-	size_t size, fs_block_size, blocks_used;
-	struct timespec atime, mtime, ctime;
-	uid_t uid;
-	gid_t gid;
-};
-
-struct vfs_node;
-
-struct vfs_node_ops {
-	int (*create)(struct vfs_node* dir, const char* name, int type, struct vfs_node** out, const struct cred*);
-	int (*open)(struct vfs_node*, int flags, const struct cred*);
-	int (*close)(struct vfs_node*, int flags, const struct cred*);
-	ssize_t (*read)(struct vfs_node*, void* buf, size_t size, u64 off, int flags, const struct cred*);
-	ssize_t (*write)(struct vfs_node*, const void* buf, size_t size, u64 off, int flags, const struct cred*);
-	int (*lookup)(struct vfs_node*, const char* name, int flags, struct vfs_node**, const struct cred*);
-	int (*getattr)(struct vfs_node*, struct vfs_attr*, const struct cred*);
-	int (*setattr)(struct vfs_node*, const struct vfs_attr*, const struct cred*);
-};
-
-struct vfs_node {
-	const struct vfs_node_ops* ops;
-	int type;
-	mutex_t lock;
+	const struct vnode_ops* ops;
+	struct mount* mount; /* What filesystem this vnode belongs to */
+	int flags;
 	atomic(int) refcount;
 	void* fs_priv;
-	struct vfs_node* mp_parent; /* If this is a mount point, this is the parent directory */
+	union {
+		struct mount* mounted_here; /* type is VNODE_TYPE_DIR, and is a mount point */
+	};
+	mutex_t lock;
 };
 
-struct vfs_superblock;
+static inline void vnode_ref(struct vnode* node) {
+	atomic_add_fetch(&node->refcount, 1);
+}
 
-struct vfs_superblock_ops {
-	int (*unmount)(struct vfs_superblock*, const struct cred*);
-	int (*sync)(struct vfs_superblock*);
-};
+static inline void vnode_unref(struct vnode* node) {
+	if (atomic_sub_fetch(&node->refcount, 1) == 0) {
+		if (node->ops && node->ops->release)
+			node->ops->release(node);
+	}
+}
 
-struct vfs_superblock {
-	const struct vfs_superblock_ops* ops;
-	struct vfs_node* root;
-	struct vfs_superblock* next;
+struct mount {
+	const struct filesystem_type* type;
+	struct vnode* root;
+	void* fs_private;
+	struct vnode* parent;
 };
 
 struct filesystem_type {
 	const char* name;
-	int (*mount)(struct vfs_node* backing, void* data, struct vfs_superblock**, const struct cred*);
-	void (*kill_sb)(struct vfs_superblock*);
+	int (*mount)(struct mount*, struct vnode* backing, void* data);
+	int (*unmount)(struct mount*);
 };
-
 #define __filesystem_type __attribute__((section(".fstypes"), aligned(8)))
 
-static inline void vfs_node_get(struct vfs_node* n) {
-	atomic_add_fetch(&n->refcount, 1);
-}
-
-static inline void vfs_node_put(struct vfs_node* n) {
-	if (atomic_sub_fetch(&n->refcount, 1) == 0)
-		kfree(n);
-}
-
-int vfs_create(struct vfs_node* dir, const char* name, int type, struct vfs_node** out);
-int vfs_open(struct vfs_node* n, int flags);
-int vfs_close(struct vfs_node* n, int flags);
-ssize_t vfs_read(struct vfs_node* n, void* buf, size_t size, u64 off, int flags);
-ssize_t vfs_write(struct vfs_node* n, const void* buf, size_t size, u64 off, int flags);
-int vfs_getattr(struct vfs_node* n, struct vfs_attr* attr);
-int vfs_setattr(struct vfs_node* n, const struct vfs_attr* attr);
-int vfs_lookup(struct vfs_node* dir, const char* name, struct vfs_node** out);
-
 int vfs_register(const struct filesystem_type* type);
-int vfs_mount(const char* fs_name, const char* mp, struct vfs_node* backing, void* data);
-int vfs_unmount(const char* target_path);
+
+/**
+ * @brief Mount a file system
+ * 
+ * @param mp The mount point
+ * @param fs_name The name of the underlying file system
+ * @param backing The backing device
+ * @param data File system specific
+ *
+ * @return -errno on failure
+ */
+int vfs_mount(const char* mp, const char* fs_name, struct vnode* backing, void* data);
+
+/**
+ * @brief Unmount a file system
+ * @param mp The mount point
+ * @return -errno on failure
+ */
+int vfs_unmount(const char* mp);
+
+/**
+ * @brief Calls the file system ops for opening a vnode
+ *
+ * @param node The node to open
+ * @param flags The flags for opening
+ *
+ * @return -errno on failure
+ */
+int vfs_open(struct vnode* node, int flags);
+
+/**
+ * @brief Closes a vnode
+ *
+ * @param node The node to close
+ * @param flags Flags for closing the node
+ *
+ * @return -errno on failure
+ */
+int vfs_close(struct vnode* node, int flags);
+
+/**
+ * @brief Read from a vnode
+ *
+ * @param node The node to read from
+ * @param buf The buffer to store the data in to
+ * @param size The size of the buffer
+ * @param off The offset into the file to read
+ * @param flags Additional flags
+ *
+ * @return The bytes read, or -errno on failure
+ */
+ssize_t vfs_read(struct vnode* node, void* buf, size_t size, off_t off, int flags);
+
+/**
+ * @brief Write to a vnode
+ *
+ * @param node The node to write to
+ * @param buf The data to write
+ * @param size The number of bytes to write
+ * @param off The offset of the file
+ * @param flags Additional flags
+ *
+ * @return The number of bytes written, or -errno on failure
+ */
+ssize_t vfs_write(struct vnode* node, const void* buf, size_t size, u64 off, int flags);
+
+/**
+ * @brief Look up a vnode by name
+ *
+ * @param dir The directory to start searching from, can be NULL to start from root
+ * @param path The path to the file/directory
+ * @param lastcomp The last component of the path
+ * @param flags Lookup flags (unused)
+ * @param out Where to store the vnode
+ *
+ * @return -errno on failure
+ */
+int vfs_lookup(struct vnode* dir, const char* path, const char* lastcomp, int flags, struct vnode** out);
+
+/**
+ * @brief Create a new file/directory
+ *
+ * @param dir The parent directory
+ * @param name The name of the file/directory
+ * @param mode Access permissions, unused for now
+ * @param type The type of the vnode
+ * @param out Where the returned vnode should be stored, can be NULL
+ *
+ * @return -errno on failure
+ */
+int vfs_create(struct vnode* dir, const char* name, mode_t mode, int type, struct vnode** out);
 
 void vfs_init(void);
