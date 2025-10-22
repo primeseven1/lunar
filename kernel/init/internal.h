@@ -4,5 +4,3 @@
 
 _Noreturn __asmlinkage void ap_kernel_main(struct limine_mp_info* mp_info);
 _Noreturn __asmlinkage void kernel_main(void);
-
-void fs_drivers_load(void);

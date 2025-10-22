@@ -23,6 +23,7 @@
 #include <lunar/sched/kthread.h>
 #include <lunar/sched/preempt.h>
 #include <lunar/lib/convert.h>
+#include <lunar/lib/string.h>
 #include <acpi/acpi_init.h>
 #include "internal.h"
 
@@ -92,6 +93,41 @@ _Noreturn __asmlinkage void ap_kernel_main(struct limine_mp_info* mp_info) {
 
 	preempt_enable();
 	sched_thread_exit();
+}
+
+extern const struct filesystem_type _ld_kernel_fstypes_start[];
+extern const struct filesystem_type _ld_kernel_fstypes_end[];
+
+static void fs_drivers_load(void) {
+	char* modname = NULL;
+	size_t modname_size = 0;
+
+	size_t count = ((uintptr_t)_ld_kernel_fstypes_end - (uintptr_t)_ld_kernel_fstypes_start) / sizeof(_ld_kernel_fstypes_start[0]);
+	for (size_t i = 0; i < count; i++) {
+		const struct filesystem_type* type = &_ld_kernel_fstypes_start[i];
+
+		const char* prefix = "fs-";
+		size_t size = strlen(type->name) + __builtin_strlen(prefix) + 1;
+		if (size > modname_size) {
+			char* tmp = krealloc(modname, size, MM_ZONE_NORMAL);
+			if (unlikely(!tmp)) {
+				printk(PRINTK_WARN "init: Allocation failed loading fs drivers\n");
+				break;
+			}
+			modname = tmp;
+			modname_size = size;
+		}
+
+		strcpy(modname, prefix);
+		strcat(modname, type->name);
+
+		int err = module_load(modname);
+		if (err)
+			printk(PRINTK_WARN "init: Failed to load fs %s: %i\n", modname, err);
+	}
+
+	if (likely(modname))
+		kfree(modname);
 }
 
 _Noreturn __asmlinkage void kernel_main(void) {
