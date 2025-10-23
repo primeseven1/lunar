@@ -8,6 +8,46 @@
 #define PATHNAME_MAX 4096
 #define NAME_MAX 255
 
+enum vattr_opt_masks {
+	VATTR_MODE = (1 << 0),
+	VATTR_UID = (1 << 1),
+	VATTR_GID = (1 << 2),
+	VATTR_ATIME = (1 << 3),
+	VATTR_MTIME = (1 << 4),
+	VATTR_CTIME = (1 << 5)
+};
+
+enum vattr_mode_masks {
+	VATTR_MODE_OTHERS_EXECUTE = 00001,
+	VATTR_MODE_OTHERS_SEARCH = VATTR_MODE_OTHERS_EXECUTE,
+	VATTR_MODE_OTHERS_WRITE = 00002,
+	VATTR_MODE_OTHERS_READ = 00004,
+	VATTR_MODE_OTHERS_ALL = 00007,
+	VATTR_MODE_GROUP_EXECUTE = 00010,
+	VATTR_MODE_GROUP_SEARCH = VATTR_MODE_GROUP_EXECUTE,
+	VATTR_MODE_GROUP_WRITE = 00020,
+	VATTR_MODE_GROUP_READ = 00040,
+	VATTR_MODE_GROUP_ALL = 00070,
+	VATTR_MODE_USER_EXECUTE = 00100,
+	VATTR_MODE_USER_SEARCH = VATTR_MODE_USER_EXECUTE,
+	VATTR_MODE_USER_WRITE = 00200,
+	VATTR_MODE_USER_READ = 00400,
+	VATTR_MODE_USER_ALL = 00700,
+	VATTR_MODE_STICKY = 01000,
+	VATTR_MODE_SGID = 02000,
+	VATTR_MODE_SUID = 04000
+};
+
+struct vattr {
+	mode_t mode;
+	uid_t uid;
+	gid_t gid;
+	struct timespec atime;
+	struct timespec mtime;
+	struct timespec ctime;
+	blkcnt_t blocks_used;
+};
+
 struct vnode;
 struct mount;
 struct filesystem_type;
@@ -35,6 +75,8 @@ struct vnode_ops {
 	ssize_t (*write)(struct vnode*, const void* buf, size_t size, off_t off, int flags, const struct cred*); /* Write to a vnode from buf */
 	int (*lookup)(struct vnode* dir, const char* name, int flags, struct vnode** out, const struct cred*); /* Lookup a vnode by name */
 	int (*create)(struct vnode* dir, const char* name, mode_t mode, int type, struct vnode** out, const struct cred*);
+	int (*getattr)(struct vnode*, struct vattr*, const struct cred*);
+	int (*setattr)(struct vnode*, struct vattr*, int attrs, const struct cred*);
 	void (*release)(struct vnode*); /* Free a vnode */
 };
 
