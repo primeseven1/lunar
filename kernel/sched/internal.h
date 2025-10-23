@@ -144,7 +144,7 @@ int thread_set_ring(struct thread* thread, int ring);
  * @brief Create a process struct
  * @return A pointer to the new process
  */
-struct proc* proc_create(void);
+struct proc* proc_create(const struct cred* cred);
 
 /**
  * @brief Destroy a process struct

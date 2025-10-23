@@ -123,7 +123,7 @@ int thread_set_ring(struct thread* thread, int ring) {
 	return 0;
 }
 
-struct proc* proc_create(void) {
+struct proc* proc_create(const struct cred* cred) {
 	struct proc* proc = slab_cache_alloc(proc_cache);
 	if (!proc)
 		return NULL;
@@ -146,6 +146,8 @@ struct proc* proc_create(void) {
 		slab_cache_free(proc_cache, proc);
 		return NULL;
 	}
+
+	proc->cred = *cred;
 
 	list_head_init(&proc->threads);
 	atomic_store(&proc->thread_count, 0);

@@ -447,7 +447,8 @@ void sched_init(void) {
 	procthrd_init();
 	ext_context_init();
 
-	kproc = proc_create();
+	const struct cred kernel_cred = { .gid = 0, .uid = 0 };
+	kproc = proc_create(&kernel_cred);
 	assert(kproc != NULL);
 	assert(kproc->pid == 0);
 	kproc->mm_struct = current_cpu()->mm_struct;
