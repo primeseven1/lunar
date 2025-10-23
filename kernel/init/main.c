@@ -140,7 +140,7 @@ _Noreturn __asmlinkage void kernel_main(void) {
 	cpu_bsp_init();
 
 	int err_e9hack = module_load("e9hack"); /* Enable early debugging */
-	int err_trace = tracing_init(); /* Enable stack traces */
+	int err_trace = stack_tracer_init();
 
 	buddy_init();
 	cpu_structs_init();
