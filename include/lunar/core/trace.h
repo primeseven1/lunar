@@ -1,6 +1,7 @@
 #pragma once
 
 #include <lunar/core/interrupt.h>
+#include <lunar/core/timekeeper.h>
 
 /**
  * @brief Initialize the ability to do stack traces
@@ -9,7 +10,7 @@
  * @retval -ENOPROTOOPT Limine kernel file request not available
  * @retval -ENOENT Kernel symbol table not available
  */
-int tracing_init(void);
+int stack_tracer_init(void);
 
 /**
  * @brief Prints the registers for a context
