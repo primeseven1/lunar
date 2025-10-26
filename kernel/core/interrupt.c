@@ -216,11 +216,10 @@ int interrupt_allow_entry_if_synced(struct isr* isr) {
 	return err;
 }
 
-static bool irq_enter(struct isr* isr, bool* nested) {
+static bool irq_enter(struct isr* isr, int status, bool* nested) {
 	*nested = false;
 
 	struct thread* thread = current_thread();
-	int status = init_status_get();
 	if (likely(status >= INIT_STATUS_SCHED)) {
 		*nested = !!(thread->preempt_count & HARDIRQ_MASK);
 		preempt_offset(HARDIRQ_OFFSET);
@@ -245,8 +244,8 @@ static inline bool is_resched_a_bad_idea(u8 vector) {
 	return vector == INTERRUPT_NMI_VECTOR || vector == INTERRUPT_MACHINE_CHECK_VECTOR || vector == INTERRUPT_DOUBLE_FAULT_VECTOR;
 }
 
-static void irq_exit(struct isr* isr, bool nested) {
-	if (likely(init_status_get() >= INIT_STATUS_SCHED) && !nested)
+static void irq_exit(struct isr* isr, int status, bool nested) {
+	if (likely(status >= INIT_STATUS_SCHED) && !nested)
 		preempt_offset(-HARDIRQ_OFFSET);
 	if (interrupt_get_vector(isr) >= INTERRUPT_EXCEPTION_COUNT && isr->irq.irq != -1)
 		atomic_sub_fetch(&isr->inflight, 1);
@@ -269,15 +268,17 @@ void __asmlinkage __isr_entry(struct context* ctx) {
 	if (unlikely(bad_cpu))
 		swap_cpu();
 
+	int init_status = init_status_get();
+
 	struct isr* isr = &isr_handlers[ctx->vector];
 	bool nested;
-	bool can_enter = irq_enter(isr, &nested);
+	bool can_enter = irq_enter(isr, init_status, &nested);
 	if (can_enter) {
 		if (likely(isr->func))
 			isr->func(isr, ctx);
 		else
 			printk(PRINTK_CRIT "core: Interrupt %lu happened, there is no handler for it!\n", ctx->vector);
-		irq_exit(isr, nested);
+		irq_exit(isr, init_status, nested);
 	}
 	if (isr->irq.eoi)
 		isr->irq.eoi(isr);
@@ -288,7 +289,7 @@ void __asmlinkage __isr_entry(struct context* ctx) {
 		return;
 	}
 
-	if (unlikely(init_status_get() < INIT_STATUS_SCHED))
+	if (unlikely(init_status < INIT_STATUS_SCHED))
 		return;
 
 	struct thread* thread = current_thread();
