@@ -67,7 +67,7 @@ int printk_set_level(unsigned int level) {
 static const char* printk_level_string(unsigned int level) {
 	switch (level) {
 	case PRINTK_DBG_N:
-		return "\033[32m";
+		return "\033[36m";
 	case PRINTK_INFO_N:
 		return "\033[97m";
 	case PRINTK_WARN_N:
