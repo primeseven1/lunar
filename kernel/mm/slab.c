@@ -218,6 +218,9 @@ out:
 
 struct slab_cache* slab_cache_create(size_t obj_size, size_t align, 
 		mm_t mm_flags, void (*ctor)(void*), void (*dtor)(void*)) {
+	if (obj_size == 0)
+		return NULL;
+
 	if (align == 0)
 		align = 8;
 	else if (align & (align - 1))
