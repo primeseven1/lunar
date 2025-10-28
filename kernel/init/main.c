@@ -192,7 +192,6 @@ _Noreturn __asmlinkage void kernel_main(void) {
 	fs_drivers_load();
 
 	log_ram_usage();
-	printk(PRINTK_CRIT "init: kernel_main thread ended!\n");
 	init_status_set(INIT_STATUS_FINISHED);
 
 	local_irq_enable();
@@ -201,5 +200,8 @@ _Noreturn __asmlinkage void kernel_main(void) {
 	if (err)
 		panic("Failed to mount root file system");
 
+	initrd_init();
+
+	printk(PRINTK_CRIT "init: kernel_main thread ended!\n");
 	sched_thread_exit();
 }
