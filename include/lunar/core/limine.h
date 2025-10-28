@@ -289,7 +289,7 @@ struct limine_module_request {
 	struct limine_request request;
 	struct limine_module_response* response;
 	u64 internal_module_count;
-	struct limine_interal_module** internal_modules;
+	struct limine_internal_module** internal_modules;
 };
 
 struct limine_rsdp_response {
