@@ -196,5 +196,10 @@ _Noreturn __asmlinkage void kernel_main(void) {
 	init_status_set(INIT_STATUS_FINISHED);
 
 	local_irq_enable();
+
+	err = vfs_mount("/", "tmpfs", NULL, NULL);
+	if (err)
+		panic("Failed to mount root file system");
+
 	sched_thread_exit();
 }
