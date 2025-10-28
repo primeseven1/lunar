@@ -128,20 +128,32 @@ static void handle_entry(struct ustar_entry* entry, const void* data) {
 	}
 }
 
+static struct limine_internal_module _initrd_mod = {
+	.flags = 0,
+	.path = "/initrd",
+	.string = "initrd-default"
+};
+static struct limine_internal_module* initrd_mod[] =  { &_initrd_mod };
 static volatile struct limine_module_request __limine_request mod_request = {
 	.request.id = LIMINE_MODULE_REQUEST,
 	.request.revision = 0,
-	.response = NULL
+	.response = NULL,
+	.internal_modules = initrd_mod,
+	.internal_module_count = ARRAY_SIZE(initrd_mod)
 };
 
 static struct limine_file* find_initrd(void) {
-	if (!mod_request.response)
+	struct limine_module_response* response = mod_request.response;
+	if (!response)
 		return NULL;
 
 	struct limine_file* initrd = NULL;
-	for (u64 i = 0; i < mod_request.response->module_count; ++i) {
-		if (strcmp(mod_request.response->modules[i]->path, "/initrd") == 0) {
-			initrd = mod_request.response->modules[i];
+	for (u64 i = 0; i < response->module_count; ++i) {
+		/* initrd-default can be overridden by a user provided module */
+		if (strcmp(response->modules[i]->string, "initrd-default") == 0) {
+			initrd = response->modules[i];
+		} else if (strcmp(response->modules[i]->string, "initrd") == 0) {
+			initrd = response->modules[i];
 			break;
 		}
 	}
