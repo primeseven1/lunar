@@ -202,13 +202,13 @@ int vfs_lookup(struct vnode* dir, const char* path, const char* lastcomp, int fl
  * @brief Create a new file/directory
  *
  * @param dir The parent directory
- * @param name The name of the file/directory
+ * @param path The path
  * @param mode Access permissions, unused for now
  * @param type The type of the vnode
  * @param out Where the returned vnode should be stored, can be NULL
  *
  * @return -errno on failure
  */
-int vfs_create(struct vnode* dir, const char* name, mode_t mode, int type, struct vnode** out);
+int vfs_create(struct vnode* dir, const char* path, mode_t mode, int type, struct vnode** out);
 
 void vfs_init(void);

@@ -66,13 +66,13 @@ ssize_t vfs_write(struct vnode* node, const void* buf, size_t size, u64 off, int
 }
 
 int vfs_lookup(struct vnode* dir, const char* path, const char* lastcomp, int flags, struct vnode** out) {
-	(void)flags;
-
 	size_t pathlen = strlen(path);
 	if (pathlen == 0)
 		return -ENOENT;
 	if (pathlen > PATHNAME_MAX || (lastcomp && strlen(lastcomp) > NAME_MAX))
 		return -ENAMETOOLONG;
+
+	int err = 0;
 
 	struct vnode* cur = dir;
 	if (!cur) {
@@ -85,10 +85,16 @@ int vfs_lookup(struct vnode* dir, const char* path, const char* lastcomp, int fl
 		return -ENOMEM;
 
 	vnode_ref(cur);
-	int err = 0;
 
 	char* saveptr = NULL;
 	for (char* token = strtok_r(tokens, "/", &saveptr); token != NULL; token = strtok_r(NULL, "/", &saveptr)) {
+		if (flags & VNODE_LOOKUP_FLAG_PARENT && !lastcomp) {
+			char* peek_save = saveptr;
+			char* peek_token = strtok_r(NULL, "/", &peek_save);
+			if (!peek_token)
+				break;
+		}
+
 		if (cur->type != VNODE_TYPE_DIR) {
 			err = -ENOTDIR;
 			goto err_unref;
@@ -135,7 +141,7 @@ int vfs_lookup(struct vnode* dir, const char* path, const char* lastcomp, int fl
 		cur = next;
 	}
 
-	if (lastcomp) {
+	if (lastcomp && !(flags & VNODE_LOOKUP_FLAG_PARENT)) {
 		if (cur->type != VNODE_TYPE_DIR) {
 			err = -ENOTDIR;
 		} else if (!cur->ops || !cur->ops->lookup) {
@@ -163,26 +169,37 @@ err_unref:
 	return err;
 }
 
-int vfs_create(struct vnode* dir, const char* name, mode_t mode, int type, struct vnode** out) {
+int vfs_create(struct vnode* dir, const char* path, mode_t mode, int type, struct vnode** out) {
 	if (type < VNODE_TYPE_MIN || type > VNODE_TYPE_MAX)
 		return -EINVAL;
 
-	if (!dir) {
-		dir = vfs_root;
-		if (!dir)
-			return -ENOENT;
+	struct vnode* parent = dir;
+	const char* base = strrchr(path, '/');
+	if (base) {
+		if (*++base == '\0')
+			return -EINVAL;
+		int err = vfs_lookup(dir, path, NULL, VNODE_LOOKUP_FLAG_PARENT, &parent);
+		if (err)
+			return err;
+	} else {
+		base = path;
+		if (!parent) {
+			parent = vfs_root;
+			if (!parent)
+				return -ENOENT;
+		}
 	}
 
-	if (dir->type != VNODE_TYPE_DIR)
+	if (parent->type != VNODE_TYPE_DIR)
 		return -ENOTDIR;
-	if (!dir->ops || !dir->ops->create)
+	if (!parent->ops || !parent->ops->create)
 		return -ENOSYS;
 
-	mutex_lock(&dir->lock);
-	int res = dir->ops->create(dir, name, mode, type, out, &current_thread()->proc->cred);
-	mutex_unlock(&dir->lock);
+	mutex_lock(&parent->lock);
+	int err = parent->ops->create(parent, base, mode, type, out, &current_thread()->proc->cred);
+	mutex_unlock(&parent->lock);
 
-	return res;
+	return err;
 }
 
 static inline int mp_good(struct vnode* vnode) {
