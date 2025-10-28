@@ -180,6 +180,15 @@ char* strchr(const char* str, int c) {
 	return (char*)str;
 }
 
+char* strrchr(const char* str, int c) {
+	const char* last = NULL;
+	do {
+		if (*str == (char)c)
+			last = str;
+	} while (*str++);
+	return (char*)last;
+}
+
 char* strtok_r(char* str, const char* delim, char** saveptr) {
 	char* ret;
 	if (!str)

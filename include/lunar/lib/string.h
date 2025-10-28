@@ -201,6 +201,16 @@ int strncmp(const char* s1, const char* s2, size_t count);
 char* strchr(const char* str, int c);
 
 /**
+ * @brief Look for the last occurrence of a character in a string
+ *
+ * @param str The string
+ * @param c The character to look for
+ *
+ * @return Pointer to the last occurrence of the character, or NULL
+ */
+char* strrchr(const char* str, int c);
+
+/**
  * @brief Tokenize a string into substrings using delimiters
  *
  * @param str The string to tokenize on first call, NULL to continue.
