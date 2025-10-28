@@ -75,7 +75,7 @@ int vfs_lookup(struct vnode* dir, const char* path, const char* lastcomp, int fl
 	int err = 0;
 
 	struct vnode* cur = dir;
-	if (!cur) {
+	if (!cur || *path == '/') {
 		cur = vfs_root;
 		if (!cur)
 			return -ENOENT;
@@ -173,32 +173,62 @@ int vfs_create(struct vnode* dir, const char* path, mode_t mode, int type, struc
 	if (type < VNODE_TYPE_MIN || type > VNODE_TYPE_MAX)
 		return -EINVAL;
 
-	struct vnode* parent = dir;
-	const char* base = strrchr(path, '/');
+	int err;
+	struct vnode* parent = NULL;
+
+	/* Remove trailing slashes */
+	char* clean = kstrdup(path, MM_ZONE_NORMAL);
+	if (!clean)
+		return -ENOMEM;
+	char* trailer = strrchr(clean, '/');
+	if (trailer && trailer[1] == '\0') {
+		if (type != VNODE_TYPE_DIR) {
+			err = -EINVAL;
+			goto out;
+		}
+		while (trailer > clean && *trailer == '/')
+			*trailer-- = '\0';
+	}
+
+	/* Now get the parent directory */
+	parent = dir;
+	const char* base = strrchr(clean, '/');
 	if (base) {
-		if (*++base == '\0')
-			return -EINVAL;
-		int err = vfs_lookup(dir, path, NULL, VNODE_LOOKUP_FLAG_PARENT, &parent);
+		if (*++base == '\0' && type != VNODE_TYPE_DIR) {
+			err = -ENOMEM;
+			goto out;
+		}
+		err = vfs_lookup(dir, clean, NULL, VNODE_LOOKUP_FLAG_PARENT, &parent);
 		if (err)
-			return err;
+			goto out;
 	} else {
-		base = path;
+		base = clean;
 		if (!parent) {
 			parent = vfs_root;
-			if (!parent)
-				return -ENOENT;
+			if (!parent) {
+				err = -ENOENT;
+				goto out;
+			}
 		}
 	}
 
-	if (parent->type != VNODE_TYPE_DIR)
-		return -ENOTDIR;
-	if (!parent->ops || !parent->ops->create)
-		return -ENOSYS;
+	if (parent->type != VNODE_TYPE_DIR) {
+		err = -ENOTDIR;
+		goto out;
+	}
+	if (!parent->ops || !parent->ops->create) {
+		err = -ENOSYS;
+		goto out;
+	}
 
 	mutex_lock(&parent->lock);
-	int err = parent->ops->create(parent, base, mode, type, out, &current_thread()->proc->cred);
+	err = parent->ops->create(parent, base, mode, type, out, &current_thread()->proc->cred);
 	mutex_unlock(&parent->lock);
 
+out:
+	if (parent)
+		vnode_unref(parent);
+	kfree(clean);
 	return err;
 }
 
@@ -256,6 +286,7 @@ int vfs_mount(const char* mp, const char* fs_name, struct vnode* backing, void* 
 	if (is_root) {
 		m->parent = NULL;
 		vfs_root = m->root;
+		vnode_ref(vfs_root);
 	} else {
 		m->parent = mp_vnode;
 		vnode_ref(mp_vnode);
