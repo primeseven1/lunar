@@ -36,10 +36,10 @@ void cpu_register(void) {
 	atomic_load(&smp_cpus)->cpus[cpu->sched_processor_id] = cpu;
 }
 
-static atomic(i64) cpus_left;
+static atomic(u64) cpus_left;
 
 void cpu_init_finish(void) {
-	printk(PRINTK_INFO "core: CPU %u online!\n", current_cpu()->sched_processor_id);
+	printk(PRINTK_DBG "smp: CPU %u online\n", current_cpu()->sched_processor_id);
 	atomic_sub_fetch(&cpus_left, 1);
 }
 
@@ -66,10 +66,13 @@ void cpu_startup_aps(void) {
 	 * will still work even after this, HHDM just isn't read only 
 	 */
 	cpus = vmap(NULL, struct_size, MMU_READ, VMM_PHYSICAL, &cpu_structs);
-	if (!cpus)
-		printk(PRINTK_WARN "core: Failed to remap CPU struct as read only\n");
+	if (unlikely(!cpus))
+		printk(PRINTK_WARN "smp: Failed to remap CPU structs as read only\n");
 	else
 		atomic_store(&smp_cpus, cpus);
+
+	if (cpus->count - 1)
+		printk(PRINTK_INFO "smp: Brought up %u CPUs\n", cpus->count - 1);
 }
 
 static atomic(u32) sched_ids = atomic_init(1);
