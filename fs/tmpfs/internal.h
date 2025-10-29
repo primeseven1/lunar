@@ -5,6 +5,7 @@
 
 struct tmpfs_node {
 	struct vnode vnode;
+	struct vattr attr;
 	struct tmpfs_node* parent;
 	char* name;
 	u8* data;

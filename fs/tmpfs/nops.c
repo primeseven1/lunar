@@ -121,6 +121,21 @@ static ssize_t tmpfs_write(struct vnode* node, const void* buf, size_t size, off
 	return size;
 }
 
+static int tmpfs_getattr(struct vnode* node, struct vattr* out, const struct cred* cred) {
+	(void)cred;
+	struct tmpfs_node* t = node->fs_priv;
+	memcpy(out, &t->attr, sizeof(*out));
+	return 0;
+}
+
+static int tmpfs_setattr(struct vnode* node, const struct vattr* attr, int attrs, const struct cred* cred) {
+	(void)node;
+	(void)attr;
+	(void)attrs;
+	(void)cred;
+	return -ENOSYS;
+}
+
 static void tmpfs_release(struct vnode* node) {
 	struct tmpfs_node* tn = node->fs_priv;
 	if (tn->name)
@@ -135,5 +150,7 @@ const struct vnode_ops tmpfs_node_ops = {
 	.open = tmpfs_open,
 	.close = tmpfs_close,
 	.create = tmpfs_create,
-	.release = tmpfs_release
+	.release = tmpfs_release,
+	.setattr = tmpfs_setattr,
+	.getattr = tmpfs_getattr
 };
