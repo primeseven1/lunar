@@ -28,6 +28,11 @@ struct timekeeper {
 	bool early;
 };
 
+/**
+ * @brief Get the current time
+ * @param type The type of timekeeper to use (TIMEKEEPER_FROMBOOT, TIMEKEEPER_WALLCLOCK)
+ * @return The time based on the type of timekeeper
+ */
 struct timespec timekeeper_time(int type);
 
 /**
