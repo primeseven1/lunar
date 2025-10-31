@@ -91,6 +91,7 @@ struct mem_area {
 			spinlock_t spinlock;
 		};
 	} pages; /* For managing the actual memory in the list */
+	atomic(unsigned int) alloc_refcnt; /* How many threads are allocating from this area */
 };
 
 static inline void mem_area_lock(struct mem_area* area, irqflags_t* irq_flags) {
@@ -278,13 +279,15 @@ struct zone {
  * and will always return an area that is marked as atomic. The IRQ flags are used for locking if the
  * allocation cannot sleep.
  *
- * Acquires area->lock
+ * Acquires area->lock, and increments area->refcnt
  */
 static struct mem_area* select_mem_area(struct zone* zone, unsigned int order,
 		unsigned int* layer, unsigned long* block, bool atomic, irqflags_t* irq_flags) {
+	const int max_retries = 3;
+
+	int retries = 0;
 	unsigned long i = 0;
-	int timeout = 3;
-	while (timeout) {
+	while (retries < max_retries) {
 		struct mem_area* best = NULL;
 		unsigned int l;
 		for (; i < zone->area_count; i++) {
@@ -295,13 +298,24 @@ static struct mem_area* select_mem_area(struct zone* zone, unsigned int order,
 				continue;
 
 			l = a->layer_count - order - 1;
-			if (atomic_load_explicit(&a->free_blocks[l], ATOMIC_RELAXED)) {
+			if (!atomic_load_explicit(&a->free_blocks[l], ATOMIC_RELAXED))
+				continue;
+
+			unsigned int crefs = atomic_load(&a->alloc_refcnt);
+			if (crefs == 0) {
+				best = a;
+				break;
+			} else if (retries == 0) {
+				if (!best || crefs < atomic_load(&best->alloc_refcnt))
+					best = a;
+			} else {
 				best = a;
 				break;
 			}
 		}
 
 		if (likely(best)) {
+			atomic_add_fetch(&best->alloc_refcnt, 1);
 			mem_area_lock(best, irq_flags);
 			if (atomic_load_explicit(&best->free_blocks[l], ATOMIC_RELAXED)) {
 				*layer = l;
@@ -310,9 +324,10 @@ static struct mem_area* select_mem_area(struct zone* zone, unsigned int order,
 				return best;
 			}
 			mem_area_unlock(best, irq_flags);
+			atomic_sub_fetch(&best->alloc_refcnt, 1);
 		} else {
 			i = 0;
-			timeout--;
+			retries++;
 		}
 	}
 
@@ -405,8 +420,10 @@ retry:
 		goto retry;
 	}
 out:
-	if (area)
+	if (area) {
 		mem_area_unlock(area, &irq_flags);
+		atomic_sub_fetch(&area->alloc_refcnt, 1);
+	}
 	return ret;
 }
 
@@ -630,6 +647,7 @@ static void dma_zone_init(physaddr_t last_usable) {
 			spinlock_init(&dma_areas[i].pages.spinlock);
 		else
 			mutex_init(&dma_areas[i].pages.mutex);
+		atomic_store_explicit(&dma_areas[i].alloc_refcnt, 0, ATOMIC_RELAXED);
 		rest -= dma_areas[i].real_size;
 	}
 	dma_zone.zone_type = MM_ZONE_DMA;
@@ -669,6 +687,7 @@ static int init_area(struct mem_area* area, mm_t free_list_zone, physaddr_t base
 	else
 		mutex_init(&area->pages.mutex);
 	memset(area->pages.free_list, 0, free_list_size);
+	atomic_store_explicit(&area->alloc_refcnt, 0, ATOMIC_RELAXED);
 
 	/* Allocate the invalid area, if there is one */
 	if (rounded_size != real_size) {
