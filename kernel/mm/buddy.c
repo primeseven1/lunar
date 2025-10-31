@@ -81,7 +81,7 @@ struct mem_area {
 	u64 size; /* The size of the area rounded to a power of two */
 	u64 real_size; /* The actual size of the area, usually the same as size */
 	atomic(unsigned long) free_blocks[MAX_ORDER + 1]; /* Amount of free blocks on every layer */
-	unsigned long total_blocks; /* Number of blocks on every layer */
+	unsigned long total_blocks; /* Number of blocks the last layer */
 	unsigned int layer_count; /* Usually MAX_ORDER + 1 */
 	struct {
 		unsigned long* free_list;
