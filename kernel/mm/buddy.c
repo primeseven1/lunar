@@ -182,6 +182,7 @@ static int _alloc_block(struct mem_area* area, unsigned int layer, unsigned long
 		return -EALREADY;
 
 	__alloc_block(area->pages.free_list, block_count, block);
+	atomic_sub_fetch_explicit(&area->free_blocks[layer], 1, ATOMIC_RELAXED);
 
 	unsigned long tmp = block;
 	unsigned int tmp2 = layer;
