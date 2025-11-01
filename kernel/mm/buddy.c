@@ -191,8 +191,10 @@ static int _alloc_block(struct mem_area* area, unsigned int layer, unsigned long
 	while (layer--) {
 		block_count = 1ul << layer;
 		block >>= 1;
-		__alloc_block(area->pages.free_list, block_count, block);
-		atomic_sub_fetch_explicit(&area->free_blocks[layer], 1, ATOMIC_RELAXED);
+		if (__is_block_free(area->pages.free_list, block_count, block)) {
+			__alloc_block(area->pages.free_list, block_count, block);
+			atomic_sub_fetch_explicit(&area->free_blocks[layer], 1, ATOMIC_RELAXED);
+		}
 	}
 
 	block = tmp;
@@ -203,9 +205,11 @@ static int _alloc_block(struct mem_area* area, unsigned int layer, unsigned long
 	while (++layer < area->layer_count) {
 		block_count = 1ul << layer;
 		block <<= 1;
-		for (unsigned long i = 0; i < times; i++)
+		for (unsigned long i = 0; i < times; i++) {
+			bug(!__is_block_free(area->pages.free_list, block_count, block + i));
 			__alloc_block(area->pages.free_list, block_count, block + i);
-		atomic_sub_fetch_explicit(&area->free_blocks[layer], times, ATOMIC_RELAXED);
+			atomic_sub_fetch_explicit(&area->free_blocks[layer], 1, ATOMIC_RELAXED);
+		}
 		times <<= 1;
 	}
 
@@ -257,9 +261,11 @@ static int _free_block(struct mem_area* area, unsigned int layer, unsigned long 
 	while (++layer < area->layer_count) {
 		block_count = 1ul << layer;
 		block <<= 1;
-		for (unsigned long i = 0; i < count; i++)
+		for (unsigned long i = 0; i < count; i++) {
+			bug(__is_block_free(area->pages.free_list, block_count, block + i));
 			__free_block(area->pages.free_list, block_count, block + i);
-		atomic_add_fetch_explicit(&area->free_blocks[layer], count, ATOMIC_RELAXED);
+			atomic_add_fetch_explicit(&area->free_blocks[layer], 1, ATOMIC_RELAXED);
+		}
 		count <<= 1;
 	}
 
