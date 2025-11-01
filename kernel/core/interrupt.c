@@ -294,13 +294,14 @@ void __asmlinkage __isr_entry(struct context* ctx) {
 
 	struct thread* thread = current_thread();
 
-	/* Check to see if we were interrupted in a softirq. If so, don't run any softirqs */
+	/* Check to see if we were interrupted in a softirq. If so, don't run any softirqs and do NOT reschedule */
 	if (!(thread->preempt_count & SOFTIRQ_MASK)) {
 		preempt_offset(SOFTIRQ_OFFSET);
 		local_irq_enable();
 		do_pending_softirqs(false);
 		preempt_offset(-SOFTIRQ_OFFSET);
 		local_irq_disable();
+		return;
 	}
 
 	if (current_cpu()->need_resched) {
