@@ -128,12 +128,11 @@ static int tmpfs_getattr(struct vnode* node, struct vattr* out, const struct cre
 	return 0;
 }
 
-static int tmpfs_setattr(struct vnode* node, const struct vattr* attr, int attrs, const struct cred* cred) {
-	(void)node;
-	(void)attr;
-	(void)attrs;
+static int tmpfs_setattr(struct vnode* node, const struct vattr* attr, const struct cred* cred) {
 	(void)cred;
-	return -ENOSYS;
+	struct tmpfs_node* t = node->fs_priv;
+	memcpy(t, attr, sizeof(*t));
+	return 0;
 }
 
 static void tmpfs_release(struct vnode* node) {
