@@ -1,3 +1,2 @@
 menu "File systems"
-source "fs/tmpfs/Kconfig"
 endmenu

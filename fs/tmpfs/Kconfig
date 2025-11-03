@@ -1,5 +1,0 @@
-config FS_TMPFS
-	bool "tmpfs"
-	default y
-	help
-	  "Enable temporary file system support"
