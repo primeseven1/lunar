@@ -79,7 +79,7 @@ struct vnode_ops {
 	int (*lookup)(struct vnode* dir, const char* name, int flags, struct vnode** out, const struct cred*); /* Lookup a vnode by name */
 	int (*create)(struct vnode* dir, const char* name, mode_t mode, int type, struct vnode** out, const struct cred*);
 	int (*getattr)(struct vnode*, struct vattr*, const struct cred*);
-	int (*setattr)(struct vnode*, const struct vattr*, int attrs, const struct cred*);
+	int (*setattr)(struct vnode*, const struct vattr*, const struct cred*);
 	void (*release)(struct vnode*); /* Free a vnode */
 };
 
