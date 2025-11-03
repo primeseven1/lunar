@@ -36,13 +36,13 @@ static long long alloc_id(u8* map, long long max) {
 }
 
 static inline void free_id(u8* map, long long id, long long max) {
-	assert(id <= max);
+	bug(id > max);
 	size_t byte = id >> 3;
 	unsigned int bit = id & 7;
 	map[byte] &= ~(1 << bit);
 }
 
-struct thread* thread_create(struct proc* proc, size_t stack_size) {
+struct thread* thread_create(struct proc* proc, void* exec, size_t stack_size) {
 	struct thread* thread = slab_cache_alloc(thread_cache);
 	if (!thread)
 		return NULL;
@@ -51,39 +51,51 @@ struct thread* thread_create(struct proc* proc, size_t stack_size) {
 	if (unlikely(thread->id == tid_max))
 		goto err_id;
 
-	thread->target_cpu = NULL; /* Let the scheduler decide what CPU to schedule on */
-	thread->proc = proc;
+	thread->target_cpu = NULL;
 	thread->cpu_mask = ULONG_MAX;
-	atomic_store(&thread->state, THREAD_NEW);
+	thread->attached = false;
+	thread->proc = proc;
+	thread->ring = proc->pid == KERNEL_PID ? THREAD_RING_KERNEL : THREAD_RING_USER;
+	thread->prio = 0;
+	thread->wakeup_time = 0;
+	atomic_store_explicit(&thread->state, THREAD_NEW, ATOMIC_RELAXED);
+	thread->wakeup_time = 0;
+	atomic_store_explicit(&thread->wakeup_err, 0, ATOMIC_RELAXED);
+	atomic_store_explicit(&thread->sleep_interruptable, 0, ATOMIC_RELAXED);
+	thread->should_exit = false;
+	thread->preempt_count = 0;
 
-	if (stack_size & (PAGE_SIZE - 1)) {
-		printk(PRINTK_WARN "sched: stack size not a multiple of page size!\n");
-		stack_size = ROUND_UP(stack_size, PAGE_SIZE);
-	}
+	stack_size = ROUND_UP(stack_size, PAGE_SIZE);
 	const size_t stack_total = stack_size + THREAD_STACK_GUARD_SIZE;
 	thread->stack = vmap(NULL, stack_total, MMU_READ | MMU_WRITE, VMM_ALLOC, NULL);
 	if (!thread->stack)
 		goto err_stack;
-	assert(vprotect(thread->stack, THREAD_STACK_GUARD_SIZE, MMU_NONE, 0) == 0); /* guard page */
+	bug(vprotect(thread->stack, THREAD_STACK_GUARD_SIZE, MMU_NONE, 0) != 0); /* guard page */
 	thread->stack_size = stack_size;
 
 	memset(&thread->ctx.general, 0, sizeof(thread->ctx.general));
-	thread->ctx.thread_local = NULL; /* unused for now */
+	thread->ctx.thread_local = NULL;
 	thread->ctx.extended = ext_ctx_alloc();
 	if (!thread->ctx.extended)
 		goto err_ctx;
-
-	thread->preempt_count = 0;
+	thread->ctx.general.rflags = RFLAGS_DEFAULT;
+	thread->ctx.general.rsp = (u8*)thread->stack + stack_total;
+	thread->ctx.general.rip = exec;
+	if (thread->ring == THREAD_RING_KERNEL) {
+		thread->ctx.general.cs = SEGMENT_KERNEL_CODE;
+		thread->ctx.general.ss = SEGMENT_KERNEL_DATA;
+	} else {
+		thread->ctx.general.cs = SEGMENT_USER_CODE;
+		thread->ctx.general.ss = SEGMENT_USER_DATA;
+	}
 	
 	list_node_init(&thread->proc_link);
 	list_node_init(&thread->sleep_link);
 	list_node_init(&thread->zombie_link);
 	list_node_init(&thread->block_link);
 
-	thread->ctx.general.rflags = RFLAGS_DEFAULT;
-	thread->ctx.general.rsp = (u8*)thread->stack + stack_total;
-
-	atomic_store(&thread->refcount, 0);
+	thread->policy_priv = NULL;
+	atomic_store_explicit(&thread->refcount, 0, ATOMIC_RELAXED);
 	return thread;
 err_ctx:
 	assert(vunmap(thread->stack, stack_total, 0) == 0);
@@ -101,25 +113,8 @@ int thread_destroy(struct thread* thread) {
 	assert(vunmap(thread->stack, stack_total, 0) == 0);
 	free_id(thread->proc->tid_map, thread->id, tid_max);
 	ext_ctx_free(thread->ctx.extended);
+
 	slab_cache_free(thread_cache, thread);
-
-	return 0;
-}
-
-int thread_set_ring(struct thread* thread, int ring) {
-	switch (ring) {
-	case THREAD_RING_KERNEL:
-		thread->ctx.general.cs = SEGMENT_KERNEL_CODE;
-		thread->ctx.general.ss = SEGMENT_KERNEL_DATA;
-		break;
-	case THREAD_RING_USER:
-		thread->ctx.general.cs = SEGMENT_USER_CODE;
-		thread->ctx.general.ss = SEGMENT_USER_DATA;
-		break;
-	default:
-		return -EINVAL;
-	}
-
 	return 0;
 }
 

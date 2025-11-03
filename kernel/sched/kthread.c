@@ -32,14 +32,11 @@ struct thread* kthread_thread(tid_t id) {
 }
 
 tid_t kthread_create(int sched_flags, int (*func)(void*), void* arg, const char* fmt, ...) {
-	struct thread* thread = thread_create(kproc, KSTACK_SIZE);
+	struct thread* thread = thread_create(kproc, asm_kthread_start, KSTACK_SIZE);
 	if (!thread)
 		return -ENOMEM;
 
-	thread_set_ring(thread, THREAD_RING_KERNEL);
-	thread_set_exec(thread, asm_kthread_start);
 	thread->target_cpu = sched_decide_cpu(sched_flags);
-
 	int err = sched_thread_attach(&thread->target_cpu->runqueue, thread, SCHED_PRIO_DEFAULT);
 	if (err)
 		goto err_attach;

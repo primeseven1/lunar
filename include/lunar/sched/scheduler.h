@@ -68,6 +68,7 @@ struct thread {
 	time_t wakeup_time; /* When the thread should wake up in nanoseconds */
 	atomic(int) wakeup_err; /* Wakeup error code (eg. -ETIMEDOUT, -EINTR)*/
 	atomic(bool) sleep_interruptable; /* Can be interrupted by signals */
+	bool should_exit; /* Checked on preempt, or schedule() */
 	long preempt_count; /* Task can be preempted when zero */
 	void* stack; /* Base address of the stack */
 	size_t stack_size;
@@ -104,11 +105,11 @@ void atomic_context_switch(struct thread* prev, struct thread* next, struct cont
 struct thread* atomic_schedule(void);
 
 static inline void thread_ref(struct thread* thread) {
-	atomic_fetch_add(&thread->refcount, 1);
+	atomic_fetch_add_explicit(&thread->refcount, 1, ATOMIC_RELEASE);
 }
 
 static inline void thread_unref(struct thread* thread) {
-	bug(atomic_fetch_sub(&thread->refcount, 1) == 0);
+	bug(atomic_fetch_sub_explicit(&thread->refcount, 1, ATOMIC_ACQ_REL) == 0);
 }
 
 /**

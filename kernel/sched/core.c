@@ -386,16 +386,13 @@ static void idle_thread(void) {
 }
 
 static struct thread* create_bootstrap_thread(struct runqueue* rq, void* exec, int state, int prio) {
-	struct thread* thread = thread_create(kproc, PAGE_SIZE);
+	struct thread* thread = thread_create(kproc, exec, PAGE_SIZE);
 	if (!thread)
 		panic("Failed to create a bootstrap thread\n");
 
 	thread->target_cpu = current_cpu();
 	sched_thread_attach(rq, thread, prio);
-
 	atomic_store(&thread->state, state);
-	thread_set_ring(thread, THREAD_RING_KERNEL);
-	thread_set_exec(thread, exec);
 
 	return thread;
 }
@@ -408,7 +405,6 @@ static void sched_bootstrap_processor(void) {
 
 	struct thread* thread = create_bootstrap_thread(rq, NULL, THREAD_RUNNING, SCHED_PRIO_DEFAULT);
 	rq->current = thread;
-
 	thread = create_bootstrap_thread(rq, idle_thread, THREAD_READY, SCHED_PRIO_MIN);
 	rq->idle = thread;
 
@@ -449,8 +445,9 @@ void sched_init(void) {
 
 	const struct cred kernel_cred = { .gid = 0, .uid = 0 };
 	kproc = proc_create(&kernel_cred);
-	assert(kproc != NULL);
-	assert(kproc->pid == 0);
+	if (!kproc)
+		panic("Failed to create kernel process");
+	bug(kproc->pid != KERNEL_PID);
 	kproc->mm_struct = current_cpu()->mm_struct;
 
 	kthread_init(kproc);

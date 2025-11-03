@@ -4,6 +4,8 @@
 #include <lunar/asm/errno.h>
 #include <lunar/sched/scheduler.h>
 
+#define KERNEL_PID 0
+
 /*
  * NOTES:
  * thread_enqueue, thread_dequeue, pick_next may be called from an atomic context.
@@ -114,11 +116,12 @@ void sched_tick(void);
  * @brief Create a thread structure
  *
  * @param proc The process to associate with
+ * @param exec Where this thread should start executing at
  * @param stack_size The size of the stack for this thread
  *
  * @return A pointer to the newly created thread
  */
-struct thread* thread_create(struct proc* proc, size_t stack_size);
+struct thread* thread_create(struct proc* proc, void* exec, size_t stack_size);
 
 /**
  * @brief Destroy a thread
@@ -128,17 +131,6 @@ struct thread* thread_create(struct proc* proc, size_t stack_size);
  * @retval -EBUSY Refcount is not zero
  */
 int thread_destroy(struct thread* thread);
-
-/**
- * @brief Set a thread either in kernel mode or user mode
- *
- * @param thread The thread to set
- * @param ring THREAD_RING(USER/KERNEL)
- *
- * @retval 0 Success
- * @retval -EINVAL Invalid ring
- */
-int thread_set_ring(struct thread* thread, int ring);
 
 /**
  * @brief Create a process struct
@@ -154,15 +146,6 @@ struct proc* proc_create(const struct cred* cred);
  * @retval -EBUSY Process still has active threads
  */
 int proc_destroy(struct proc* proc);
-
-/**
- * @brief Set the address for the thread to start execution
- * @param thread The thread
- * @param code The pointer to where the code is located
- */
-static inline void thread_set_exec(struct thread* thread, void* code) {
-	thread->ctx.general.rip = code;
-}
 
 /**
  * @brief Fully attach a thread to a process
