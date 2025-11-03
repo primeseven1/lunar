@@ -11,6 +11,17 @@ static inline struct thread* current_thread(void) {
 }
 
 /**
+ * @brief Get the thread structure from a thread ID
+ *
+ * The thread is returned with a ref, make sure to call thread_unref
+ * after you're done.
+ *
+ * @param id The ID of the thread
+ * @return The pointer to the thread
+ */
+struct thread* kthread_thread(tid_t id);
+
+/**
  * @brief Create a kernel thread
  *
  * @param sched_flags Scheduler flags

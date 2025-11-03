@@ -4,6 +4,7 @@
 #include <lunar/core/interrupt.h>
 #include <lunar/core/timekeeper.h>
 #include <lunar/core/semaphore.h>
+#include <lunar/core/panic.h>
 #include <lunar/core/cred.h>
 #include <lunar/lib/list.h>
 
@@ -101,6 +102,14 @@ void sched_init(void);
 
 void atomic_context_switch(struct thread* prev, struct thread* next, struct context* ctx);
 struct thread* atomic_schedule(void);
+
+static inline void thread_ref(struct thread* thread) {
+	atomic_fetch_add(&thread->refcount, 1);
+}
+
+static inline void thread_unref(struct thread* thread) {
+	bug(atomic_fetch_sub(&thread->refcount, 1) == 0);
+}
 
 /**
  * @brief Switch to another runnable thread.

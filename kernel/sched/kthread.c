@@ -22,6 +22,15 @@ struct kthread {
 static struct proc* kproc;
 static struct hashtable* kthread_table;
 
+struct thread* kthread_thread(tid_t id) {
+	struct kthread kthread;
+	int err = hashtable_search(kthread_table, &id, sizeof(id), &kthread);
+	if (err)
+		return NULL;
+	thread_ref(kthread.thread);
+	return kthread.thread;
+}
+
 tid_t kthread_create(int sched_flags, int (*func)(void*), void* arg, const char* fmt, ...) {
 	struct thread* thread = thread_create(kproc, KSTACK_SIZE);
 	if (!thread)
@@ -35,7 +44,7 @@ tid_t kthread_create(int sched_flags, int (*func)(void*), void* arg, const char*
 	if (err)
 		goto err_attach;
 
-	atomic_add_fetch(&thread->refcount, 1);
+	thread_ref(thread);
 	thread->ctx.general.rdi = (uintptr_t)func;
 	thread->ctx.general.rsi = (uintptr_t)arg;
 
@@ -83,7 +92,7 @@ int kthread_detach(tid_t id) {
 
 	bug(hashtable_remove(kthread_table, &id, sizeof(id)) != 0);
 	struct thread* thread = kthread_struct.thread;
-	bug(atomic_fetch_sub(&thread->refcount, 1) == 0);
+	thread_unref(thread);
 
 	return 0;
 }
