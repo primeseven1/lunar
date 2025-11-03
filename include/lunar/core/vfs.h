@@ -8,15 +8,6 @@
 #define PATHNAME_MAX 4096
 #define NAME_MAX 255
 
-enum vattr_opt_masks {
-	VATTR_MODE = (1 << 0),
-	VATTR_UID = (1 << 1),
-	VATTR_GID = (1 << 2),
-	VATTR_ATIME = (1 << 3),
-	VATTR_MTIME = (1 << 4),
-	VATTR_CTIME = (1 << 5)
-};
-
 enum vattr_mode_masks {
 	VATTR_MODE_OTHERS_EXECUTE = 00001,
 	VATTR_MODE_OTHERS_SEARCH = VATTR_MODE_OTHERS_EXECUTE,
