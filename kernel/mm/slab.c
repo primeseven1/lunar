@@ -14,24 +14,14 @@
 #define SLAB_AFTER_CUTOFF_OBJ_COUNT 16
 
 static inline void* slab_alloc_struct(mm_t mm_flags, size_t size) {
-	if (mm_flags & MM_ATOMIC) {
-		void* ptr = hhdm_virtual(alloc_pages(mm_flags, get_order(size)));
-		if (ptr)
-			memset(ptr, 0, size);
-		return ptr;
-	}
-
-	/* vmap will zero the memory */
-	return vmap(NULL, size, MMU_READ | MMU_WRITE, VMM_ALLOC, &mm_flags);
+	void* ptr = hhdm_virtual(alloc_pages(mm_flags, get_order(size)));
+	if (ptr)
+		memset(ptr, 0, size);
+	return ptr;
 }
 
-static inline int slab_free_struct(void* ptr, mm_t mm_flags, size_t size) {
-	int err = 0;
-	if (mm_flags & MM_ATOMIC)
-		free_pages(hhdm_physical(ptr), get_order(size));
-	else
-		err = vunmap(ptr, size, 0);
-	return err;
+static inline void slab_free_struct(void* ptr, size_t size) {
+	free_pages(hhdm_physical(ptr), get_order(size));
 }
 
 static int slab_init(struct slab_cache* cache, struct slab* slab) {
@@ -46,7 +36,7 @@ static int slab_init(struct slab_cache* cache, struct slab* slab) {
 	/* Allocate a virtual address for the slab base */
 	slab->base = slab_alloc_struct(cache->mm_flags, slab_size);
 	if (!slab->base) {
-		bug(slab_free_struct(slab->free, cache->mm_flags, map_size) != 0);
+		slab_free_struct(slab->free, cache->mm_flags);
 		return -ENOMEM;
 	}
 
@@ -62,7 +52,7 @@ static int slab_cache_grow(struct slab_cache* cache) {
 
 	int err = slab_init(cache, slab);
 	if (err) {
-		bug(slab_free_struct(slab, (cache->mm_flags & MM_ATOMIC) | MM_ZONE_NORMAL, sizeof(*slab)) != 0);
+		slab_free_struct(slab, sizeof(*slab));
 		return err;
 	}
 
@@ -226,10 +216,12 @@ struct slab_cache* slab_cache_create(size_t obj_size, size_t align,
 	else if (align & (align - 1))
 		return NULL;
 
-	struct slab_cache* cache = vmap(NULL, sizeof(*cache), MMU_READ | MMU_WRITE, VMM_ALLOC, NULL);
-	if (!cache)
+	struct slab_cache* cache;
+	physaddr_t _cache = alloc_pages(MM_ZONE_NORMAL | (mm_flags & MM_ATOMIC), get_order(sizeof(*cache)));
+	if (!_cache)
 		return NULL;
 
+	cache = hhdm_virtual(_cache);
 	cache->ctor = ctor;
 	cache->dtor = dtor;
 	list_head_init(&cache->full);
@@ -265,12 +257,12 @@ int slab_cache_destroy(struct slab_cache* cache) {
 	struct slab* slab, *tmp;
 	list_for_each_entry_safe(slab, tmp, &cache->empty, link) {
 		list_remove(&slab->link);
-		bug(slab_free_struct(slab->base, cache->mm_flags, cache->obj_size * cache->obj_count) != 0);
-		bug(slab_free_struct(slab->free, cache->mm_flags, (cache->obj_count + 7) >> 3) != 0);
-		bug(slab_free_struct(slab, (cache->mm_flags & MM_ATOMIC) | MM_ZONE_NORMAL, sizeof(*slab)) != 0);
+		slab_free_struct(slab->base, cache->obj_size * cache->obj_count);
+		slab_free_struct(slab->free, (cache->obj_count + 7) >> 3);
+		slab_free_struct(slab, sizeof(*slab));
 	}
 
 	slab_cache_unlock(cache, &irq_flags);
-	bug(vunmap(cache, sizeof(*cache), 0) != 0);
+	free_pages(hhdm_physical(cache), get_order(sizeof(*cache)));
 	return 0;
 }
