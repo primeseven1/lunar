@@ -34,6 +34,9 @@ static inline void* kzalloc(size_t size, mm_t mm_flags) {
 
 /**
  * @brief Free a block of memory from a heap pool
+ *
+ * Passing NULL is a no-op
+ *
  * @param ptr The pointer to the block of memory
  */
 void kfree(void* ptr);
@@ -53,5 +56,24 @@ void kfree(void* ptr);
  * @return A new pointer to the new block
  */
 void* krealloc(void* old, size_t new_size, mm_t mm_flags);
+
+/**
+ * @brief Allocate a block of memory with its own VMA
+ *
+ * Unlike kmalloc, this memory is not garunteed to be contiguous
+ *
+ * @param size The size of the allocation
+ * @return A pointer to the memory
+ */
+void* vmalloc(size_t size);
+
+/**
+ * @brief Free a block of memory
+ *
+ * Passing NULL is a no-op
+ *
+ * @param ptr The pointer to the block
+ */
+void vfree(void* ptr);
 
 void heap_init(void);

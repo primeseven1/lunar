@@ -9,13 +9,14 @@
 #include <lunar/mm/buddy.h>
 #include <lunar/mm/slab.h>
 #include <lunar/lib/string.h>
+#include <lunar/lib/hashtable.h>
 
 #define HEAP_CANARY_XOR 0xdecafc0ffeeUL
 #define HEAP_ALIGN BIGGEST_ALIGNMENT
 
 struct alloc_info {
 	struct slab_cache* cache;
-	u64 size, atomic, __pad;
+	u64 size;
 } __attribute__((aligned(16)));
 static_assert((sizeof(struct alloc_info) & (HEAP_ALIGN - 1)) == 0,"struct alloc_info is broken");
 
@@ -50,22 +51,18 @@ void* kmalloc(size_t size, mm_t mm_flags) {
 	if (__builtin_add_overflow(size, sizeof(struct alloc_info) + sizeof(size_t), &total_size))
 		return NULL;
 
-	bool atomic = mm_flags & MM_ATOMIC;
 	struct alloc_info* ai = NULL;
 	struct slab_cache* cache = get_cache(total_size, mm_flags);
 	if (cache)
 		ai = slab_cache_alloc(cache);
 	if (!ai) {
-		ai = atomic ?
-			hhdm_virtual(alloc_pages(mm_flags, get_order(total_size))) :
-			vmap(NULL, total_size, MMU_READ | MMU_WRITE, VMM_ALLOC, &mm_flags);
+		ai = hhdm_virtual(alloc_pages(mm_flags, get_order(total_size)));
 		if (!ai)
 			return NULL;
 	}
 
 	ai->cache = cache;
 	ai->size = size;
-	ai->atomic = (u64)atomic;
 
 	u8* ret = (u8*)(ai + 1);
 	size_t* canary = (size_t*)(ret + size);
@@ -83,14 +80,10 @@ void kfree(void* ptr) {
 
 	size_t total_size;
 	bug(__builtin_add_overflow(ai->size, sizeof(struct alloc_info) + sizeof(size_t), &total_size) == true);
-	if (ai->cache) {
+	if (ai->cache)
 		slab_cache_free(ai->cache, ai);
-	} else {
-		if (ai->atomic)
-			free_pages(hhdm_physical(ai), get_order(total_size));
-		else
-			bug(vunmap(ai, total_size, 0) != 0);
-	}
+	else
+		free_pages(hhdm_physical(ai), get_order(total_size));
 }
 
 void* krealloc(void* old, size_t new_size, mm_t mm_flags) {
@@ -143,9 +136,43 @@ static bool cache_set_init(struct slab_cache** caches, size_t count, mm_t mm_ext
 	return true;
 }
 
+struct vmalloc_info {
+	size_t size;
+};
+
+static struct hashtable* vmalloc_hashtable;
+
+void* vmalloc(size_t size) {
+	void* virtual = vmap(NULL, size, MMU_READ | MMU_WRITE, VMM_ALLOC, NULL);
+	if (!virtual)
+		return NULL;
+
+	struct vmalloc_info ai = { .size = size };
+	if (hashtable_insert(vmalloc_hashtable, &virtual, sizeof(void*), &ai)) {
+		bug(vunmap(virtual, size, 0) != 0);
+		return NULL;
+	}
+
+	return virtual;
+}
+
+void vfree(void* ptr) {
+	if (!ptr)
+		return;
+	struct vmalloc_info ai;
+	if (hashtable_search(vmalloc_hashtable, &ptr, sizeof(void*), &ai)) {
+		printk(PRINTK_ERR "Invalid pointer passed to vfree: %p\n", ptr);
+		return;
+	}
+	bug(vunmap(ptr, ai.size, 0) != 0);
+}
+
 void heap_init(void) {
 	if (!cache_set_init(normal_caches, ARRAY_SIZE(normal_caches), 0) ||
 			!cache_set_init(atomic_caches, ARRAY_SIZE(atomic_caches), MM_ATOMIC))
 		panic("Failed to create heap memory caches");
+	vmalloc_hashtable = hashtable_create(128, sizeof(void*));
+	if (!vmalloc_hashtable)
+		panic("Failed to create vmalloc hashtable");
 	atomic_thread_fence(ATOMIC_RELEASE);
 }
