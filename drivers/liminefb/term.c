@@ -8,12 +8,16 @@ static struct flanterm_context** contexts;
 static u64 context_count = 0;
 
 static void* flanterm_kmalloc(size_t size) {
-	return kzalloc(size, MM_ZONE_NORMAL);	
+	if (size < PAGE_SIZE)
+		return kzalloc(size, MM_ZONE_NORMAL);
+	return vmalloc(size);
 }
 
 static void flanterm_kfree(void* ptr, size_t size) {
-	(void)size;
-	kfree(ptr);
+	if (size < PAGE_SIZE)
+		kfree(ptr);
+	else
+		vfree(ptr);
 }
 
 static void liminefb_term_write(const char* s, size_t count) {
