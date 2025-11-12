@@ -57,3 +57,22 @@ bool spinlock_try_lock_irq_save(spinlock_t* lock, irqflags_t* flags);
 static inline void spinlock_init(spinlock_t* lock) {
 	atomic_store_explicit(lock, false, ATOMIC_RELAXED);
 }
+
+typedef struct {
+	atomic(unsigned int) readers;
+	atomic(unsigned int) writers_waiting;
+	atomic(bool) writer;
+} rwlock_t;
+
+#define RWLOCK_INITIALIZER { \
+	.readers = atomic_init(0), \
+	.writers_waiting = atomic_init(0), \
+	.writer = atomic_init(false) \
+}
+#define RWLOCK_DEFINE(n) rwlock_t n = RWLOCK_INITIALIZER
+
+static inline void rwlock_init(rwlock_t* lock) {
+	atomic_store_explicit(&lock->readers, 0, ATOMIC_RELAXED);
+	atomic_store_explicit(&lock->writers_waiting, 0, ATOMIC_RELAXED);
+	atomic_store_explicit(&lock->writer, false, ATOMIC_RELAXED);
+}
