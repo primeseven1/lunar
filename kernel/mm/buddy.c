@@ -413,8 +413,11 @@ retry:
 		goto out;
 	}
 
-	/* Now make sure this region is actually marked usable in the memory map */
-	if (!mmap_region_check(ret, alloc_size)) {
+	/*
+	 * Now make sure this region is actually marked usable in the memory map.
+	 * These regions are reserved at boot, but this serves as a sanity check
+	 */
+	if (unlikely(!mmap_region_check(ret, alloc_size))) {
 		/* Go through each page, and see what usable pages there are, and free those blocks */
 		for (size_t i = 0; i < alloc_size; i += PAGE_SIZE) {
 			if (mmap_region_check(ret + i, PAGE_SIZE)) {
@@ -432,6 +435,34 @@ out:
 		atomic_sub_fetch(&area->alloc_refcnt, 1);
 	}
 	return ret;
+}
+
+/*
+ * Horribly inefficient, but i just want this to work. This shouldn't really run outside of really boot,
+ * but in case it does for some reason, do locking
+ */
+static int __reserve_pages(struct zone* zone, physaddr_t addr, size_t size) {
+	if (unlikely(size >= SIZE_MAX - PAGE_SIZE))
+		return -ERANGE;
+
+	size = ROUND_UP(size, PAGE_SIZE);
+	for (size = ROUND_UP(size, PAGE_SIZE); size; addr += PAGE_SIZE, size -= PAGE_SIZE) {
+		struct mem_area* area = get_mem_area(zone, addr);
+		if (unlikely(!area))
+			continue;
+
+		irqflags_t irq_flags;
+		const unsigned int layer = area->layer_count - 1;
+		unsigned long block = (addr - area->base) >> PAGE_SHIFT;
+
+		mem_area_lock(area, &irq_flags);
+		int err = _alloc_block(area, layer, block);
+		mem_area_unlock(area, &irq_flags);
+		if (err && err != -EALREADY) /* Can happen for things like overlapping reserved regions */
+			printk(PRINTK_WARN "mm: %#16lx error %i\n", addr, err);
+	}
+
+	return 0;
 }
 
 /* Free pages from a specific memory zone. */
@@ -763,6 +794,25 @@ static int zone_init(struct zone* zone, mm_t zone_type, mm_t alloc_zone,
 #define NORMAL_START 0x100000000
 #define NORMAL_END PHYSADDR_MAX
 
+static inline void reserve_pages(physaddr_t addr, size_t size) {
+	int errdma = __reserve_pages(&dma_zone, addr, size);
+	int errdma32 = __reserve_pages(dma32_zone, addr, size);
+	int errnormal = __reserve_pages(normal_zone, addr, size);
+	if (unlikely(errdma || errdma32 || errnormal)) {
+		printk(PRINTK_ERR "mm: Failed to reserve region %#16lx: dma: %i, dma32: %i, normal: %i\n",
+				addr, errdma, errdma32, errnormal);
+	}
+}
+
+static void reserve_unusable_memory(void) {
+	const struct limine_mmap_response* mmap = mmap_request.response;
+	for (u64 i = 0; i < mmap->entry_count; i++) {
+		const struct limine_mmap_entry* entry = mmap->entries[i];
+		if (entry->type != LIMINE_MMAP_USABLE)
+			reserve_pages(entry->base, entry->length);
+	}
+}
+
 void buddy_init(void) {
 	mem_total = mmap_total_usable();
 
@@ -774,8 +824,7 @@ void buddy_init(void) {
 		if (unlikely(err == -ELOOP)) {
 			dma32_zone = &dma_zone;
 			normal_zone = &dma_zone;
-			printk(PRINTK_DBG "mm: Linking dma32 and normal zones to the dma zone\n");
-			return;
+			goto out;
 		}
 		panic("Failed to initialize zone DMA32: %i", err);
 	}
@@ -785,10 +834,16 @@ void buddy_init(void) {
 	if (err) {
 		if (likely(err == -ELOOP)) {
 			normal_zone = dma32_zone;
-			printk(PRINTK_DBG "mm: Linking normal zone to the dma32 zone\n");
-			return;
+			goto out;
 		}
 		panic("Failed to initialize zone normal: %i", err);
 	}
 	normal_zone = &__normal_zone;
+
+out:
+	if (unlikely(dma32_zone == &dma_zone))
+		printk(PRINTK_DBG "mm: DMA32 linked to DMA\n");
+	else if (dma32_zone == normal_zone)
+		printk(PRINTK_DBG "mm: Normal linked to DMA32\n");
+	reserve_unusable_memory();
 }
