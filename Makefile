@@ -4,7 +4,7 @@ ASMFLAGS = -c -MMD -MP -I./include \
 	   -include ./include/generated/autoconf.h
 CFLAGS = -c -MMD -MP -std=c11 -I./include \
 	 -include ./include/generated/autoconf.h \
-	 -ffreestanding -fno-stack-protector -fno-omit-frame-pointer \
+	 -ffreestanding -fno-stack-protector -fno-omit-frame-pointer -fno-optimize-sibling-calls \
 	 -Wall -Wextra -Wshadow -Wpointer-arith -Winline \
 	 -Wimplicit-fallthrough -Wvla -Walloca -Wstrict-prototypes \
 	 -Wmissing-prototypes -Wno-attributes \
@@ -45,7 +45,7 @@ endif
 LIBGCC_DIR = $(shell dirname $(shell $(CC) $(CFLAGS) -print-libgcc-file-name))
 LDFLAGS += -L$(LIBGCC_DIR)
 
-.PHONY: all menuconfig clean iso
+.PHONY: all menuconfig clean
 
 all: $(OUTPUT)
 
@@ -77,14 +77,3 @@ $(OUTPUT): $(S_OBJECT_FILES) $(C_OBJECT_FILES) $(LDSCRIPT)
 clean:
 	@rm -f $(S_OBJECT_FILES) $(C_OBJECT_FILES) $(H_DEPENDENCIES) $(OUTPUT)
 	@echo "[CLEAN] ."
-
-ISO_ROOT := tools/testing/iso
-ISO_OUTPUT := tools/testing/lunar.iso
-
-iso: $(OUTPUT)
-	@cp $(OUTPUT) $(ISO_ROOT)
-	@xorriso -as mkisofs -b boot/limine/limine-bios-cd.bin -no-emul-boot \
-		-no-emul-boot -boot-load-size 4 -boot-info-table --efi-boot boot/limine/limine-uefi-cd.bin \
-		--efi-boot-part --efi-boot-image --protective-msdos-label $(ISO_ROOT) -o $(ISO_OUTPUT) &> /dev/null
-	@./tools/limine/limine bios-install $(ISO_OUTPUT) &> /dev/null
-	@echo "[ISO] $(ISO_OUTPUT)"
