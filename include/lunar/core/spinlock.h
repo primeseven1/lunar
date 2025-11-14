@@ -76,3 +76,8 @@ static inline void rwlock_init(rwlock_t* lock) {
 	atomic_store_explicit(&lock->writers_waiting, 0, ATOMIC_RELAXED);
 	atomic_store_explicit(&lock->writer, false, ATOMIC_RELAXED);
 }
+
+void rwlock_read_lock(rwlock_t* lock);
+void rwlock_read_unlock(rwlock_t* lock);
+void rwlock_write_lock(rwlock_t* lock);
+void rwlock_write_unlock(rwlock_t* lock);
