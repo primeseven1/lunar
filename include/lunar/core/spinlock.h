@@ -71,13 +71,64 @@ typedef struct {
 }
 #define RWLOCK_DEFINE(n) rwlock_t n = RWLOCK_INITIALIZER
 
+/**
+ * @brief Acquire a read on a rwlock
+ * @param lock The lock to acquire a read on
+ */
+void rwlock_read_lock(rwlock_t* lock);
+
+/**
+ * @brief Release a read on a rwlock
+ * @param lock THe lock to release the read on
+ */
+void rwlock_read_unlock(rwlock_t* lock);
+
+/**
+ * @brief Acquire the write lock on a rwlock
+ * @param lock The lock to acquire the write on
+ */
+void rwlock_write_lock(rwlock_t* lock);
+
+/**
+ * @brief Release the write lock on a rwlock
+ * @param lock The lock to release to write on
+ */
+void rwlock_write_unlock(rwlock_t* lock);
+
+/**
+ * @brief Acquire a read lock and save the IRQ state
+ *
+ * @param lock The lock to acquire a read on
+ * @param flags The pointer to the IRQ state flags
+ */
+void rwlock_read_lock_irq_save(rwlock_t* lock, irqflags_t* flags);
+
+/**
+ * @brief Release a read lock and restore the IRQ state
+ *
+ * @param lock The lock to release the read on
+ * @param flags The pointer to the IRQ state flags
+ */
+void rwlock_read_unlock_irq_restore(rwlock_t* lock, irqflags_t* flags);
+
+/**
+ * @brief Acquire the write lock on a rwlock, and save the IRQ state
+ *
+ * @param lock The lock to acquire the write on
+ * @param flags The pointer to the IRQ state flags
+ */
+void rwlock_write_lock_irq_save(rwlock_t* lock, irqflags_t* flags);
+
+/**
+ * @brief Release the write lock on a rwlock, and restore the IRQ state
+ *
+ * @param lock The lock to release the write on
+ * @param flags The pointer to the IRQ state flags
+ */
+void rwlock_write_unlock_irq_restore(rwlock_t* lock, irqflags_t* flags);
+
 static inline void rwlock_init(rwlock_t* lock) {
 	atomic_store_explicit(&lock->readers, 0, ATOMIC_RELAXED);
 	atomic_store_explicit(&lock->writers_waiting, 0, ATOMIC_RELAXED);
 	atomic_store_explicit(&lock->writer, false, ATOMIC_RELAXED);
 }
-
-void rwlock_read_lock(rwlock_t* lock);
-void rwlock_read_unlock(rwlock_t* lock);
-void rwlock_write_lock(rwlock_t* lock);
-void rwlock_write_unlock(rwlock_t* lock);

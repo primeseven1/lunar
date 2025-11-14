@@ -68,3 +68,23 @@ void rwlock_write_lock(rwlock_t* lock) {
 void rwlock_write_unlock(rwlock_t* lock) {
 	atomic_store_explicit(&lock->writer, false, ATOMIC_RELEASE);
 }
+
+void rwlock_read_lock_irq_save(rwlock_t* lock, irqflags_t* flags) {
+	*flags = local_irq_save();
+	rwlock_read_lock(lock);
+}
+
+void rwlock_read_unlock_irq_restore(rwlock_t* lock, irqflags_t* flags) {
+	rwlock_read_unlock(lock);
+	local_irq_restore(*flags);
+}
+
+void rwlock_write_lock_irq_save(rwlock_t* lock, irqflags_t* flags) {
+	*flags = local_irq_save();
+	rwlock_write_lock(lock);
+}
+
+void rwlock_write_unlock_irq_restore(rwlock_t* lock, irqflags_t* flags) {
+	rwlock_write_unlock(lock);
+	local_irq_restore(*flags);
+}
