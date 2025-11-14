@@ -126,3 +126,15 @@
 #define ENOMEDIUM 123
 #define EMEDIUMTYPE 124
 #define ECANCELED 125
+
+#define ERRNO_MAX 4095
+
+#ifndef __ASSEMBLER__
+
+#include <lunar/types.h>
+
+#define ERR_PTR(e) ((void*)((intptr_t)(e)))
+#define PTR_ERR(p) ((intptr_t)(p))
+#define IS_PTR_ERR(p) ((uintptr_t)(p) > (uintptr_t)(-ERRNO_MAX))
+
+#endif /* __ASSEMBLER__ */
