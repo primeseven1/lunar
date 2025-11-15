@@ -97,13 +97,15 @@ reload:
 
 void segments_init(void) {
 	struct kernel_segments* segments = vmap(NULL, sizeof(*segments), MMU_READ | MMU_WRITE, VMM_ALLOC, NULL);
-	assert(segments != NULL);
+	if (IS_PTR_ERR(segments))
+		panic("segments_init() failed!");
 	memcpy(segments->segments, base, sizeof(segments->segments));
 
 	/* Allocate TSS + io permission bitmap */
 	size_t tss_size = sizeof(struct tss_descriptor) + (65536 / 8);
 	struct tss_descriptor* tss = vmap(NULL, tss_size, MMU_READ | MMU_WRITE, VMM_ALLOC, NULL);
-	assert(tss != NULL);
+	if (IS_PTR_ERR(tss))
+		panic("segments_init() failed!");
 	memset(tss, INT_MAX, tss_size);
 	tss->iopb = sizeof(*tss);
 
@@ -112,7 +114,8 @@ void segments_init(void) {
 	assert(tss->rsp[0] != NULL);
 	for (int i = 0; i < 3; i++) {
 		tss->ist[i] = vmap_kstack();
-		assert(tss->ist[i] != NULL);
+		if (!tss->ist[i])
+			panic("segments_init() failed!");
 	}
 
 	/* Now set up the TSS descriptor */

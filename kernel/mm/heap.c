@@ -144,7 +144,7 @@ static struct hashtable* vmalloc_hashtable;
 
 void* vmalloc(size_t size) {
 	void* virtual = vmap(NULL, size, MMU_READ | MMU_WRITE, VMM_ALLOC, NULL);
-	if (!virtual)
+	if (IS_PTR_ERR(virtual))
 		return NULL;
 
 	struct vmalloc_info ai = { .size = size };
