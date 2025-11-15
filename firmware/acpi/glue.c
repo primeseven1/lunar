@@ -43,7 +43,7 @@ void* uacpi_kernel_map(uacpi_phys_addr physical, uacpi_size size) {
 	size_t page_offset = physical % PAGE_SIZE;
 	physaddr_t _physical = physical - page_offset;
 	void* virtual = vmap(NULL, size + page_offset, MMU_READ | MMU_WRITE, VMM_PHYSICAL, &_physical);
-	if (!virtual)
+	if (IS_PTR_ERR(virtual))
 		return NULL;
 	return (u8*)virtual + page_offset;
 }
