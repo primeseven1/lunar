@@ -38,9 +38,10 @@ int cmdline_parse(void) {
 
 	/* Create a writable copy, this will be tokenized and made read only */
 	char* cmdline_copy = vmap(NULL, cmdline_size, MMU_READ | MMU_WRITE, VMM_ALLOC, NULL);
+	if (IS_PTR_ERR(cmdline_copy))
+		return PTR_ERR(cmdline_copy);
+
 	char* const cmdline_base = cmdline_copy;
-	if (!cmdline_copy)
-		return -ENOMEM;
 	strcpy(cmdline_copy, cmdline);
 
 	int err = 0;

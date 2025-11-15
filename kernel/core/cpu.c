@@ -66,7 +66,7 @@ void cpu_startup_aps(void) {
 	 * will still work even after this, HHDM just isn't read only 
 	 */
 	cpus = vmap(NULL, struct_size, MMU_READ, VMM_PHYSICAL, &cpu_structs);
-	if (unlikely(!cpus))
+	if (unlikely(IS_PTR_ERR(cpus)))
 		printk(PRINTK_WARN "smp: Failed to remap CPU structs as read only\n");
 	else
 		atomic_store(&smp_cpus, cpus);

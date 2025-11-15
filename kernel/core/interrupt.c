@@ -47,7 +47,8 @@ static void idt_init(void) {
 	const size_t idt_size = sizeof(*idt) * INTERRUPT_COUNT;
 	if (!idt) {
 		idt = vmap(NULL, idt_size, MMU_READ | MMU_WRITE, VMM_ALLOC, NULL);
-		assert(idt != NULL);
+		if (IS_PTR_ERR(idt))
+			panic("Failed to map the interrupt table\n");
 		__idt_init();
 		vprotect(idt, idt_size, MMU_READ, 0);
 	}
