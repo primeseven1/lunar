@@ -11,6 +11,7 @@
 
 struct cpu {
 	struct cpu* self;
+	struct thread* current_thread; /* Alias for runqueue.current */
 	u32 processor_id, lapic_id, sched_processor_id;
 	struct mm* mm_struct;
 	struct runqueue runqueue;
@@ -21,6 +22,9 @@ struct cpu {
 	struct timekeeper_source* timekeeper;
 	unsigned long softirqs_pending;
 };
+
+/* Sanity check, assembly code will expect this offset */
+static_assert(offsetof(struct cpu, current_thread) == 8, "offsetof(struct cpu, current_thread) == 8");
 
 struct smp_cpus {
 	u32 count;
