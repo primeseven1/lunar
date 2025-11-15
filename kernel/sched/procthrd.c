@@ -68,7 +68,7 @@ struct thread* thread_create(struct proc* proc, void* exec, size_t stack_size) {
 	stack_size = ROUND_UP(stack_size, PAGE_SIZE);
 	const size_t stack_total = stack_size + THREAD_STACK_GUARD_SIZE;
 	thread->stack = vmap(NULL, stack_total, MMU_READ | MMU_WRITE, VMM_ALLOC, NULL);
-	if (!thread->stack)
+	if (IS_PTR_ERR(thread->stack))
 		goto err_stack;
 	bug(vprotect(thread->stack, THREAD_STACK_GUARD_SIZE, MMU_NONE, 0) != 0); /* guard page */
 	thread->stack_size = stack_size;
@@ -203,12 +203,12 @@ err:
 }
 
 void procthrd_init(void) {
-	proc_cache = slab_cache_create(sizeof(struct proc), _Alignof(struct proc), MM_ZONE_NORMAL, NULL, NULL);
-	assert(proc_cache != NULL);
 	const size_t pid_map_size = (pid_max + 7) >> 3;
-	pid_map = vmap(NULL, pid_map_size, MMU_READ | MMU_WRITE, VMM_ALLOC, NULL);
-	assert(pid_map != NULL);
 
+	proc_cache = slab_cache_create(sizeof(struct proc), _Alignof(struct proc), MM_ZONE_NORMAL, NULL, NULL);
+	pid_map = vmap(NULL, pid_map_size, MMU_READ | MMU_WRITE, VMM_ALLOC, NULL);
 	thread_cache = slab_cache_create(sizeof(struct thread), _Alignof(struct thread), MM_ZONE_NORMAL, NULL, NULL);
-	assert(thread_cache != NULL);
+
+	if (unlikely(IS_PTR_ERR(pid_map) || !thread_cache || !proc_cache))
+		panic("procthrd_init() failed!");
 }
