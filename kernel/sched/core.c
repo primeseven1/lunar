@@ -259,6 +259,7 @@ struct thread* atomic_schedule(void) {
 		semaphore_signal(&rq->reaper_sem); /* Signal the current CPU's semaphore, safe to do since IRQ's are disabled */
 
 	rq->current = next;
+	cpu->current_thread = rq->current;
 	cpu->need_resched = false;
 	atomic_store(&next->state, THREAD_RUNNING);
 
@@ -405,6 +406,7 @@ static void sched_bootstrap_processor(void) {
 
 	struct thread* thread = create_bootstrap_thread(rq, NULL, THREAD_RUNNING, SCHED_PRIO_DEFAULT);
 	rq->current = thread;
+	current_cpu()->current_thread = rq->current;
 	thread = create_bootstrap_thread(rq, idle_thread, THREAD_READY, SCHED_PRIO_MIN);
 	rq->idle = thread;
 

@@ -47,6 +47,7 @@ struct thread* thread_create(struct proc* proc, void* exec, size_t stack_size) {
 	if (!thread)
 		return NULL;
 
+	thread->utk_stack_top = NULL;
 	thread->id = alloc_id(proc->tid_map, tid_max);
 	if (unlikely(thread->id == tid_max))
 		goto err_id;
@@ -85,6 +86,12 @@ struct thread* thread_create(struct proc* proc, void* exec, size_t stack_size) {
 		thread->ctx.general.cs = SEGMENT_KERNEL_CODE;
 		thread->ctx.general.ss = SEGMENT_KERNEL_DATA;
 	} else {
+		const size_t utk_stack_total = KSTACK_SIZE + THREAD_STACK_GUARD_SIZE;
+		u8* const utk_stack = vmap(NULL, utk_stack_total, MMU_READ | MMU_WRITE, VMM_ALLOC, NULL);
+		if (unlikely(IS_PTR_ERR(utk_stack)))
+			goto err_utk_stack;
+		bug(vprotect(utk_stack, THREAD_STACK_GUARD_SIZE, MMU_NONE, 0) != 0);
+		thread->utk_stack_top = utk_stack + utk_stack_total;
 		thread->ctx.general.cs = SEGMENT_USER_CODE;
 		thread->ctx.general.ss = SEGMENT_USER_DATA;
 	}
@@ -97,6 +104,8 @@ struct thread* thread_create(struct proc* proc, void* exec, size_t stack_size) {
 	thread->policy_priv = NULL;
 	atomic_store_explicit(&thread->refcount, 0, ATOMIC_RELAXED);
 	return thread;
+err_utk_stack:
+	ext_ctx_free(thread->ctx.extended);
 err_ctx:
 	assert(vunmap(thread->stack, stack_total, 0) == 0);
 err_stack:

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <lunar/common.h>
 #include <lunar/core/spinlock.h>
 #include <lunar/core/interrupt.h>
 #include <lunar/core/timekeeper.h>
@@ -57,6 +58,7 @@ struct proc {
 };
 
 struct thread {
+	void* utk_stack_top; /* User to kernel stack */
 	tid_t id; /* Thread ID */
 	struct cpu* target_cpu; /* What queue this thread is in */
 	unsigned long cpu_mask;
@@ -84,6 +86,9 @@ struct thread {
 	void* policy_priv; /* For the scheduling algorithm */
 	atomic(unsigned long) refcount;
 };
+
+/* Not needed (probably), but make 100% sure this is the case, assembly code expects this to be here */
+static_assert(offsetof(struct thread, utk_stack_top) == 0, "offsetof(struct thread, utk_stack_top) == 0");
 
 struct sched_policy;
 
