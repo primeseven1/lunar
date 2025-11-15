@@ -26,7 +26,8 @@ enum vmm_flags {
 	VMM_FIXED = (1 << 2),
 	VMM_NOREPLACE = (1 << 3),
 	VMM_IOMEM = (1 << 4),
-	VMM_HUGEPAGE_2M = (1 << 5)
+	VMM_HUGEPAGE_2M = (1 << 5),
+	VMM_USER = (1 << 6)
 };
 
 typedef unsigned long pte_t;
@@ -35,19 +36,21 @@ typedef unsigned long pte_t;
  * @brief Map some memory to the kernel address space
  *
  * If VMM_ALLOC is used, this function will allocate non-contiguous physical pages
- * to map the memory. This function takes an optional argument that can be NULL, if it's not
- * NULL, it will assume the memory pointed to it will be a type of mm_t.
+ * to map the memory. The argument optional will be ignored.
  *
  * If VMM_PHYSICAL is used, this function will map the virtual address to a physical address,
- * optional must not be NULL, otherwise this function will return NULL. The optional argument
+ * optional must not be NULL, otherwise this function will return -EINVAL. The optional argument
  * will be assumed to be pointing to a type of physaddr_t. The physical address must be
  * aligned, or this function will fail.
  *
- * If VMM_IOMEM is used, this function will use the I/O memory VMA. When this flag is used,
- * VMAP_PHYSICAL is implied. Avoid use of this flag directly, use iomap/iounmap instead.
+ * If VMM_IOMEM is used, then VMM_PHYSICAL is implied. Do not use this flag directly, use iomap/iounmap.
  *
  * If VMM_FIXED is used, it places the mapping at that exact address, replacing any other mappings
  * at that addresss, unless the VMM_NOREPLACE flag is used.
+ *
+ * If VMM_USER is used, the mapping will be placed in user space. If in a kthread context, -EINVAL is returned.
+ *
+ * If VMM_HUGEPAGE_2M is used, the mapping will use 2MiB hugepages instead of 4K pages.
  *
  * @param hint Hint for where to place the mapping. Does not need to be 
  * @param size The size of the mapping
@@ -55,7 +58,10 @@ typedef unsigned long pte_t;
  * @param flags The vmm flags to use
  * @param optional Optional argument depending on the flags
  *
- * @return The pointer to the block
+ * @return -errno on failure as a pointer, otherwise the address to the mapping is returned
+ * @retval -EINVAL Bad hint (in some cases), invalid size, mmu flags, flags, or in some cases optional being NULL
+ * @retval -ENOMEM Ran out of memory
+ * @retval -EEXIST Mapping exists
  */
 void* vmap(void* hint, size_t size, mmuflags_t mmu_flags, int flags, void* optional);
 
@@ -65,7 +71,7 @@ void* vmap(void* hint, size_t size, mmuflags_t mmu_flags, int flags, void* optio
  * @param virtual The virtual address to change, must be aligned
  * @param size The size of the mapping you want to change
  * @param mmu_flags The new MMU flags to use
- * @param flags The vmm flags to use
+ * @param flags Unimplemented, must be zero.
  *
  * @return -errno on failure
  */
@@ -76,7 +82,7 @@ int vprotect(void* virtual, size_t size, mmuflags_t mmu_flags, int flags);
  *
  * @param virtual The virtual address, must be aligned
  * @param size The original size of the mapping
- * @param flags The vmm flags to use
+ * @param flags Unimplemented, must be zero.
  *
  * @return -errno on failure
  */
