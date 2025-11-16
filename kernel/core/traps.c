@@ -3,6 +3,8 @@
 #include <lunar/core/panic.h>
 #include <lunar/core/printk.h>
 #include <lunar/core/trace.h>
+#include <lunar/init/status.h>
+#include <lunar/sched/preempt.h>
 #include <lunar/sched/kthread.h>
 #include <lunar/mm/vma.h>
 #include "traps.h"
@@ -59,6 +61,11 @@ static void do_page_fault(const struct context* ctx) {
 }
 
 void do_trap(struct isr* isr, struct context* ctx) {
+	if (unlikely(init_status_get() < INIT_STATUS_SCHED))
+		panic("Fatal exception");
+	if (in_interrupt())
+		panic("Fatal exception in interrupt");
+
 	switch (interrupt_get_vector(isr)) {
 	case INTERRUPT_PAGE_FAULT_VECTOR:
 		do_page_fault(ctx);
