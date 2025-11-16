@@ -1,9 +1,13 @@
 #include <lunar/common.h>
 #include <lunar/asm/wrap.h>
+#include <lunar/asm/msr.h>
+#include <lunar/asm/segment.h>
+#include <lunar/asm/cpuid.h>
 #include <lunar/core/limine.h>
 #include <lunar/core/cpu.h>
 #include <lunar/core/panic.h>
 #include <lunar/core/printk.h>
+#include <lunar/core/syscall.h>
 #include <lunar/lib/string.h>
 #include <lunar/mm/buddy.h>
 #include <lunar/mm/vmm.h>
@@ -77,6 +81,19 @@ void cpu_startup_aps(void) {
 
 static atomic(u32) sched_ids = atomic_init(1);
 
+static void enable_syscall(void) {
+	u32 _unused, edx;
+	cpuid(CPUID_EXT_LEAF_PROC_INFO, 0, &_unused, &_unused, &_unused, &edx);
+	if (unlikely(!(edx & (1 << 11))))
+		panic("syscall instruction unsupported by CPU");
+
+	wrmsr(MSR_EFER, rdmsr(MSR_EFER) | MSR_EFER_SCE);
+	wrmsr(MSR_LSTAR, (uintptr_t)asm_syscall_entry);
+	wrmsr(MSR_STAR, SEGMENT_KERNEL_CODE << 16 | SEGMENT_USER_CODE);
+	wrmsr(MSR_CSTAR, 0);
+	wrmsr(MSR_SF_MASK, CPU_FLAG_INTERRUPT);
+}
+
 void cpu_ap_init(struct limine_mp_info* mp_info) {
 	struct cpu* cpu = hhdm_virtual(alloc_pages(MM_ZONE_NORMAL | MM_NOFAIL, get_order(sizeof(*cpu))));
 	memset(cpu, 0, sizeof(*cpu));
@@ -87,6 +104,7 @@ void cpu_ap_init(struct limine_mp_info* mp_info) {
 	cpu->sched_processor_id = atomic_fetch_add(&sched_ids, 1);
 
 	wrmsr(MSR_GS_BASE, (uintptr_t)cpu);
+	enable_syscall();
 }
 
 void cpu_bsp_init(void) {
@@ -106,4 +124,5 @@ void cpu_bsp_init(void) {
 		}
 	}
 	wrmsr(MSR_GS_BASE, (uintptr_t)&bsp_cpu);
+	enable_syscall();
 }
