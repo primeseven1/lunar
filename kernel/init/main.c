@@ -191,9 +191,9 @@ _Noreturn __asmlinkage void kernel_main(void) {
 	vfs_init();
 	fs_drivers_load();
 
-	log_ram_usage();
 	init_status_set(INIT_STATUS_FINISHED);
 
+	log_ram_usage();
 	local_irq_enable();
 
 	err = vfs_mount("/", "tmpfs", NULL, NULL);
