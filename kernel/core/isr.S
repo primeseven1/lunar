@@ -88,7 +88,7 @@ asm_isr_common:
 	 * The kernel is compiled with -mgeneral-regs-only, so we don't need to worry about
 	 * the extra context being trashed.
 	 */
-	call __isr_entry
+	call do_interrupt
 
 	/* Remove fake stack frame and realign the stack */
 	leaq 16(%rsp,%rbx), %rsp
