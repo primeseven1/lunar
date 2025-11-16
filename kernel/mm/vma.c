@@ -6,19 +6,27 @@
 #include <lunar/core/panic.h>
 #include <lunar/core/trace.h>
 #include <lunar/lib/string.h>
-#include <lunar/mm/buddy.h>
+#include <lunar/mm/slab.h>
 #include <lunar/mm/vma.h>
 #include <lunar/mm/hhdm.h>
 
-static struct vma* vma_alloc(void) {
-	physaddr_t _vma = alloc_pages(MM_ZONE_NORMAL | MM_NOFAIL, get_order(sizeof(struct vma)));
-	struct vma* vma = hhdm_virtual(_vma);
+static struct slab_cache* vma_cache = NULL;
+
+static void vma_ctor(void* obj) {
+	struct vma* vma = obj;
 	list_node_init(&vma->link);
-	return vma;
+}
+
+static struct vma* vma_alloc(void) {
+	if (unlikely(!vma_cache)) {
+		vma_cache = slab_cache_create(sizeof(struct vma), _Alignof(struct vma),
+				MM_ZONE_NORMAL | MM_NOFAIL, vma_ctor, NULL);
+	}
+	return slab_cache_alloc(vma_cache);
 }
 
 static void vma_free(struct vma* vma) {
-	free_pages(hhdm_physical(vma), get_order(sizeof(*vma)));
+	slab_cache_free(vma_cache, vma);
 }
 
 struct vma* vma_find(struct mm* mm, const void* address) {
