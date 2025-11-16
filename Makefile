@@ -51,6 +51,7 @@ all: version $(OUTPUT)
 
 version:
 	@scripts/cc-ver.sh
+	@scripts/ld-ver.sh
 
 BUILD_MAKEFILES = $(shell find ./kernel ./drivers ./firmware ./fs -type f -name 'Makefile')
 -include $(BUILD_MAKEFILES)
