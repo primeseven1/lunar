@@ -45,9 +45,12 @@ endif
 LIBGCC_DIR = $(shell dirname $(shell $(CC) $(CFLAGS) -print-libgcc-file-name))
 LDFLAGS += -L$(LIBGCC_DIR)
 
-.PHONY: all menuconfig clean
+.PHONY: all version menuconfig clean
 
-all: $(OUTPUT)
+all: version $(OUTPUT)
+
+version:
+	@scripts/cc-ver.sh
 
 BUILD_MAKEFILES = $(shell find ./kernel ./drivers ./firmware ./fs -type f -name 'Makefile')
 -include $(BUILD_MAKEFILES)
@@ -58,7 +61,7 @@ H_DEPENDENCIES := $(patsubst %.o, %.d, $(S_OBJECT_FILES) $(C_OBJECT_FILES))
 -include $(H_DEPENDENCIES)
 
 menuconfig:
-	scripts/mconf.sh
+	@scripts/mconf.sh
 
 $(OUTPUT): $(S_OBJECT_FILES) $(C_OBJECT_FILES) $(LDSCRIPT)
 	@echo "[LD] $@"
