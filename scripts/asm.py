@@ -9,10 +9,11 @@ def load_flags(abspd: str) -> str:
     if not os.path.isfile(compile_flags_path):
         return ""
     with open(compile_flags_path, "r") as cf:
-        flags = []
+        flags: list[str] = []
+        ignored_flags: list[str] = ["-c", "-MMD", "-MP"]
         for line in cf:
             line = line.strip()
-            if line and line != "-c":
+            if line and line not in ignored_flags:
                 flags.append(line)
         return " ".join(flags)
 
