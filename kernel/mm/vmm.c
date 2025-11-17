@@ -97,10 +97,16 @@ cleanup:
 	return err;
 }
 
-static inline bool vmap_flags_valid(int flags) {
-	return !((flags & VMM_IOMEM && flags & VMM_ALLOC) ||
-			(flags & VMM_PHYSICAL && flags & VMM_ALLOC) ||
-			(flags & VMM_NOREPLACE && !(flags & VMM_FIXED)));
+static bool vmap_flags_valid(int flags) {
+	if ((flags & VMM_IOMEM && flags & VMM_ALLOC))
+		return false;
+	if (flags & VMM_PHYSICAL && flags & VMM_ALLOC)
+		return false;
+	if (flags & VMM_NOREPLACE && !(flags & VMM_FIXED))
+		return false;
+	if (flags & VMM_USER && (flags & VMM_PHYSICAL || flags & VMM_IOMEM))
+		return false;
+	return true;
 }
 
 void* vmap(void* hint, size_t size, mmuflags_t mmu_flags, int flags, void* optional) {
@@ -119,12 +125,11 @@ void* vmap(void* hint, size_t size, mmuflags_t mmu_flags, int flags, void* optio
 	if (flags & VMM_IOMEM)
 		flags |= VMM_PHYSICAL;
 	if (flags & VMM_HUGEPAGE_2M)
-		flags |= PT_HUGEPAGE;
+		pt_flags |= PT_HUGEPAGE;
 
 	struct mm* mm_struct;
 	if (flags & VMM_USER) {
-		mm_struct = current_cpu()->mm_struct;
-		/* kernel thread, cannot map a user pointer */
+		mm_struct = optional ? optional : current_cpu()->mm_struct;
 		if (mm_struct == &kernel_mm_struct)
 			return ERR_PTR(-EINVAL);
 	} else {

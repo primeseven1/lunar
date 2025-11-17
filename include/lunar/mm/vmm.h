@@ -48,7 +48,10 @@ typedef unsigned long pte_t;
  * If VMM_FIXED is used, it places the mapping at that exact address, replacing any other mappings
  * at that addresss, unless the VMM_NOREPLACE flag is used.
  *
- * If VMM_USER is used, the mapping will be placed in user space. If in a kthread context, -EINVAL is returned.
+ * If VMM_USER is used, the mapping will be placed in user space.
+ * If in a kthread context, -EINVAL is returned UNLESS the optional argument is provided.
+ * The optional argument type is of struct mm* in this case. Using this flag in combination with VMM_PHYSICAL
+ * or VMM_IOMEM is invalid and will return -EINVAL.
  *
  * If VMM_HUGEPAGE_2M is used, the mapping will use 2MiB hugepages instead of 4K pages.
  *
