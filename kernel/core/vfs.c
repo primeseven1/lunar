@@ -169,54 +169,61 @@ err_unref:
 	return err;
 }
 
+static int sanitize_path_and_get_parent(char* path, int type, struct vnode* dir, struct vnode** out_parent, char** out_base) {
+	int err = 0;
+
+	char* trailer = strrchr(path, '/');
+	if (trailer && trailer[1] == '\0') {
+		if (type != VNODE_TYPE_DIR) {
+			return -EINVAL;
+		}
+		while (trailer > path && *trailer == '/')
+			*trailer-- = '\0';
+	}
+
+	struct vnode* parent = dir;
+	char* base = strrchr(path, '/');
+
+	if (base) {
+		if (*++base == '\0' && type != VNODE_TYPE_DIR)
+			return -ENOTDIR;
+		err = vfs_lookup(dir, path, NULL, VNODE_LOOKUP_FLAG_PARENT, &parent);
+		if (err)
+			return err;
+	} else {
+		base = path;
+		if (!parent) {
+			parent = vfs_root;
+			if (unlikely(!parent))
+				return -ENOENT;
+			vnode_ref(parent);
+		}
+	}
+
+	*out_parent = parent;
+	*out_base = base;
+
+	return 0;
+}
+
 int vfs_create(struct vnode* dir, const char* path, mode_t mode, int type, struct vnode** out) {
 	if (type < VNODE_TYPE_MIN || type > VNODE_TYPE_MAX)
 		return -EINVAL;
 
-	int err;
 	struct vnode* parent = NULL;
-
-	/* Remove trailing slashes */
-	char* clean = kstrdup(path, MM_ZONE_NORMAL);
-	if (!clean)
+	char* base;
+	char* sanitized = kstrdup(path, MM_ZONE_NORMAL);
+	if (!sanitized)
 		return -ENOMEM;
-	char* trailer = strrchr(clean, '/');
-	if (trailer && trailer[1] == '\0') {
-		if (type != VNODE_TYPE_DIR) {
-			err = -EINVAL;
-			goto out;
-		}
-		while (trailer > clean && *trailer == '/')
-			*trailer-- = '\0';
-	}
 
-	/* Now get the parent directory */
-	parent = dir;
-	const char* base = strrchr(clean, '/');
-	if (base) {
-		if (*++base == '\0' && type != VNODE_TYPE_DIR) {
-			err = -ENOMEM;
-			goto out;
-		}
-		err = vfs_lookup(dir, clean, NULL, VNODE_LOOKUP_FLAG_PARENT, &parent);
-		if (err)
-			goto out;
-	} else {
-		base = clean;
-		if (!parent) {
-			parent = vfs_root;
-			if (!parent) {
-				err = -ENOENT;
-				goto out;
-			}
-		}
-	}
+	int err = sanitize_path_and_get_parent(sanitized, type, dir, &parent, &base);
+	if (err)
+		goto out;
 
 	if (parent->type != VNODE_TYPE_DIR) {
 		err = -ENOTDIR;
 		goto out;
-	}
-	if (!parent->ops || !parent->ops->create) {
+	} else if (!parent->ops || !parent->ops->create) {
 		err = -ENOSYS;
 		goto out;
 	}
@@ -228,7 +235,7 @@ int vfs_create(struct vnode* dir, const char* path, mode_t mode, int type, struc
 out:
 	if (parent)
 		vnode_unref(parent);
-	kfree(clean);
+	kfree(sanitized);
 	return err;
 }
 
