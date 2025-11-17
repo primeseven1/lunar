@@ -184,7 +184,11 @@ static void pagetable_cleanup(pte_t* pagetable, void* virtual) {
 				return;
 		}
 
-		physaddr_t physical = tables[level - 1][indexes[level - 1]] & ~(0xFFF | PT_NX);
+		pte_t value = tables[level - 1][indexes[level - 1]];
+		if (value & PT_AVL_NOFREE)
+			return;
+
+		physaddr_t physical = value & ~(0xFFF | PT_NX);
 		free_page(physical);
 		tables[level - 1][indexes[level - 1]] = 0;
 	}
@@ -246,7 +250,7 @@ void* pagetable_get_base_address_from_top_index(unsigned int index) {
 	return (void*)((u64)index << 39);
 }
 
-void pagetable_init(void) {
+void pagetable_init(void** start, void** end) {
 	u32 ecx, _unused;
 	cpuid(0x07, 0, &_unused, &_unused, &ecx, &_unused);
 
@@ -254,4 +258,23 @@ void pagetable_init(void) {
 	bool level4 = ecx & (1 << 16) ? !(ctl4_read() & CTL4_LA57) : true;
 	if (!level4)
 		panic("Bootloader selected wrong paging mode!\n");
+
+	*start = NULL;
+	*end = NULL;
+
+	/* Allocate all higher half l4 tables, to simplify kernel mappings for other page tables */
+	pte_t* l4 = hhdm_virtual(ctl3_read());
+	for (unsigned int i = 256; i < 512; i++) {
+		if (!(l4[i] & PT_PRESENT)) {
+			if (unlikely(!*start)) { /* Give an available address that isn't HHDM for vmap */
+				*start = pagetable_get_base_address_from_top_index(i);
+				*end = pagetable_get_base_address_from_top_index(i + 1);
+			}
+			physaddr_t page = alloc_page(MM_ZONE_NORMAL | MM_NOFAIL);
+			memset(hhdm_virtual(page), 0, PAGE_SIZE);
+			l4[i] = page | PT_PRESENT | PT_READ_WRITE | PT_AVL_NOFREE;
+		} else {
+			l4[i] |= PT_AVL_NOFREE; /* HHDM table */
+		}
+	}
 }

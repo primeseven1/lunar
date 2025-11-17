@@ -17,6 +17,7 @@ enum pt_flags {
 	PT_4K_PAT = (1 << 7),
 	PT_HUGEPAGE = (1 << 7),
 	PT_GLOBAL = (1 << 8),
+	PT_AVL_NOFREE = (1 << 9),
 	PT_HUGEPAGE_PAT = (1 << 12),
 	PT_NX = (1ul << 63)
 };
@@ -109,7 +110,7 @@ physaddr_t pagetable_get_physical(pte_t* pagetable, const void* virtual);
  */
 void* pagetable_get_base_address_from_top_index(unsigned int index);
 
-void pagetable_init(void);
+void pagetable_init(void** start, void** end);
 
 struct prevpage {
 	void* start;

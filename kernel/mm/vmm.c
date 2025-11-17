@@ -373,7 +373,12 @@ void vmm_cpu_init(void) {
 }
 
 void vmm_init(void) {
-	pagetable_init();
+	void* start, *end;
+	pagetable_init(&start, &end);
+
+	/* Should never happen */
+	if (unlikely(!start || !end))
+		panic("vmm_init() failed");
 
 	/* No need to check the pointer, the system would triple fault if an invalid page table was in cr3 */
 	struct cpu* cpu = current_cpu();
@@ -383,33 +388,8 @@ void vmm_init(void) {
 	mutex_init(&cpu->mm_struct->vma_list_lock);
 	list_head_init(&cpu->mm_struct->vma_list);
 
-	int best = 0;
-	int best_len = 0;
-	int current = 0;
-	int current_len = 0;
-
-	/* Check for the biggest contiguous space, HHDM mappings can be anywhere in the higher half */
-	for (int i = 256; i < PTE_COUNT - 1; i++) {
-		if (!(cr3[i] & PT_PRESENT)) {
-			if (current_len == 0)
-				current = i;
-			current_len++;
-		} else {
-			if (current_len > best_len) {
-				best_len = current_len;
-				best = current;
-			}
-			current_len = 0;
-		}
-	}
-
-	if (current_len > best_len) {
-		best_len = current_len;
-		best = current;
-	}
-
-	kernel_mm_struct.mmap_start = pagetable_get_base_address_from_top_index(best);
-	kernel_mm_struct.mmap_end = pagetable_get_base_address_from_top_index(best + best_len);
+	kernel_mm_struct.mmap_start = start;
+	kernel_mm_struct.mmap_end = end;
 }
 
 void vmm_switch_mm_struct(struct mm* mm) {
