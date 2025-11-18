@@ -81,6 +81,8 @@ static int __vmap_alloc(pte_t* pagetable,
 		err = pagetable_map(pagetable, virtual, page, pt_flags);
 		if (err && !handle_pagetable_error(err, vmm_flags, pagetable, virtual, page, pt_flags))
 			goto cleanup;
+
+		memset(hhdm_virtual(page), 0, page_size);
 		mapped++;
 		virtual += page_size;
 	}
