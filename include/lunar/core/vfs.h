@@ -29,6 +29,16 @@ enum vattr_mode_masks {
 	VATTR_MODE_SUID = 04000
 };
 
+enum vattr_bits {
+	VATTR_MODE = (1 << 0),
+	VATTR_UID = (1 << 1),
+	VATTR_GID = (1 << 2),
+	VATTR_ATIME = (1 << 3),
+	VATTR_MTIME = (1 << 4),
+	VATTR_CTIME = (1 << 5),
+	VATTR_ALL = VATTR_MODE | VATTR_UID | VATTR_GID | VATTR_ATIME | VATTR_MTIME | VATTR_CTIME
+};
+
 struct vattr {
 	int type;
 	mode_t mode;
@@ -70,7 +80,7 @@ struct vnode_ops {
 	int (*lookup)(struct vnode* dir, const char* name, int flags, struct vnode** out, const struct cred*); /* Lookup a vnode by name */
 	int (*create)(struct vnode* dir, const char* name, mode_t mode, int type, struct vnode** out, const struct cred*);
 	int (*getattr)(struct vnode*, struct vattr*, const struct cred*);
-	int (*setattr)(struct vnode*, const struct vattr*, const struct cred*);
+	int (*setattr)(struct vnode*, const struct vattr*, int attrs, const struct cred*);
 	void (*release)(struct vnode*); /* Free a vnode */
 };
 
