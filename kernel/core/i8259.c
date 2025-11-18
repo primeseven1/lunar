@@ -1,6 +1,6 @@
 #include <lunar/core/io.h>
 #include <lunar/core/interrupt.h>
-#include "i8259.h"
+#include "internal.h"
 
 #define PIC1 0x20
 #define PIC2 0xA0

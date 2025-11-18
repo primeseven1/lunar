@@ -10,13 +10,13 @@
 #include <lunar/core/trace.h>
 #include <lunar/core/softirq.h>
 #include <lunar/core/apic.h>
+#include <lunar/core/traps.h>
 #include <lunar/init/status.h>
 #include <lunar/mm/vmm.h>
 #include <lunar/sched/scheduler.h>
 #include <lunar/sched/preempt.h>
 #include <lunar/lib/string.h>
-#include "traps.h"
-#include "i8259.h"
+#include "internal.h"
 
 struct idt_entry {
 	u16 handler_low;
@@ -239,7 +239,7 @@ static inline bool is_irq(const struct isr* isr) {
 	return !!isr->irq.eoi;
 }
 
-static inline bool is_resched_a_bad_idea(u8 vector) {
+static inline bool in_weird_interrupt(u8 vector) {
 	return vector == INTERRUPT_NMI_VECTOR || vector == INTERRUPT_MACHINE_CHECK_VECTOR || vector == INTERRUPT_DOUBLE_FAULT_VECTOR;
 }
 
@@ -256,19 +256,20 @@ __diag_ignore("-Wmissing-prototypes");
 
 void __asmlinkage do_interrupt(struct context* ctx) {
 	bug(ctx->vector >= INTERRUPT_COUNT);
-	bool bad_cpu = unlikely(is_resched_a_bad_idea(ctx->vector)) ? check_cpu() : false;
+
+	bool weird_interrupt = in_weird_interrupt(ctx->vector);
+	bool bad_cpu = unlikely(weird_interrupt) ? check_cpu() : false;
 	if (unlikely(bad_cpu))
 		swap_cpu();
 
 	const int init_status = init_status_get();
 
 	struct isr* isr = &isr_handlers[ctx->vector];
-
 	bool irq = is_irq(isr);
 	bool can_enter = true;
 	if (irq)
 		can_enter = irq_enter(isr);
-	else
+	else if (likely(!weird_interrupt))
 		local_irq_enable();
 
 	if (likely(can_enter)) {
@@ -282,8 +283,10 @@ void __asmlinkage do_interrupt(struct context* ctx) {
 	if (isr->irq.eoi)
 		isr->irq.eoi(isr);
 
+	local_irq_disable();
+
 	/* VERY special context, if an NMI or MCE happens, nothing is safe to do */
-	if (unlikely(is_resched_a_bad_idea(ctx->vector))) {
+	if (unlikely(weird_interrupt)) {
 		if (bad_cpu)
 			swap_cpu();
 		return;
@@ -315,51 +318,73 @@ void __asmlinkage do_interrupt(struct context* ctx) {
 
 __diag_pop();
 
-static void nmi(struct isr* isr, struct context* ctx) {
+static void nmi_isr(struct isr* isr, struct context* ctx) {
 	(void)isr;
 	(void)ctx;
 	panic("NMI");
 }
 
-static void spurious(struct isr* isr, struct context* ctx) {
+static void spurious_isr(struct isr* isr, struct context* ctx) {
 	(void)ctx;
+	static unsigned long counter = 0;
+
+	counter++;
 	if (interrupt_get_vector(isr) == INTERRUPT_SPURIOUS_VECTOR) {
-		printk(PRINTK_WARN "core: spurious interrupt from lapic\n");
+		printk(PRINTK_WARN "core: spurious interrupt (count %lu)\n", counter);
 	} else {
-		printk(PRINTK_WARN "core: spurious interrupt on IRQ %hhu\n", isr->irq.irq);
+		printk(PRINTK_WARN "core: spurious interrupt on IRQ %hhu (count %lu)\n", isr->irq.irq, counter);
 	}
+}
+
+static void double_fault_isr(struct isr* isr, struct context* ctx) {
+	(void)isr;
+	(void)ctx;
+	panic("Double fault");
+}
+
+static void generic_trap_isr(struct isr* isr, struct context* ctx) {
+	(void)ctx;
+	panic("Unhandled exception: %i", interrupt_get_vector(isr));
+}
+
+static inline void trap_register(int vector, void (*func)(struct isr*, struct context*)) {
+	bug(vector >= INTERRUPT_EXCEPTION_COUNT);
+	isr_handlers[vector].func = func;
+}
+
+static inline void i8259_set_spurious(u8 irq) {
+	u8 vector = I8259_VECTOR_OFFSET + irq;
+	isr_free_list[vector] = true;
+	isr_handlers[vector].func = spurious_isr;
+	bug(i8259_set_irq(&isr_handlers[vector], irq, NULL, true) != 0);
+}
+
+static inline void apic_set_spurious(void) {
+	isr_handlers[INTERRUPT_SPURIOUS_VECTOR].func = spurious_isr;
+	isr_free_list[INTERRUPT_SPURIOUS_VECTOR] = true;
 }
 
 void interrupts_cpu_init(void) {
 	idt_init();
 }
 
-static inline void i8259_set_spurious(u8 irq) {
-	u8 vector = I8259_VECTOR_OFFSET + irq;
-	isr_free_list[vector] = true;
-	isr_handlers[vector].func = spurious;
-	bug(i8259_set_irq(&isr_handlers[vector], irq, NULL, true) != 0);
-}
-
-static inline void apic_set_spurious(void) {
-	/* Don't register the IRQ, since no EOI needs to get sent */
-	isr_handlers[INTERRUPT_SPURIOUS_VECTOR].func = spurious;
-	isr_free_list[INTERRUPT_SPURIOUS_VECTOR] = true;
-}
-
 void interrupts_init(void) {
 	for (int i = 0; i < INTERRUPT_COUNT; i++) {
 		if (i < INTERRUPT_EXCEPTION_COUNT) {
-			isr_handlers[i].func = i == INTERRUPT_NMI_VECTOR ? nmi : do_trap;
+			isr_handlers[i].func = generic_trap_isr;
 			isr_free_list[i] = true;
 		}
 		spinlock_init(&isr_handlers[i].lock);
 		isr_handlers[i].irq.irq = -1;
 	}
 
+	trap_register(INTERRUPT_NMI_VECTOR, nmi_isr);
+	trap_register(INTERRUPT_DOUBLE_FAULT_VECTOR, double_fault_isr);
+	trap_register(INTERRUPT_PAGE_FAULT_VECTOR, page_fault_isr);
+
 	i8259_set_spurious(7);
 	i8259_set_spurious(15);
 	apic_set_spurious();
 
-	idt_init();
+	interrupts_cpu_init();
 }

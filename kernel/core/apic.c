@@ -12,7 +12,7 @@
 #include <uacpi/tables.h>
 #include <uacpi/acpi.h>
 
-#include "i8259.h"
+#include "internal.h"
 
 enum apic_base_flags {
 	APIC_BASE_BSP = (1 << 8),

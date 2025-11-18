@@ -99,7 +99,7 @@ int stack_tracer_init(void) {
 		return -ENOPROTOOPT;
 
 	struct elf64_ehdr* ehdr = response->executable_file->address;
-	if (!elf_validate(ehdr))
+	if (elf_validate(ehdr) != 0)
 		return -ENOEXEC;
 	struct elf64_shdr* shdr_table = (struct elf64_shdr*)((u8*)ehdr + ehdr->e_shoff);
 
