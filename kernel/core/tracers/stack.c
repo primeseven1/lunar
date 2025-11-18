@@ -4,7 +4,7 @@
 #include <lunar/core/trace.h>
 #include <lunar/core/printk.h>
 #include <lunar/core/interrupt.h>
-#include <lunar/lib/elf.h>
+#include <lunar/core/loaders/elf.h>
 
 extern const u8 _ld_kernel_start;
 extern const u8 _ld_kernel_end;
@@ -99,7 +99,7 @@ int stack_tracer_init(void) {
 		return -ENOPROTOOPT;
 
 	struct elf64_ehdr* ehdr = response->executable_file->address;
-	if (!elf64_ehdr_valid(ehdr))
+	if (!elf_validate(ehdr))
 		return -ENOEXEC;
 	struct elf64_shdr* shdr_table = (struct elf64_shdr*)((u8*)ehdr + ehdr->e_shoff);
 
