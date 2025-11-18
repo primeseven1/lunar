@@ -64,6 +64,7 @@ struct thread {
 	unsigned long cpu_mask;
 	bool attached; /* Attached to the policy? */
 	struct proc* proc; /* The process struct this thread is linked to */
+	bool in_usercopy; /* For the page fault handler */
 	int ring; /* Kernel mode or user mode thread */
 	int prio; /* Priority of the current thread */
 	atomic(int) state; /* ready, blocked, running, etc.. */
