@@ -380,6 +380,7 @@ void interrupts_init(void) {
 
 	trap_register(INTERRUPT_NMI_VECTOR, nmi_isr);
 	trap_register(INTERRUPT_DOUBLE_FAULT_VECTOR, double_fault_isr);
+	trap_register(INTERRUPT_GENERAL_PROTECTION_FAULT_VECTOR, gp_fault_isr);
 	trap_register(INTERRUPT_PAGE_FAULT_VECTOR, page_fault_isr);
 
 	i8259_set_spurious(7);
