@@ -9,7 +9,6 @@ struct tmpfs_node {
 	struct tmpfs_node* parent;
 	char* name;
 	u8* data;
-	size_t size;
 	struct hashtable* children;
 };
 

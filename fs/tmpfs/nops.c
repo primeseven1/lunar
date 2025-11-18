@@ -3,7 +3,6 @@
 
 static int tmpfs_create(struct vnode* dir, const char* name, mode_t mode, int type, struct vnode** out, const struct cred* cred) {
 	(void)cred;
-	(void)mode;
 
 	struct tmpfs_node* parent = dir->fs_priv;
 	struct tmpfs_node* child;
@@ -25,6 +24,7 @@ static int tmpfs_create(struct vnode* dir, const char* name, mode_t mode, int ty
 	tnode->vnode.type = type;
 	tnode->vnode.fs_priv = tnode;
 	tnode->parent = parent;
+	tnode->attr.mode = mode;
 	mutex_init(&tnode->vnode.lock);
 	atomic_store(&tnode->vnode.refcount, 1);
 
@@ -94,44 +94,57 @@ static int tmpfs_lookup(struct vnode* dir, const char* name, int flags, struct v
 static ssize_t tmpfs_read(struct vnode* node, void* buf, size_t size, off_t off, int flags, const struct cred* cred) {
 	(void)cred;
 	(void)flags;
-	struct tmpfs_node* t = node->fs_priv;
-	if (off >= (ssize_t)t->size)
+
+	struct tmpfs_node* tnode = node->fs_priv;
+	if (off >= (ssize_t)tnode->attr.size)
 		return 0;
 
-	size_t to_copy = (off + size > t->size) ? (t->size - off) : size;
-	memcpy(buf, t->data + off, to_copy);
+	size_t to_copy = (off + size > tnode->attr.size) ? (tnode->attr.size - off) : size;
+	memcpy(buf, tnode->data + off, to_copy);
 	return to_copy;
 }
 
 static ssize_t tmpfs_write(struct vnode* node, const void* buf, size_t size, off_t off, int flags, const struct cred* cred) {
 	(void)cred;
 	(void)flags;
-	struct tmpfs_node* t = node->fs_priv;
+
+	struct tmpfs_node* tnode = node->fs_priv;
 	size_t new_size = off + size;
 
-	if (likely(new_size != t->size)) {
-		u8* new_data = krealloc(t->data, new_size, MM_ZONE_NORMAL);
+	if (likely(new_size != tnode->attr.size)) {
+		u8* new_data = krealloc(tnode->data, new_size, MM_ZONE_NORMAL);
 		if (!new_data)
 			return -ENOMEM;
-		t->data = new_data;
-		t->size = new_size;
+		tnode->data = new_data;
+		tnode->attr.size = new_size;
 	}
 
-	memcpy(t->data + off, buf, size);
+	memcpy(tnode->data + off, buf, size);
 	return size;
 }
 
 static int tmpfs_getattr(struct vnode* node, struct vattr* out, const struct cred* cred) {
 	(void)cred;
-	struct tmpfs_node* t = node->fs_priv;
-	memcpy(out, &t->attr, sizeof(*out));
+	struct tmpfs_node* tnode = node->fs_priv;
+	memcpy(out, &tnode->attr, sizeof(*out));
 	return 0;
 }
 
-static int tmpfs_setattr(struct vnode* node, const struct vattr* attr, const struct cred* cred) {
+static int tmpfs_setattr(struct vnode* node, const struct vattr* attr, int attrs, const struct cred* cred) {
 	(void)cred;
-	struct tmpfs_node* t = node->fs_priv;
-	memcpy(t, attr, sizeof(*t));
+	struct tmpfs_node* tnode = node->fs_priv;
+	if (attrs & VATTR_MODE)
+		tnode->attr.mode = attr->mode;
+	if (attrs & VATTR_UID)
+		tnode->attr.uid = attr->uid;
+	if (attrs & VATTR_GID)
+		tnode->attr.gid = attr->gid;
+	if (attrs & VATTR_ATIME)
+		tnode->attr.atime = attr->atime;
+	if (attrs & VATTR_MTIME)
+		tnode->attr.mtime = attr->mtime;
+	if (attrs & VATTR_CTIME)
+		tnode->attr.ctime = attr->ctime;
 	return 0;
 }
 
