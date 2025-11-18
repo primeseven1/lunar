@@ -113,7 +113,7 @@ static void handle_entry(struct ustar_entry* entry, const void* data) {
 	case USTAR_DIR:
 		type = "USTAR_DIR";
 		function = "vfs_create";
-		err = vfs_create(NULL, entry->name, 0, VNODE_TYPE_DIR, NULL);
+		err = vfs_create(NULL, entry->name, entry->mode, VNODE_TYPE_DIR, NULL);
 		break;
 	default:
 		err = -ENOSYS;
