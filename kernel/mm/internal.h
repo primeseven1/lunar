@@ -164,3 +164,7 @@ void prevpage_success(struct prevpage* head, int flags);
  * When the MM_NOFAIL flag is set, this function can get called when there is no memory.
  */
 void out_of_memory(void);
+
+int __asmlinkage asm_user_read_u8(const u8 __user* ptr);
+int __asmlinkage asm_user_write_u8(u8 __user* ptr, u8 value);
+int __asmlinkage asm_user_fixup(void);
