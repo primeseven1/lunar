@@ -3,13 +3,9 @@
 
 .type asm_zero_bss, @function
 asm_zero_bss:
-#ifdef CONFIG_KASLR
 	leaq _ld_kernel_bss_start(%rip), %rdi
 	leaq _ld_kernel_bss_end(%rip), %rcx
-#else
-	leaq _ld_kernel_bss_start, %rdi /* Address for stosq/stosb */
-	leaq _ld_kernel_bss_end, %rcx /* Will be used as the byte count after subtracting with rdi */
-#endif /* CONFIG_KASLR */
+
 	subq %rdi, %rcx /* Get the byte count */
 	movq %rcx, %rdx /* Save the original number of bytes */
 	xorq %rax, %rax /* The value to store (0) */
@@ -43,7 +39,6 @@ _ap_start:
 .globl _start
 .type _start, @function
 _start:
-	/* Make sure interrupts and the direction flag are both disabled */
 	cli
 	cld
 
