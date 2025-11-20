@@ -4,7 +4,8 @@ ASMFLAGS = -c -MMD -MP -I./include \
 	   -include ./include/generated/autoconf.h
 CFLAGS = -c -MMD -MP -std=c11 -I./include \
 	 -include ./include/generated/autoconf.h \
-	 -ffreestanding -fno-stack-protector -fno-omit-frame-pointer -fno-optimize-sibling-calls \
+	 -ffreestanding -fno-stack-protector -fno-omit-frame-pointer \
+	 -fno-optimize-sibling-calls -fno-exceptions -fno-asynchronous-unwind-tables \
 	 -Wall -Wextra -Wshadow -Wpointer-arith -Winline \
 	 -Wimplicit-fallthrough -Wvla -Walloca -Wstrict-prototypes \
 	 -Wmissing-prototypes -Wno-attributes \
