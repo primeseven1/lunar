@@ -79,11 +79,7 @@ static __noinline void reload_segment_registers(void) {
 			"movw %1, %%ds\n\t"
 			"movw %1, %%es\n\t"
 			"movw %1, %%ss\n\t"
-#ifdef CONFIG_KASLR
 			"leaq %l[reload](%%rip), %%rax\n\t"
-#else
-			"leaq %l[reload], %%rax\n\t"
-#endif /* CONFIG_KASLR */
 			"pushq %2\n\t"
 			"pushq %%rax\n\t"
 			"lretq"
