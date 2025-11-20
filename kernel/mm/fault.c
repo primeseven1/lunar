@@ -3,7 +3,6 @@
 #include <lunar/core/trace.h>
 #include <lunar/core/traps.h>
 #include <lunar/sched/kthread.h>
-#include "internal.h"
 
 enum mmu_err_flags {
 	MMU_ERR_PRESENT = (1 << 0),
@@ -53,18 +52,46 @@ static void exec_gp_fault(const struct context* ctx) {
 	panic("General protection fault");
 }
 
+#define X86_MAX_INSTR_SIZE 15
+
+struct extable_entry {
+	uintptr_t fault_ip, fixup_ip;
+};
+
+extern const struct extable_entry _ld_kernel_extable_start[];
+extern const struct extable_entry _ld_kernel_extable_end[];
+
+static int try_do_fixup(struct context* ctx) {
+	size_t count = _ld_kernel_extable_end - _ld_kernel_extable_start;
+	for (size_t i = 0; i < count; i++) {
+		const struct extable_entry* entry = &_ld_kernel_extable_start[i];
+		if ((uintptr_t)ctx->rip >= entry->fault_ip &&
+				(uintptr_t)ctx->rip < entry->fault_ip + X86_MAX_INSTR_SIZE) {
+			ctx->rip = (void*)entry->fixup_ip;
+			return 0;
+		}
+	}
+
+	return -ENOENT;
+}
+
 void page_fault_isr(struct isr* isr, struct context* ctx) {
 	(void)isr;
-	if (current_thread()->in_usercopy)
-		ctx->rip = asm_user_fixup;
-	else
-		exec_page_fault(ctx);
+	if (current_thread()->in_usercopy) {
+		int err = try_do_fixup(ctx);
+		if (err == 0)
+			return;
+	}
+	exec_page_fault(ctx);
 }
 
 void gp_fault_isr(struct isr* isr, struct context* ctx) {
 	(void)isr;
-	if (current_thread()->in_usercopy)
-		ctx->rip = asm_user_fixup;
-	else
-		exec_gp_fault(ctx);
+	if (current_thread()->in_usercopy) {
+		int err = try_do_fixup(ctx);
+		if (err == 0)
+			return;
+	}
+
+	exec_gp_fault(ctx);
 }

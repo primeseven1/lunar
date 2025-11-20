@@ -23,7 +23,7 @@ int usercopy_memset(void __user* dest, int val, size_t count) {
 	int err = 0;
 	u8 __user* d = dest;
 	while (count--) {
-		err = asm_user_write_u8(d++, val);
+		err = write_user_8(d++, val);
 		if (err)
 			break;
 	}
@@ -38,18 +38,19 @@ int usercopy_from_user(void* dest, void __user* src, size_t count) {
 
 	usercopy_enter();
 
-	int rc = 0;
 	u8* d = dest;
 	u8 __user* s = src;
+	int err = 0;
 	while (count--) {
-		rc = asm_user_read_u8(s++);
-		if (rc < 0)
+		u8 x;
+		err = read_user_8(s++, &x);
+		if (err)
 			break;
-		*d++ = rc;
+		*d++ = x;
 	}
 
 	usercopy_exit();
-	return rc < 0 ? rc : 0;
+	return err;
 }
 
 int usercopy_to_user(void __user* dest, void* src, size_t count) {
@@ -62,13 +63,13 @@ int usercopy_to_user(void __user* dest, void* src, size_t count) {
 	u8 __user* d = dest;
 	u8* s = src;
 	while (count--) {
-		err = asm_user_write_u8(d++, *s++);
+		err = write_user_8(d++, *s++);
 		if (err)
 			break;
 	}
 
 	usercopy_exit();
-	return -EFAULT;
+	return err;
 }
 
 int usercopy_strlen(const char __user* str, size_t* len) {
@@ -77,18 +78,18 @@ int usercopy_strlen(const char __user* str, size_t* len) {
 
 	usercopy_enter();
 
-	int ret = 0;
+	int err = 0;
 	size_t _len = 0;
-	const unsigned char __user* _str = (unsigned char __user*)str;
 	while (1) {
-		ret = asm_user_read_u8(_str + _len);
-		if (ret <= 0)
+		char ch;
+		err = read_user_8(&str[_len], &ch);
+		if (err || ch == '\0')
 			break;
 		_len++;
 	}
 
 	usercopy_exit();
-	if (ret == 0)
+	if (err == 0)
 		*len = _len;
-	return ret;
+	return err;
 }

@@ -165,6 +165,91 @@ void prevpage_success(struct prevpage* head, int flags);
  */
 void out_of_memory(void);
 
-int __asmlinkage asm_user_read_u8(const u8 __user* ptr);
-int __asmlinkage asm_user_write_u8(u8 __user* ptr, u8 value);
-int __asmlinkage asm_user_fixup(void);
+#define __ASM_EXTABLE(fault, fixup) \
+	".section .extable, \"a\"\n" \
+	".balign 8\n\t" \
+	".quad " #fault ", " #fixup "\n" \
+	".previous\n"
+#define __read_user(ptr, instr, val) \
+	({ \
+		int __err; \
+		typeof(*(val)) __val; \
+		__asm__ volatile("1: " instr " (%2), %1\n\t" \
+				"mov $0, %0\n\t" \
+				"jmp 4f\n" \
+				".section .fixup, \"ax\"\n\t" \
+				"3: mov %3, %0\n\t" \
+				"mov $0, %1\n\t" \
+				"jmp 4f\n" \
+				".previous\n" \
+				__ASM_EXTABLE(1b, 3b) \
+				"4:" \
+				: "=r"(__err), "=&r"(__val) \
+				: "r"(ptr), "i"(-EFAULT) \
+				: "memory"); \
+		*(val) = __val; \
+		__err; \
+	})
+#define __write_user(ptr, instr, val) \
+	({ \
+		int __err; \
+		__asm__ volatile("1: " instr " %1, (%2)\n" \
+				"mov $0, %0\n" \
+				"jmp 4f\n" \
+				".section .fixup, \"ax\"\n" \
+				"3: mov %3, %0\n" \
+				"jmp 4f\n" \
+				".previous\n" \
+				__ASM_EXTABLE(1b, 3b) \
+				"4:" \
+				: "=r"(__err) \
+				: "r"(val), "r"(ptr), "i"(-EFAULT) \
+				: "memory"); \
+		__err; \
+	})
+
+#define read_user_8(ptr, val) \
+	({ \
+		static_assert(sizeof(*ptr) == sizeof(u8) && sizeof(*val) == sizeof(u8), \
+				"sizeof(*ptr) == sizeof(u8) && sizeof(*val) == sizeof(u8)"); \
+		__read_user(ptr, "movb", val); \
+	})
+#define read_user_16(ptr, val) \
+	({ \
+		static_assert(sizeof(*ptr) == sizeof(u16) && sizeof(*val) == sizeof(u16), \
+				"sizeof(*ptr) == sizeof(u16) && sizeof(*val) == sizeof(u16)"); \
+		__read_user(ptr, "movw", val); \
+	})
+#define read_user_32(ptr, val) \
+	({ \
+		static_assert(sizeof(*ptr) == sizeof(u32) && sizeof(*val) == sizeof(u32), \
+				"sizeof(*ptr) == sizeof(u32) && sizeof(*val) == sizeof(u32)"); \
+		__read_user(ptr, "movl", val); \
+	})
+#define read_user_64(ptr, val) \
+	({ \
+		static_assert(sizeof(*ptr) == sizeof(u64) && sizeof(*val) == sizeof(u64), \
+				"sizeof(*ptr) == sizeof(u64) && sizeof(*val) == sizeof(u64)"); \
+		__read_user(ptr, "movq", val); \
+	})
+
+#define write_user_8(ptr, val) \
+	({ \
+		static_assert(sizeof(*ptr) == sizeof(u8), "sizeof(*ptr) == sizeof(u8)"); \
+		__write_user(ptr, "movb", (u8)(val)); \
+	})
+#define write_user_16(ptr, val) \
+	({ \
+		static_assert(sizeof(*ptr) == sizeof(u16), "sizeof(*ptr) == sizeof(u16)"); \
+		__write_user(ptr, "movw", (u16)(val)); \
+	})
+#define write_user_32(ptr, val) \
+	({ \
+		static_assert(sizeof(*ptr) == sizeof(u32), "sizeof(*ptr) == sizeof(u32)"); \
+		__write_user(ptr, "movl", (u32)(val)); \
+	})
+#define write_user_64(ptr, val) \
+	({ \
+		static_assert(sizeof(*ptr) == sizeof(u64), "sizeof(*ptr) == sizeof(u64)"); \
+		__write_user(ptr, "movq", (u64)(val)); \
+	})
