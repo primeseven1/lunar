@@ -16,7 +16,6 @@
 1:
 .endm
 
-/* ISR handler with no error code */
 .macro isr_no_err n
 .text
 .type asm_isr_\n, @function
@@ -29,7 +28,6 @@ asm_isr_\n:
 .previous
 .endm
 
-/* ISR handler with an error code */
 .macro isr_err n
 .text
 .type asm_isr_\n, @function
@@ -67,7 +65,7 @@ asm_isr_common:
 	movq %cr2, %rax
 	pushq %rax
 
-	/* struct context* parameter for __isr_entry */
+	/* struct context* */
 	movq %rsp, %rdi
 
 	/*
@@ -83,11 +81,6 @@ asm_isr_common:
 	pushq $0
 	xorq %rbp, %rbp
 
-	/*
-	 * We don't save any extra context, the C code does that if there is any.
-	 * The kernel is compiled with -mgeneral-regs-only, so we don't need to worry about
-	 * the extra context being trashed.
-	 */
 	call do_interrupt
 
 	/* Remove fake stack frame and realign the stack */
