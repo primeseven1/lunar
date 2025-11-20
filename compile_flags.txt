@@ -7,7 +7,9 @@
 -ffreestanding
 -fno-stack-protector
 -fno-omit-frame-pointer
--fwrapv
+-fno-optimize-sibling-calls
+-fno-exceptions
+-fno-asynchronous-unwind-tables
 -Wall
 -Wextra
 -Wshadow
