@@ -5,11 +5,8 @@ _ld_kernel_start = .;
 .text : {
 	_ld_kernel_text_start = .;
 	*(.text .text.*)
-
 	. = ALIGN(16);
-	_ld_kernel_fixup_start = .;
 	KEEP(*(.fixup .fixup.*))
-	_ld_kernel_fixup_end = .;
 
 	_ld_kernel_text_end = .;
 } :text
