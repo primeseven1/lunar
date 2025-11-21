@@ -350,7 +350,8 @@ static long long do_int_output(struct fmt* spec, char** dest, size_t* dsize, uni
 	if (spec->flags & FMT_INT_SIGNED) {
 		if (arg->ll < 0) {
 			sign = '-';
-			arg->ll = -arg->ll;
+			if (arg->ll != LLONG_MIN)
+				arg->ll = -arg->ll;
 		} else if (spec->flags & FMT_PLUS) {
 			sign = '+';
 		} else if (spec->flags & FMT_SPACE) {
