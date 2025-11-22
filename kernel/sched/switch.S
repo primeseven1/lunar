@@ -1,28 +1,30 @@
 #include <lunar/asm/segment.h>
 
-.set CTX_CR2, 0x00
-.set CTX_RAX, 0x08
-.set CTX_RBX, 0x10
-.set CTX_RCX, 0x18
-.set CTX_RDX, 0x20
-.set CTX_RSI, 0x28
-.set CTX_RDI, 0x30
-.set CTX_RBP, 0x38
-.set CTX_R8, 0x40
-.set CTX_R9, 0x48
-.set CTX_R10, 0x50
-.set CTX_R11, 0x58
-.set CTX_R12, 0x60
-.set CTX_R13, 0x68
-.set CTX_R14, 0x70
-.set CTX_R15, 0x78
-.set CTX_VECTOR, 0x80
-.set CTX_ERR_CODE, 0x88
-.set CTX_RIP, 0x90
-.set CTX_CS, 0x98
-.set CTX_RFLAGS, 0xa0
-.set CTX_RSP, 0xa8
-.set CTX_SS, 0xb0
+.set CTX_DS, 0x00
+.set CTX_ES, 0x08
+.set CTX_CR2, 0x10
+.set CTX_RAX, 0x18
+.set CTX_RBX, 0x20
+.set CTX_RCX, 0x28
+.set CTX_RDX, 0x30
+.set CTX_RSI, 0x38
+.set CTX_RDI, 0x40
+.set CTX_RBP, 0x48
+.set CTX_R8, 0x50
+.set CTX_R9, 0x58
+.set CTX_R10, 0x60
+.set CTX_R11, 0x68
+.set CTX_R12, 0x70
+.set CTX_R13, 0x78
+.set CTX_R14, 0x80
+.set CTX_R15, 0x88
+.set CTX_VECTOR, 0x90
+.set CTX_ERR_CODE, 0x98
+.set CTX_RIP, 0xa0
+.set CTX_CS, 0xa8
+.set CTX_RFLAGS, 0xb0
+.set CTX_RSP, 0xb8
+.set CTX_SS, 0xc0
 
 .code64
 .text
@@ -32,12 +34,10 @@ asm_context_switch:
 	/* rdi = prev, rsi = next */
 	movq %cr2, %rax
 	movq %rax, CTX_CR2(%rdi)
-
-	/* Use these scratch registers to save the current */
-	movq CTX_CS(%rdi), %rax
-	movq CTX_SS(%rdi), %rdx
-
-	/* Save current context */
+	movq $SEGMENT_KERNEL_CODE, CTX_CS(%rdi)
+	movq $SEGMENT_KERNEL_DATA, CTX_SS(%rdi)
+	movq $SEGMENT_KERNEL_DATA, CTX_DS(%rdi)
+	movq $SEGMENT_KERNEL_DATA, CTX_ES(%rdi)
 	movq %rax, CTX_RAX(%rdi)
 	movq %rbx, CTX_RBX(%rdi)
 	movq %rcx, CTX_RCX(%rdi)
@@ -59,11 +59,12 @@ asm_context_switch:
 	pushfq
 	popq %rdx
 	movq %rdx, CTX_RFLAGS(%rdi)
-	/* We have to switch these to the kernel CS/SS, otherwise the CPU may load the incorrect values and cause a fault */
-	movq $SEGMENT_KERNEL_CODE, CTX_CS(%rdi)
-	movq $SEGMENT_KERNEL_DATA, CTX_SS(%rdi)
 
 	/* Set the registers from the next thread */
+	movq CTX_DS(%rsi), %rax
+	movq %rax, %ds
+	movq CTX_ES(%rsi), %rax
+	movq %rax, %es
 	movq CTX_RAX(%rsi), %rax
 	movq CTX_RBX(%rsi), %rbx
 	movq CTX_RCX(%rsi), %rcx
@@ -78,16 +79,9 @@ asm_context_switch:
 	movq CTX_R13(%rsi), %r13
 	movq CTX_R14(%rsi), %r14
 	movq CTX_R15(%rsi), %r15
-
 	leaq CTX_RIP(%rsi), %rsp /* Interrupt frame */
 	movq CTX_RSI(%rsi), %rsi
 	iretq
 1:
-	/* 
-	 * On the context switch back to this thread, rax and rdx will have 
-	 * the CS and SS values since they were set right before the save.
-	 */
-	movq %rax, CTX_CS(%rdi)
-	movq %rdx, CTX_SS(%rdi)
 	ret
 .size asm_context_switch, . - asm_context_switch
