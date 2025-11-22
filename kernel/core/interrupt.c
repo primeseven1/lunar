@@ -267,9 +267,9 @@ void __asmlinkage do_interrupt(struct context* ctx) {
 	struct isr* isr = &isr_handlers[ctx->vector];
 	bool irq = is_irq(isr);
 	bool can_enter = true;
-	if (irq)
+	if (irq) {
 		can_enter = irq_enter(isr);
-	else if (likely(!weird_interrupt)) {
+	} else if (likely(!weird_interrupt)) {
 		if (!local_irq_enabled(ctx->rflags))
 			panic("Trap occurred in atomic context");
 		local_irq_enable();

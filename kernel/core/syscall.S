@@ -15,9 +15,10 @@ syscall_table_end:
 .globl asm_syscall_entry
 .type asm_syscall_entry, @function
 asm_syscall_entry:
+	cld
 	swapgs
 
-	movq %rax, %cr2 /* syscall number */
+	movq %rax, %cr2 /* syscall number, if a page fault happens here we're fucked anyway */
 	movq %gs:8, %rax /* current_cpu()->current_thread */
 	movq (%rax), %rax /* current_thread()->utk_stack_top */
 	xchg %rsp, %rax /* swap to utk_stack_top */
@@ -40,24 +41,44 @@ asm_syscall_entry:
 	pushq %rbx
 	movq %cr2, %rax /* restore syscall number */
 	pushq %rax
-	addq $8, %rsp
+	movq %es, %rdx
+	pushq %rdx
+	movq %ds, %rdx
+	pushq %rdx
 
-	movw $SEGMENT_KERNEL_DATA, %bx
-	movw %bx, %ds
-	movw %bx, %es
+	movq $SEGMENT_KERNEL_DATA, %rbx
+	movq %rbx, %es
+	movq %rbx, %ds
+
+	/* Align stack and push null frame */
+	movq %rsp, %rbx
+	andq $15, %rbx
+	subq %rbx, %rsp
+	pushq $0
+	pushq $0
+	xorq %rbp, %rbp
+
+	movq %r10, %rcx /* RCX is clobbered on syscall, so the fourth argument is in r10 */
 
 	sti
 	cmpq SYSCALL_COUNT, %rax
 	jae .bad_syscall
-	leaq syscall_table(%rip), %rbx
-	call *(%rbx,%rax,8)
+	leaq syscall_table(%rip), %r12
+	call *(%r12,%rax,8)
 	jmp .exit_syscall
 .bad_syscall:
 	movq $-ENOSYS, %rax
 .exit_syscall:
 	cli
 
-	add $16, %rsp /* Restore alignment + skip rax (return value) */
+	/* Remove null stack frame and realign the stack */
+	leaq 16(%rsp,%rbx), %rsp
+
+	popq %rdx
+	movq %rdx, %ds
+	popq %rdx
+	movq %rdx, %es
+	addq $8, %rsp /* Skip rax, to not overwrite the return value */
 	popq %rbx
 	popq %rcx
 	popq %rdx
@@ -76,9 +97,7 @@ asm_syscall_entry:
 	/* restore stack */
 	popq %rdi
 	xchg %rsp, %rdi
-	movw $SEGMENT_USER_DATA, %dx
-	movw %dx, %ds
-	movw %dx, %es
 
 	swapgs
 	sysretq
+.size asm_syscall_entry, . - asm_syscall_entry

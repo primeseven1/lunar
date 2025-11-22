@@ -33,6 +33,7 @@ enum interrupt_vectors {
 };
 
 struct context {
+	unsigned long ds, es;
 	void* cr2;
 	long rax, rbx, rcx, rdx, rsi, rdi;
 	void* rbp;

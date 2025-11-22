@@ -64,19 +64,21 @@ asm_isr_common:
 	pushq %rax
 	movq %cr2, %rax
 	pushq %rax
+	movq %es, %rax
+	pushq %rax
+	movq %ds, %rax
+	pushq %rax
+	movq $SEGMENT_KERNEL_DATA, %rax
+	movq %rax, %es
+	movq %rax, %ds
 
 	/* struct context* */
 	movq %rsp, %rdi
 
-	/*
-	 * Align the stack by 16, save the alignment in rbx since that register
-	 * must be preserved throughout function calls (system v abi).
-	 */
+	/* Align stack and push null frame */
 	movq %rsp, %rbx
 	andq $15, %rbx
 	subq %rbx, %rsp
-	
-	/* Fake stack frame */
 	pushq $0
 	pushq $0
 	xorq %rbp, %rbp
@@ -86,6 +88,10 @@ asm_isr_common:
 	/* Remove fake stack frame and realign the stack */
 	leaq 16(%rsp,%rbx), %rsp
 
+	popq %rax
+	movq %rax, %ds
+	popq %rax
+	movq %rax, %es
 	popq %rax
 	movq %rax, %cr2
 	popq %rax
