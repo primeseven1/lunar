@@ -72,24 +72,22 @@ int usercopy_to_user(void __user* dest, void* src, size_t count) {
 	return err;
 }
 
-int usercopy_strlen(const char __user* str, size_t* len) {
+ssize_t usercopy_strlen(const char __user* str) {
 	if (!IS_USER_ADDRESS(str))
 		return -EFAULT;
 
 	usercopy_enter();
 
 	int err = 0;
-	size_t _len = 0;
+	size_t len = 0;
 	while (1) {
 		char ch;
-		err = read_user_8(&str[_len], &ch);
+		err = read_user_8(&str[len], &ch);
 		if (err || ch == '\0')
 			break;
-		_len++;
+		len++;
 	}
 
 	usercopy_exit();
-	if (err == 0)
-		*len = _len;
-	return err;
+	return err ? err : len;
 }

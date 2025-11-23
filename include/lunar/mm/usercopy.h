@@ -41,11 +41,7 @@ int usercopy_to_user(void __user* dest, void* src, size_t count);
 
 /**
  * @brief Get the length of a string from userspace
- *
  * @param str The string
- * @param len A pointer to where the length will be stored
- *
- * @retval -EFAULT Bad user pointer
- * @retval 0 Successful
+ * @return -EFAULT on bad pointer, or the length of the string
  */
-int usercopy_strlen(const char __user* str, size_t* len);
+ssize_t usercopy_strlen(const char __user* str);
