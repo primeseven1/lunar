@@ -15,7 +15,7 @@ static bool check_flags(int flags) {
 }
 
 int ringbuffer_init(struct ringbuffer* rb, int flags, size_t capacity, size_t element_size) {
-	if (!check_flags(flags) || capacity == 0 || (capacity & (capacity - 1)))
+	if (!check_flags(flags) || capacity < 16 || (capacity & (capacity - 1)))
 		return -EINVAL;
 
 	rb->buffer = kmalloc(capacity * element_size, MM_ZONE_NORMAL);
