@@ -5,30 +5,39 @@
 #include <lunar/mm/heap.h>
 
 struct rb_slot {
-	atomic(unsigned long) seq;
+	atomic(size_t) seq;
 	__attribute__((aligned(BIGGEST_ALIGNMENT))) u8 data[];
+};
+
+enum ringbuffer_modes {
+	RINGBUFFER_OVERWRITE,
+	RINGBUFFER_BOUNDED,
+	RINGBUFFER_DROP_NEW,
+	__RINGBUFFER_MODE_MAX = RINGBUFFER_DROP_NEW,
 };
 
 struct ringbuffer {
 	struct rb_slot* buffer;
+	unsigned int mode;
+	size_t capacity;
 	size_t element_size;
-	unsigned long capacity;
-	atomic(unsigned long) head;
-	atomic(unsigned long) tail;
+	atomic(size_t) head;
+	atomic(size_t) tail;
 };
 
 /**
  * @brief Initialize a ringbuffer structure
  *
  * @param rb The ringbuffer to initialize
+ * @param mode How the ringbuffer should operate when full
  * @param capacity The capacity of the ringbuffer, must be a power of two
  * @param element_size The size of the elements in the ringbuffer
  *
- * @retval -EINVAL capacity is zero or not a power of two
+ * @retval -EINVAL capacity is zero or not a power of two, or the mode is invalid
  * @retval -ENOMEM Failed to allocate memory for rb->buffer
  * @retval 0 Successful
  */
-int ringbuffer_init(struct ringbuffer* rb, unsigned long capacity, size_t element_size);
+int ringbuffer_init(struct ringbuffer* rb, unsigned int mode, size_t capacity, size_t element_size);
 
 /**
  * @brief Free rb->buffer 
