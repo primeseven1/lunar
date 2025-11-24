@@ -89,5 +89,5 @@ ssize_t usercopy_strlen(const char __user* str) {
 	}
 
 	usercopy_exit();
-	return err ? err : len;
+	return err ? err : (ssize_t)len;
 }
