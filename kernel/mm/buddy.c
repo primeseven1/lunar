@@ -664,33 +664,45 @@ static unsigned int get_layer_count(size_t size) {
 	return layers;
 }
 
+static void alloc_rounded_area(struct mem_area* area) {
+	unsigned long start_block = area->real_size >> PAGE_SHIFT;
+	unsigned long end_block = area->size >> PAGE_SHIFT;
+	for (unsigned long block = start_block; block < end_block; block++)
+		bug(_alloc_block(area, area->layer_count - 1, block) != 0);
+}
+
 /* All structures for this zone are statically allocated */
 static void dma_zone_init(physaddr_t last_usable) {
-	size_t rest = unlikely(last_usable < DMA_SIZE) ? last_usable : DMA_SIZE;
-	const size_t max_area_size = (1u << MAX_ORDER) * PAGE_SIZE;
-	const unsigned long atomic_count = 1;
-
-	unsigned long i;
-	for (i = 0; i < DMA_AREA_COUNT; i++) {
-		dma_areas[i].base = i * max_area_size;
-		dma_areas[i].pages.free_list = dma_area_free_lists[i];
-		dma_areas[i].size = max_area_size;
-		dma_areas[i].real_size = (i == DMA_AREA_COUNT - 1) ? rest : max_area_size;
-		dma_areas[i].layer_count = get_layer_count(max_area_size);
-		dma_areas[i].total_blocks = 1u << (dma_areas[i].layer_count - 1);
-		for (unsigned int layer = 0; layer < dma_areas[i].layer_count; layer++)
-			atomic_store_explicit(&dma_areas[i].free_blocks[layer], 1ul << layer, ATOMIC_RELAXED);
-		dma_areas[i].pages.atomic = i < atomic_count;
-		if (dma_areas[i].pages.atomic)
-			spinlock_init(&dma_areas[i].pages.spinlock);
-		else
-			mutex_init(&dma_areas[i].pages.mutex);
-		atomic_store_explicit(&dma_areas[i].alloc_refcnt, 0, ATOMIC_RELAXED);
-		rest -= dma_areas[i].real_size;
-	}
 	dma_zone.zone_type = MM_ZONE_DMA;
 	dma_zone.areas = dma_areas;
-	dma_zone.area_count = i;
+
+	size_t rest = unlikely(last_usable < DMA_SIZE) ? last_usable : DMA_SIZE;
+	for (dma_zone.area_count = 0; dma_zone.area_count < DMA_AREA_COUNT && rest; dma_zone.area_count++) {
+		struct mem_area* area = &dma_areas[dma_zone.area_count];
+
+		const size_t max_area_size = (1u << MAX_ORDER) * PAGE_SIZE;
+		area->base = dma_zone.area_count * max_area_size;
+		area->pages.free_list = dma_area_free_lists[dma_zone.area_count];
+		area->size = max_area_size;
+		area->real_size = (dma_zone.area_count == DMA_AREA_COUNT - 1) ? rest : max_area_size;
+		area->layer_count = get_layer_count(max_area_size);
+		area->total_blocks = 1u << (area->layer_count - 1);
+		atomic_store_explicit(&area->alloc_refcnt, 0, ATOMIC_RELAXED);
+		for (unsigned int layer = 0; layer < area->layer_count; layer++)
+			atomic_store_explicit(&area->free_blocks[layer], 1ul << layer, ATOMIC_RELAXED);
+
+		const unsigned long atomic_count = 1;
+		area->pages.atomic = dma_zone.area_count < atomic_count;
+		if (area->pages.atomic)
+			spinlock_init(&area->pages.spinlock);
+		else
+			mutex_init(&area->pages.mutex);
+
+		if (area->size != area->real_size)
+			alloc_rounded_area(area);
+
+		rest -= area->real_size;
+	}
 
 	/* Allocate the first page of memory, an error should never happen in this context */
 	bug(_alloc_block(&dma_areas[0], dma_areas[0].layer_count - 1, 0) != 0);
@@ -727,13 +739,8 @@ static int init_area(struct mem_area* area, mm_t free_list_zone, physaddr_t base
 	memset(area->pages.free_list, 0, free_list_size);
 	atomic_store_explicit(&area->alloc_refcnt, 0, ATOMIC_RELAXED);
 
-	/* Allocate the invalid area, if there is one */
-	if (rounded_size != real_size) {
-		unsigned long start_block = real_size / PAGE_SIZE;
-		unsigned long end_block = rounded_size / PAGE_SIZE;
-		for (unsigned long block = start_block; block < end_block; block++)
-			assert(_alloc_block(area, layer_count - 1, block) == 0);
-	}
+	if (rounded_size != real_size)
+		alloc_rounded_area(area);
 	return 0;
 }
 
