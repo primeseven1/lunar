@@ -59,6 +59,7 @@ void* kmalloc(size_t size, mm_t mm_flags) {
 		ai = hhdm_virtual(alloc_pages(mm_flags, get_order(total_size)));
 		if (!ai)
 			return NULL;
+		cache = NULL;
 	}
 
 	ai->cache = cache;
