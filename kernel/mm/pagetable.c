@@ -10,7 +10,12 @@
 #include <lunar/mm/hhdm.h>
 #include <lunar/lib/string.h>
 #include "internal.h"
+#include "lunar/mm/vma.h"
+#include "lunar/mm/vmm.h"
 
+#define L4_HH_START 256
+#define L4_HH_END 512
+#define L4_PTE_SIZE 0x8000000000
 #define HUGEPAGE_1G 0x40000000
 
 static inline pte_t* table_virtual(pte_t entry) {
@@ -250,7 +255,7 @@ void* pagetable_get_base_address_from_top_index(unsigned int index) {
 	return (void*)((u64)index << 39);
 }
 
-void pagetable_init(void** start, void** end) {
+void pagetable_init(void) {
 	u32 ecx, _unused;
 	cpuid(0x07, 0, &_unused, &_unused, &ecx, &_unused);
 
@@ -259,22 +264,46 @@ void pagetable_init(void** start, void** end) {
 	if (!level4)
 		panic("Bootloader selected wrong paging mode!\n");
 
-	*start = NULL;
-	*end = NULL;
-
-	/* Allocate all higher half l4 tables, to simplify kernel mappings for other page tables */
+	/* Mark things like HHDM page tables as nofree */
 	pte_t* l4 = hhdm_virtual(ctl3_read());
-	for (unsigned int i = 256; i < 512; i++) {
-		if (!(l4[i] & PT_PRESENT)) {
-			if (unlikely(!*start)) { /* Give an available address that isn't HHDM for vmap */
-				*start = pagetable_get_base_address_from_top_index(i);
-				*end = pagetable_get_base_address_from_top_index(i + 1);
-			}
+	for (int i = 256; i < 512; i++) {
+		if (l4[i] & PT_PRESENT)
+			l4[i] |= PT_AVL_NOFREE;
+	}
+
+	ctl3_write(ctl3_read());
+}
+
+void pagetable_kmm_init(struct mm* mm_struct) {
+	pte_t* l4 = hhdm_virtual(ctl3_read());
+
+	mm_struct->pagetable = l4;
+	mm_struct->mmap_start = pagetable_get_base_address_from_top_index(L4_HH_START);
+	mm_struct->mmap_end = pagetable_get_base_address_from_top_index(L4_HH_END - 1);
+	list_head_init(&mm_struct->vma_list);
+	mutex_init(&mm_struct->vma_list_lock);
+
+	/*
+	 * Create VMA's for already mapped pages, ignore the last entry as that's the kernel code/data
+	 * and we don't really care about that as no other mapping can occur there
+	 */
+	for (int i = L4_HH_START; i < L4_HH_END - 1; i++) {
+		if (!(l4[i] & PT_PRESENT)) { /* Allocate all kernel higher half tables */
 			physaddr_t page = alloc_page(MM_ZONE_NORMAL | MM_NOFAIL);
 			memset(hhdm_virtual(page), 0, PAGE_SIZE);
 			l4[i] = page | PT_PRESENT | PT_READ_WRITE | PT_AVL_NOFREE;
-		} else {
-			l4[i] |= PT_AVL_NOFREE; /* HHDM table */
+			continue;
 		}
+
+		void* _unused;
+
+		/* FIXME: Fixup pages in HHDM to NOT be RWX */
+		int err = vma_map(mm_struct, pagetable_get_base_address_from_top_index(i),
+				L4_PTE_SIZE, MMU_READ | MMU_WRITE | MMU_EXEC, VMM_FIXED | VMM_NOREPLACE,
+				&_unused);
+		if (err)
+			panic("vma_map(): %i in %s()", err, __func__);
 	}
+
+	ctl3_write(ctl3_read());
 }

@@ -110,7 +110,8 @@ physaddr_t pagetable_get_physical(pte_t* pagetable, const void* virtual);
  */
 void* pagetable_get_base_address_from_top_index(unsigned int index);
 
-void pagetable_init(void** start, void** end);
+void pagetable_init(void);
+void pagetable_kmm_init(struct mm* mm_struct);
 
 struct prevpage {
 	void* start;

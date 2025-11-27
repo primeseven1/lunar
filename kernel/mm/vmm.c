@@ -380,29 +380,15 @@ void vmm_cpu_init(void) {
 }
 
 void vmm_init(void) {
-	void* start, *end;
-	pagetable_init(&start, &end);
-
-	/* Should never happen */
-	if (unlikely(!start || !end))
-		panic("vmm_init() failed");
-
-	/* No need to check the pointer, the system would triple fault if an invalid page table was in cr3 */
+	pagetable_init();
 	struct cpu* cpu = current_cpu();
 	cpu->mm_struct = &kernel_mm_struct;
-	pte_t* cr3 = hhdm_virtual(ctl3_read());
-	cpu->mm_struct->pagetable = cr3;
-	mutex_init(&cpu->mm_struct->vma_list_lock);
-	list_head_init(&cpu->mm_struct->vma_list);
-
-	kernel_mm_struct.mmap_start = start;
-	kernel_mm_struct.mmap_end = end;
+	pagetable_kmm_init(&kernel_mm_struct);
 }
 
 void vmm_switch_mm_struct(struct mm* mm) {
 	irqflags_t irq = local_irq_save();
 
-	atomic_thread_fence(ATOMIC_SEQ_CST);
 	ctl3_write(hhdm_physical(mm->pagetable));
 	current_cpu()->mm_struct = mm;
 
