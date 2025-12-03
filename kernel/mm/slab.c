@@ -36,7 +36,7 @@ static int slab_init(struct slab_cache* cache, struct slab* slab) {
 	/* Allocate a virtual address for the slab base */
 	slab->base = slab_alloc_struct(cache->mm_flags, slab_size);
 	if (!slab->base) {
-		slab_free_struct(slab->free, cache->mm_flags);
+		slab_free_struct(slab->free, map_size);
 		return -ENOMEM;
 	}
 
