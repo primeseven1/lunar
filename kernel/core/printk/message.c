@@ -8,7 +8,6 @@
 #include "internal.h"
 
 static struct ringbuffer rb;
-static bool initialized = false;
 static SPINLOCK_DEFINE(time_lock);
 
 static int printk_thread(void* _unused) {
@@ -56,18 +55,6 @@ static inline void handle_msg_time(struct printk_msg* msg) {
 			color, ts.tv_sec, (time_t)ts.tv_nsec / 1000);
 }
 
-static bool initalize_rb(void) {
-	if (unlikely(ringbuffer_init(&rb, RINGBUFFER_OVERWRITE, 1024, sizeof(struct printk_msg*))))
-		return false;
-	tid_t id = kthread_create(SCHED_THIS_CPU, printk_thread, NULL, "printk");
-	if (unlikely(id < 0)) {
-		ringbuffer_destroy(&rb);
-		return false;
-	}
-	kthread_detach(id);
-	return true;
-}
-
 void printk_handle_message_early(struct printk_msg* msg) {
 	handle_msg_time(msg);
 
@@ -81,12 +68,19 @@ void printk_handle_message_early(struct printk_msg* msg) {
 
 static bool use_early = true;
 
-void printk_add_to_ringbuffer(struct printk_msg* msg) {
-	if (unlikely(!initialized)) {
-		use_early = !initalize_rb();
-		initialized = true;
+void printk_rb_init(void) {
+	if (unlikely(ringbuffer_init(&rb, RINGBUFFER_OVERWRITE, 1024, sizeof(struct printk_msg*))))
+		return;
+	tid_t id = kthread_create(SCHED_THIS_CPU, printk_thread, NULL, "printk");
+	if (unlikely(id < 0)) {
+		ringbuffer_destroy(&rb);
+		return;
 	}
+	kthread_detach(id);
+	use_early = false;
+}
 
+void printk_add_to_ringbuffer(struct printk_msg* msg) {
 	irqflags_t irq_flags;
 	spinlock_lock_irq_save(&time_lock, &irq_flags);
 

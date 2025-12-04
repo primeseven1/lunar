@@ -68,6 +68,8 @@ void printk_init(void) {
 			MM_ATOMIC | MM_ZONE_NORMAL, NULL, NULL);
 	if (!msg_cache)
 		panic("printk_init() failed!");
+
+	printk_rb_init();
 	atomic_store(&use_early, false);
 }
 
