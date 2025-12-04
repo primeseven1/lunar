@@ -27,7 +27,7 @@ _Noreturn void panic(const char* fmt, ...) {
 	va_start(va, fmt);
 
 	/* Since we sent an NMI, there is no gauruntee the lock isn't held, so release it */
-	printk_emerg_release_lock();
+	printk_in_panic();
 
 	vsnprintf(panic_msg, sizeof(panic_msg), fmt, va);
 	dump_stack();
