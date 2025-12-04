@@ -9,6 +9,7 @@
 #define PRINTK_ERR_N '\003'
 #define PRINTK_CRIT_N '\002'
 #define PRINTK_EMERG_N '\001'
+#define PRINTK_MAX_N PRINTK_DBG_N
 
 #define PRINTK_DBG "\001\006"
 #define PRINTK_INFO "\001\005"
@@ -18,9 +19,11 @@
 #define PRINTK_EMERG "\001\001"
 
 struct printk_msg {
-	const char* msg, *time;
-	unsigned int msg_level, global_level;
-	size_t len;
+	struct slab_cache* cache;
+	char _msg[256];
+	char* msg;
+	char time[25];
+	int level, global_level;
 };
 
 /**
@@ -50,7 +53,7 @@ int printk_remove_hook(void (*hook)(const struct printk_msg*));
  * @param level The new level
  * @return -EINVAL if the level is invalid, 0 on success 
  */
-int printk_set_level(unsigned int level);
+int printk_set_level(int level);
 
 /**
  * @brief Print a formatted string to the kernel log
@@ -77,9 +80,6 @@ int vprintk(const char* fmt, va_list va);
 __attribute__((format(printf, 1, 2)))
 int printk(const char* fmt, ...);
 
-/**
- * @brief Release the printk lock in an emergency
- *
- * Should only ever be called from panic
- */
-void printk_emerg_release_lock(void);
+void printk_init(void);
+
+void printk_in_panic(void);
