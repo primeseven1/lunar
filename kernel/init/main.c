@@ -177,6 +177,7 @@ _Noreturn __asmlinkage void kernel_main(void) {
 	timekeeper_init();
 	sched_init();
 	softirq_cpu_init();
+	printk_init();
 	cpu_startup_aps();
 	init_status_set(INIT_STATUS_SCHED);
 
