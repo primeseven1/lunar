@@ -46,8 +46,8 @@ static void set_loglevel(void) {
 	if (!loglevel)
 		return;
 
-	unsigned long long level;
-	int err = kstrtoull(loglevel, 0, &level);
+	long long level;
+	int err = kstrtoll(loglevel, 0, &level);
 	if (err != 0) {
 		printk(PRINTK_ERR "init: Failed to parse integer for cmdline: %i\n", err);
 		return;
@@ -55,7 +55,7 @@ static void set_loglevel(void) {
 
 	err = printk_set_level(level);
 	if (err)
-		printk(PRINTK_ERR "init: Failed to set loglevel %llu: %i\n", level, err);
+		printk(PRINTK_ERR "init: Failed to set loglevel %lld: %i\n", level, err);
 }
 
 _Noreturn __asmlinkage void ap_kernel_main(struct limine_mp_info* mp_info) {
