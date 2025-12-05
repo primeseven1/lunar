@@ -61,8 +61,8 @@ static void set_loglevel(void) {
 _Noreturn __asmlinkage void ap_kernel_main(struct limine_mp_info* mp_info) {
 	ctl3_write(ctl3_read()); /* Flush TLB */
 
-	cpu_ap_init(mp_info);
-	cpu_register();
+	percpu_ap_init(mp_info);
+	smp_cpu_register();
 
 	vmm_cpu_init();
 	segments_init();
@@ -82,7 +82,7 @@ _Noreturn __asmlinkage void ap_kernel_main(struct limine_mp_info* mp_info) {
 	 * Disabling preempt with IRQ's enabled allows IPI's like TLB shootdowns to be delivered, but prevents
 	 * the CPU from running other threads that may take mutexes or try to wait on semaphores.
 	 */
-	cpu_init_finish();
+	smp_cpu_init_finish();
 	preempt_disable();
 	local_irq_enable();
 	while (init_status_get() != INIT_STATUS_FINISHED)
@@ -137,14 +137,14 @@ _Noreturn __asmlinkage void kernel_main(void) {
 			cpu_halt();
 	}
 
-	cpu_bsp_init();
+	percpu_bsp_init();
 
 	int err_e9hack = module_load("e9hack"); /* Enable early debugging */
 	int err_trace = stack_tracer_init();
 
 	buddy_init();
-	cpu_structs_init();
-	cpu_register();
+	smp_struct_init();
+	smp_cpu_register();
 	vmm_init();
 	segments_init();
 	interrupts_init();
@@ -178,7 +178,7 @@ _Noreturn __asmlinkage void kernel_main(void) {
 	sched_init();
 	softirq_cpu_init();
 	printk_init();
-	cpu_startup_aps();
+	smp_startup();
 	init_status_set(INIT_STATUS_SCHED);
 
 	/* Make sure any changes in PTE's by the AP's are seen by the BSP */
