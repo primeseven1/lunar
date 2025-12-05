@@ -31,10 +31,6 @@ struct smp_cpus {
 	struct cpu* cpus[];
 };
 
-void cpu_structs_init(void);
-const struct smp_cpus* smp_cpus_get(void);
-void cpu_register(void);
-
 /**
  * @brief Get the current CPU's CPU struct
  * @return The address of the CPU struct
@@ -45,8 +41,12 @@ static inline struct cpu* current_cpu(void) {
 	return cpu;
 }
 
-void cpu_init_finish(void);
-void cpu_startup_aps(void);
+void percpu_bsp_init(void);
+void percpu_ap_init(struct limine_mp_info* mp_info);
 
-void cpu_ap_init(struct limine_mp_info* mp_info);
-void cpu_bsp_init(void);
+void smp_cpu_register(void);
+const struct smp_cpus* smp_cpus_get(void);
+void smp_send_stop(void);
+void smp_struct_init(void);
+void smp_cpu_init_finish(void);
+void smp_startup(void);
