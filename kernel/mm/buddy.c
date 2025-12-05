@@ -684,7 +684,7 @@ static void dma_zone_init(physaddr_t last_usable) {
 		area->base = dma_zone.area_count * max_area_size;
 		area->pages.free_list = dma_area_free_lists[dma_zone.area_count];
 		area->size = max_area_size;
-		area->real_size = (dma_zone.area_count == DMA_AREA_COUNT - 1) ? rest : max_area_size;
+		area->real_size = rest < max_area_size ? rest : max_area_size;
 		area->layer_count = get_layer_count(max_area_size);
 		area->total_blocks = 1u << (area->layer_count - 1);
 		atomic_store_explicit(&area->alloc_refcnt, 0, ATOMIC_RELAXED);
