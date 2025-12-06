@@ -2,6 +2,7 @@
 #include <lunar/core/timekeeper.h>
 #include <lunar/core/printk.h>
 #include <lunar/core/interrupt.h>
+#include <lunar/core/cpu.h>
 
 #include <uacpi/uacpi.h>
 #include <uacpi/utilities.h>
@@ -11,7 +12,10 @@
 
 static void do_poweroff(uacpi_handle ctx) {
 	(void)ctx;
+
 	local_irq_disable();
+	smp_send_stop();
+	printk_sched_gone();
 
 	uacpi_status status = uacpi_prepare_for_sleep_state(UACPI_SLEEP_STATE_S5);
 	if (uacpi_likely(status == UACPI_STATUS_OK)) {
