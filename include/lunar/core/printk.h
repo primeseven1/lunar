@@ -82,4 +82,4 @@ int printk(const char* fmt, ...);
 
 void printk_init(void);
 
-void printk_in_panic(void);
+void printk_sched_gone(void);
