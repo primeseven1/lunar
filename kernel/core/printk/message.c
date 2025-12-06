@@ -94,7 +94,7 @@ void printk_add_to_ringbuffer(struct printk_msg* msg) {
 	spinlock_unlock_irq_restore(&time_lock, &irq_flags);
 }
 
-void __printk_in_panic(void) {
+void __printk_sched_gone(void) {
 	spinlock_unlock(&time_lock);
 	use_early = true;
 }

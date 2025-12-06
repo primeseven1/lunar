@@ -73,7 +73,7 @@ void printk_init(void) {
 	atomic_store(&use_early, false);
 }
 
-void printk_in_panic(void) {
+void printk_sched_gone(void) {
 	atomic_store(&use_early, true);
-	__printk_in_panic();
+	__printk_sched_gone();
 }

@@ -22,7 +22,7 @@ _Noreturn void panic(const char* fmt, ...) {
 	va_list va;
 	va_start(va, fmt);
 
-	printk_in_panic();
+	printk_sched_gone();
 
 	vsnprintf(panic_msg, sizeof(panic_msg), fmt, va);
 	dump_stack();

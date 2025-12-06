@@ -43,7 +43,7 @@ void smp_send_stop(void) {
 	if (!stop_isr)
 		return;
 
-	atomic_store(&stop_cpus_left, smp_cpus->count);
+	atomic_store(&stop_cpus_left, smp_cpus->count - 1);
 	apic_send_ipi(NULL, stop_isr, APIC_IPI_CPU_OTHERS, true);
 
 	struct timespec ts = timekeeper_time(TIMEKEEPER_FROMBOOT);
