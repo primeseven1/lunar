@@ -208,3 +208,10 @@ void __asmlinkage asm_context_switch(struct context* prev, struct context* next)
  * @param arg The argument to pass to the function
  */
 _Noreturn void __asmlinkage asm_kthread_start(void* (*func)(void*), void* arg);
+
+int tid_create_bitmap(struct proc* proc);
+void tid_free_bitmap(struct proc* proc);
+pid_t pid_alloc(void);
+int pid_free(pid_t id);
+tid_t tid_alloc(struct proc* proc);
+int tid_free(struct proc* proc, tid_t id);

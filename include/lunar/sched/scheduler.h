@@ -52,6 +52,7 @@ struct proc {
 	struct mm* mm_struct; /* Memory manager context */
 	struct cred cred;
 	u8* tid_map; /* Thread ID bitmap */
+	spinlock_t tid_lock;
 	struct list_head threads; /* The list of threads for this process, linked with proc_link */
 	atomic(unsigned long) thread_count; /* The number of threads for this process, don't write without locking first */
 	spinlock_t thread_lock; /* For the thread linked list */

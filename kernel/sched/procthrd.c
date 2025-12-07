@@ -17,39 +17,14 @@
 static struct slab_cache* proc_cache;
 static struct slab_cache* thread_cache;
 
-static u8* pid_map = NULL;
-static SPINLOCK_DEFINE(pid_lock);
-static const pid_t pid_max = 0x10000;
-static const tid_t tid_max = 0x10000;
-
-static long long alloc_id(u8* map, long long max) {
-	for (long long id = 0; id < max; id++) {
-		size_t byte = id >> 3;
-		unsigned int bit = id & 7;
-		if ((map[byte] & (1 << bit)) == 0) {
-			map[byte] |= (1 << bit);
-			return id;
-		}
-	}
-
-	return max;
-}
-
-static inline void free_id(u8* map, long long id, long long max) {
-	bug(id > max);
-	size_t byte = id >> 3;
-	unsigned int bit = id & 7;
-	map[byte] &= ~(1 << bit);
-}
-
 struct thread* thread_create(struct proc* proc, void* exec, size_t stack_size) {
 	struct thread* thread = slab_cache_alloc(thread_cache);
 	if (!thread)
 		return NULL;
 
 	thread->utk_stack_top = NULL;
-	thread->id = alloc_id(proc->tid_map, tid_max);
-	if (unlikely(thread->id == tid_max))
+	thread->id = tid_alloc(proc);
+	if (unlikely(thread->id == -1))
 		goto err_id;
 
 	thread->target_cpu = NULL;
@@ -109,7 +84,7 @@ err_utk_stack:
 err_ctx:
 	assert(vunmap(thread->stack, stack_total, 0) == 0);
 err_stack:
-	free_id(proc->tid_map, thread->id, tid_max);
+	tid_free(proc, thread->id);
 err_id:
 	return NULL;
 }
@@ -120,7 +95,7 @@ int thread_destroy(struct thread* thread) {
 
 	const size_t stack_total = thread->stack_size + THREAD_STACK_GUARD_SIZE;
 	assert(vunmap(thread->stack, stack_total, 0) == 0);
-	free_id(thread->proc->tid_map, thread->id, tid_max);
+	tid_free(thread->proc, thread->id);
 	ext_ctx_free(thread->ctx.extended);
 
 	slab_cache_free(thread_cache, thread);
@@ -132,21 +107,17 @@ struct proc* proc_create(const struct cred* cred) {
 	if (!proc)
 		return NULL;
 
-	irqflags_t irq;
-	spinlock_lock_irq_save(&pid_lock, &irq);
-	proc->pid = alloc_id(pid_map, pid_max);
-	spinlock_unlock_irq_restore(&pid_lock, &irq);
-
-	if (unlikely(proc->pid == pid_max)) {
+	proc->pid = pid_alloc();
+	if (unlikely(proc->pid == -1)) {
 		slab_cache_free(proc_cache, proc);
 		return NULL;
 	}
 
 	proc->mm_struct = NULL;
-
-	proc->tid_map = kzalloc((tid_max + 7) >> 3, MM_ZONE_NORMAL);
-	if (!proc->tid_map) {
-		free_id(pid_map, proc->pid, pid_max);
+	spinlock_init(&proc->tid_lock);
+	int err = tid_create_bitmap(proc);
+	if (err) {
+		pid_free(proc->pid);
 		slab_cache_free(proc_cache, proc);
 		return NULL;
 	}
@@ -164,11 +135,8 @@ int proc_destroy(struct proc* proc) {
 	if (atomic_load(&proc->thread_count))
 		return -EBUSY;
 
-	irqflags_t irq;
-	spinlock_lock_irq_save(&pid_lock, &irq);
-	free_id(pid_map, proc->pid, pid_max);
-	spinlock_unlock_irq_restore(&pid_lock, &irq);
-	kfree(proc->tid_map);
+	tid_free_bitmap(proc);
+	pid_free(proc->pid);
 
 	slab_cache_free(proc_cache, proc);
 	return 0;
@@ -212,12 +180,8 @@ err:
 }
 
 void procthrd_init(void) {
-	const size_t pid_map_size = (pid_max + 7) >> 3;
-
 	proc_cache = slab_cache_create(sizeof(struct proc), _Alignof(struct proc), MM_ZONE_NORMAL, NULL, NULL);
-	pid_map = vmap(NULL, pid_map_size, MMU_READ | MMU_WRITE, VMM_ALLOC, NULL);
 	thread_cache = slab_cache_create(sizeof(struct thread), _Alignof(struct thread), MM_ZONE_NORMAL, NULL, NULL);
-
-	if (unlikely(IS_PTR_ERR(pid_map) || !thread_cache || !proc_cache))
+	if (unlikely(!thread_cache || !proc_cache))
 		panic("procthrd_init() failed!");
 }
