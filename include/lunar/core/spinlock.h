@@ -44,91 +44,48 @@ void spinlock_lock_irq_save(spinlock_t* lock, irqflags_t* flags);
 void spinlock_unlock_irq_restore(spinlock_t* lock, irqflags_t* flags);
 
 /**
- * @brief Try acquiring a spinlock, save and disable the IRQ state, and restore IRQ's on failure
+ * @brief Try acquiring a spinlock, save and disable the IRQ state
+ *
+ * On failure, the IRQ state is restored
  *
  * @param lock The lock to acquire
  * @param flags A pointer to the IRQ state
  *
- * @retval true The lock was acquired, and IRQ's are disabled
- * @retval false The lock could not be acquired, and the IRQ state is what it was before trying the lock
+ * @retval true The lock was acquired
+ * @retval false The lock could not be acquired
  */
 bool spinlock_try_lock_irq_save(spinlock_t* lock, irqflags_t* flags);
 
+/**
+ * @brief Acquire a spinlock, but disable preempt
+ *
+ * This is NOT safe to use when init_status_get() < INIT_STATUS_SCHED
+ *
+ * @param lock The lock to acquire
+ */
+void spinlock_lock_preempt_disable(spinlock_t* lock);
+
+/**
+ * @brief Release a spinlock, but enable preempt afterwards
+ *
+ * Only safe when used with spinlock_lock_preempt_disable
+ *
+ * @param lock The lock to acquire
+ */
+void spinlock_unlock_preempt_enable(spinlock_t* lock);
+
+/**
+ * @brief Try acquiring a spinlock, and disable preempt
+ *
+ * On failure to acquire the lock, preempt_enable() is called
+ *
+ * @param lock The lock to acquire
+ *
+ * @retval true The lock was acquired
+ * @retval false The lock failed to be acquired
+ */
+bool spinlock_try_lock_preempt_disable(spinlock_t* lock);
+
 static inline void spinlock_init(spinlock_t* lock) {
 	atomic_store_explicit(lock, false, ATOMIC_RELAXED);
-}
-
-typedef struct {
-	atomic(unsigned int) readers;
-	atomic(unsigned int) writers_waiting;
-	atomic(bool) writer;
-} rwlock_t;
-
-#define RWLOCK_INITIALIZER { \
-	.readers = atomic_init(0), \
-	.writers_waiting = atomic_init(0), \
-	.writer = atomic_init(false) \
-}
-#define RWLOCK_DEFINE(n) rwlock_t n = RWLOCK_INITIALIZER
-
-/**
- * @brief Acquire a read on a rwlock
- * @param lock The lock to acquire a read on
- */
-void rwlock_read_lock(rwlock_t* lock);
-
-/**
- * @brief Release a read on a rwlock
- * @param lock THe lock to release the read on
- */
-void rwlock_read_unlock(rwlock_t* lock);
-
-/**
- * @brief Acquire the write lock on a rwlock
- * @param lock The lock to acquire the write on
- */
-void rwlock_write_lock(rwlock_t* lock);
-
-/**
- * @brief Release the write lock on a rwlock
- * @param lock The lock to release to write on
- */
-void rwlock_write_unlock(rwlock_t* lock);
-
-/**
- * @brief Acquire a read lock and save the IRQ state
- *
- * @param lock The lock to acquire a read on
- * @param flags The pointer to the IRQ state flags
- */
-void rwlock_read_lock_irq_save(rwlock_t* lock, irqflags_t* flags);
-
-/**
- * @brief Release a read lock and restore the IRQ state
- *
- * @param lock The lock to release the read on
- * @param flags The pointer to the IRQ state flags
- */
-void rwlock_read_unlock_irq_restore(rwlock_t* lock, irqflags_t* flags);
-
-/**
- * @brief Acquire the write lock on a rwlock, and save the IRQ state
- *
- * @param lock The lock to acquire the write on
- * @param flags The pointer to the IRQ state flags
- */
-void rwlock_write_lock_irq_save(rwlock_t* lock, irqflags_t* flags);
-
-/**
- * @brief Release the write lock on a rwlock, and restore the IRQ state
- *
- * @param lock The lock to release the write on
- * @param flags The pointer to the IRQ state flags
- */
-void rwlock_write_unlock_irq_restore(rwlock_t* lock, irqflags_t* flags);
-
-static inline void rwlock_init(rwlock_t* lock) {
-	atomic_store_explicit(&lock->readers, 0, ATOMIC_RELAXED);
-	atomic_store_explicit(&lock->writers_waiting, 0, ATOMIC_RELAXED);
-	atomic_store_explicit(&lock->writer, false, ATOMIC_RELAXED);
 }
