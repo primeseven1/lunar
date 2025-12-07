@@ -1,6 +1,5 @@
 #include <lunar/core/spinlock.h>
 #include <lunar/asm/wrap.h>
-#include <lunar/init/status.h>
 #include <lunar/sched/preempt.h>
 
 void spinlock_lock(spinlock_t* lock) {
