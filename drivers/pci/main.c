@@ -31,4 +31,4 @@ static int pci_module_init(void) {
 	return err;
 }
 
-MODULE("pci", INIT_STATUS_SCHED, pci_module_init);
+MODULE("pci", INIT_STATUS_MM, pci_module_init);
