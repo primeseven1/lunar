@@ -18,11 +18,13 @@ struct ecam_seg {
 	u8 start_bus, end_bus;
 };
 
+#define PCI_MCFG_CONFIG_SIZE 4096u
+
 static struct ecam_seg* ecam_segs;
 static size_t ecam_seg_count;
 
-static inline u32 __iomem* pci_address(const struct pci_device* device, u32 func, u32 off) {
-	uintptr_t byte_off = ((uintptr_t)func << 12) | (off & 0xFFC);
+static inline u32 __iomem* pci_address(const struct pci_device* device, u32 off) {
+	uintptr_t byte_off = ((uintptr_t)device->func << 12) | (off & 0xFFC);
 	return (u32 __iomem*)((uintptr_t)device->virtual + byte_off);
 }
 
@@ -41,29 +43,29 @@ static const struct ecam_seg* get_ecam_entry(u8 bus) {
 	return entry;
 }
 
-static inline bool pci_mcfg_args_ok(u32 func, u32 off) {
-	return func < PCI_MAX_FUNC && off < 0x1000;
+static inline bool pci_mcfg_args_ok(u32 off) {
+	return off < PCI_MCFG_CONFIG_SIZE;
 }
 
-u32 pci_mcfg_read(struct pci_device* device, u32 func, u32 off) {
-	if (!pci_mcfg_args_ok(func, off))
+u32 pci_mcfg_read(struct pci_device* device, u32 off) {
+	if (!pci_mcfg_args_ok(off))
 		return U32_MAX;
 	const struct ecam_seg* entry = get_ecam_entry(device->bus);
 	if (!entry)
 		return U32_MAX;
 
-	const u32 __iomem* address = pci_address(device, func, off);
+	const u32 __iomem* address = pci_address(device, off);
 	return readl(address);
 }
 
-int pci_mcfg_write(struct pci_device* device, u32 func, u32 off, u32 value) {
-	if (!pci_mcfg_args_ok(func, off))
+int pci_mcfg_write(struct pci_device* device, u32 off, u32 value) {
+	if (!pci_mcfg_args_ok(off))
 		return -EINVAL;
 	const struct ecam_seg* entry = get_ecam_entry(device->bus);
 	if (!entry)
 		return -ENODEV;
 
-	u32 __iomem* address = pci_address(device, func, off);
+	u32 __iomem* address = pci_address(device, off);
 	writel(address, value);
 	return 0;
 }
@@ -77,7 +79,7 @@ static inline size_t ecam_device_offset(const struct ecam_seg* entry, u32 bus, u
 	return (bus_index * PCI_MAX_DEV + dev) * PCI_ECAM_DEV_SIZE;
 }
 
-int pci_mcfg_device_open(u32 bus, u32 dev, struct pci_device** out) {
+int pci_mcfg_device_open(u32 bus, u32 dev, u32 func, struct pci_device** out) {
 	*out = NULL;
 	if (bus >= PCI_MAX_BUS || dev >= PCI_MAX_DEV)
 		return -EINVAL;
@@ -95,12 +97,7 @@ int pci_mcfg_device_open(u32 bus, u32 dev, struct pci_device** out) {
 	device->domain = entry->domain;
 	device->bus = bus;
 	device->dev = dev;
-
-	u16 vendor = pci_read_config_word(device, 0, PCI_CONFIG_VENDOR);
-	if (vendor == 0xFFFF || vendor == 0) {
-		kfree(device);
-		return -ENODEV;
-	}
+	device->func = func;
 
 	*out = device;
 	return 0;
