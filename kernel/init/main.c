@@ -175,6 +175,12 @@ _Noreturn __asmlinkage void kernel_main(void) {
 	if (unlikely(err))
 		panic("Failed to initialize APIC, err: %i", err);
 	timekeeper_init();
+
+	pci_init();
+	acpi_status = acpi_finish_init();
+	if (unlikely(acpi_status != UACPI_STATUS_OK))
+		panic("acpi_finish_init(): %s", uacpi_status_to_string(acpi_status));
+
 	sched_init();
 	softirq_cpu_init();
 	printk_init();
@@ -183,11 +189,6 @@ _Noreturn __asmlinkage void kernel_main(void) {
 
 	/* Make sure any changes in PTE's by the AP's are seen by the BSP */
 	ctl3_write(ctl3_read());
-
-	pci_init();
-	acpi_status = acpi_finish_init();
-	if (unlikely(acpi_status != UACPI_STATUS_OK))
-		panic("acpi_finish_init(): %s", uacpi_status_to_string(acpi_status));
 
 	vfs_init();
 	fs_drivers_load();
