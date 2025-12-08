@@ -27,7 +27,7 @@ int module_load(const char* name) {
 		return -ENOENT;
 
 	/* This shouldn't really happen unless there is some sort of programming error */
-	if (unlikely(mod->init_status < init_status_get()))
+	if (unlikely(mod->init_status > init_status_get()))
 		return -EAGAIN;
 
 	if (!mod->init) {
