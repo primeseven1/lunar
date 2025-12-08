@@ -23,6 +23,7 @@ uacpi_status acpi_finish_init(void) {
 		return status;
 
 	uacpi_install_fixed_event_handler(UACPI_FIXED_EVENT_POWER_BUTTON, acpi_pwrbtn_event, UACPI_NULL);
+	uacpi_finalize_gpe_initialization();
 	return UACPI_STATUS_OK;
 }
 
