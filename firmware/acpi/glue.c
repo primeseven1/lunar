@@ -70,68 +70,48 @@ uacpi_status uacpi_kernel_get_rsdp(uacpi_phys_addr* out) {
 	return UACPI_STATUS_OK;
 }
 
-struct uacpi_pci_device_handle {
-	struct pci_device* device;
-	uacpi_u8 function;
-};
-
 uacpi_status uacpi_kernel_pci_device_open(uacpi_pci_address address, uacpi_handle* out) {
-	struct uacpi_pci_device_handle* handle = kmalloc(sizeof(*handle), MM_ZONE_NORMAL);
-	if (!handle)
-		return UACPI_STATUS_OUT_OF_MEMORY;
 	struct pci_device* device;
-	int err = pci_device_open(address.bus, address.device, &device);
-	if (err) {
-		kfree(handle);
+	int err = pci_device_open(address.bus, address.device, address.function, &device);
+	if (err)
 		return err == -ENOSYS ? UACPI_STATUS_UNIMPLEMENTED : UACPI_STATUS_INTERNAL_ERROR;
-	}
 
-	handle->device = device;
-	handle->function = address.function;
-	*out = handle;
-
+	*out = device;
 	return UACPI_STATUS_OK;
 }
 
 void uacpi_kernel_pci_device_close(uacpi_handle handle) {
-	struct uacpi_pci_device_handle* uacpi_device = handle;
-	int err = pci_device_close(uacpi_device->device);
+	int err = pci_device_close((struct pci_device*)handle);
 	if (unlikely(err))
 		printk(PRINTK_ERR "acpi: pci_device_close failed with code %i\n", err);
-
-	kfree(uacpi_device);
 }
 
 uacpi_status uacpi_kernel_pci_read8(uacpi_handle device, uacpi_size offset, uacpi_u8* value) {
-	struct uacpi_pci_device_handle* uacpi_device = device;
-	*value = pci_read_config_byte(uacpi_device->device, uacpi_device->function, offset);
+	*value = pci_read_config_byte((struct pci_device*)device, offset);
 	return UACPI_STATUS_OK;
 }
 
 uacpi_status uacpi_kernel_pci_read16(uacpi_handle device, uacpi_size offset, uacpi_u16* value) {
-	struct uacpi_pci_device_handle* uacpi_device = device;
-	*value = pci_read_config_word(uacpi_device->device, uacpi_device->function, offset);
+	*value = pci_read_config_word((struct pci_device*)device, offset);
 	return UACPI_STATUS_OK;
 }
 
 uacpi_status uacpi_kernel_pci_read32(uacpi_handle device, uacpi_size offset, uacpi_u32* value) {
-	struct uacpi_pci_device_handle* uacpi_device = device;
-	*value = pci_read_config_dword(uacpi_device->device, uacpi_device->function, offset);
+	*value = pci_read_config_dword((struct pci_device*)device, offset);
 	return UACPI_STATUS_OK;
 }
 
 static uacpi_status uacpi_kernel_pci_write(uacpi_handle device, uacpi_size offset, u32 value, size_t count) {
-	struct uacpi_pci_device_handle* uacpi_device = device;
 	int err;
 	switch (count) {
 	case sizeof(u8):
-		err = pci_write_config_byte(uacpi_device->device, uacpi_device->function, offset, (u8)value);
+		err = pci_write_config_byte((struct pci_device*)device, offset, (u8)value);
 		break;
 	case sizeof(u16):
-		err = pci_write_config_word(uacpi_device->device, uacpi_device->function, offset, (u16)value);
+		err = pci_write_config_word((struct pci_device*)device, offset, (u16)value);
 		break;
 	case sizeof(u32):
-		err = pci_write_config_dword(uacpi_device->device, uacpi_device->function, offset, (u32)value);
+		err = pci_write_config_dword((struct pci_device*)device, offset, (u32)value);
 		break;
 	default:
 		return UACPI_STATUS_INVALID_ARGUMENT;
