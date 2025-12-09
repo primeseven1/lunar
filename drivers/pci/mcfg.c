@@ -20,8 +20,8 @@ struct ecam_seg {
 
 #define PCI_MCFG_CONFIG_SIZE 4096u
 
-static struct ecam_seg* ecam_segs;
-static size_t ecam_seg_count;
+static struct ecam_seg* ecam_segs = NULL;
+static size_t ecam_seg_count = 0;
 
 static inline u32 __iomem* pci_address(const struct pci_device* device, u32 off) {
 	uintptr_t byte_off = ((uintptr_t)device->func << 12) | (off & 0xFFC);
@@ -81,7 +81,7 @@ static inline size_t ecam_device_offset(const struct ecam_seg* entry, u32 bus, u
 
 int pci_mcfg_device_open(u32 bus, u32 dev, u32 func, struct pci_device** out) {
 	*out = NULL;
-	if (bus >= PCI_MAX_BUS || dev >= PCI_MAX_DEV)
+	if (bus >= PCI_MAX_BUS || dev >= PCI_MAX_DEV || func >= PCI_MAX_FUNC)
 		return -EINVAL;
 
 	const struct ecam_seg* entry = get_ecam_entry(bus);
@@ -112,7 +112,7 @@ int pci_mcfg_init(void) {
 	uacpi_table table;
 	uacpi_status status = uacpi_table_find_by_signature("MCFG", &table);
 	if (status != UACPI_STATUS_OK)
-		return -ENOSYS;
+		return -ENOTSUP;
 
 	struct acpi_mcfg* mcfg = table.ptr;
 	const struct acpi_mcfg_allocation* mcfg_entries = mcfg->entries;
@@ -120,7 +120,7 @@ int pci_mcfg_init(void) {
 
 	int err = 0;
 	if (unlikely(mcfg_entry_count == 0)) {
-		err = -ENOSYS; /* ? */
+		err = -ENOTSUP; /* ? */
 		goto cleanup;
 	}
 
@@ -139,7 +139,7 @@ int pci_mcfg_init(void) {
 			goto cleanup;
 		}
 
-		ecam_segs[ecam_seg_count].domain = ecam_seg_count;
+		ecam_segs[ecam_seg_count].domain = mcfg_entries[ecam_seg_count].segment;
 		ecam_segs[ecam_seg_count].physical = physical;
 		ecam_segs[ecam_seg_count].virtual = virtual;
 		ecam_segs[ecam_seg_count].len = len;
