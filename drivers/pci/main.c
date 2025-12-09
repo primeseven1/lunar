@@ -4,26 +4,26 @@
 #include "internal.h"
 
 static const struct pci_hooks legacy_hooks = {
-	.open = pci_legacy_device_open,
-	.close = pci_legacy_device_close,
+	.open = pci_legacy_open,
+	.close = pci_legacy_close,
 	.read = pci_legacy_read,
 	.write = pci_legacy_write
 };
 
-static const struct pci_hooks mcfg_hooks = {
-	.open = pci_mcfg_device_open,
-	.close = pci_mcfg_device_close,
-	.read = pci_mcfg_read,
-	.write = pci_mcfg_write
+static const struct pci_hooks ecam_hooks = {
+	.open = pci_ecam_open,
+	.close = pci_ecam_close,
+	.read = pci_ecam_read,
+	.write = pci_ecam_write
 };
 
 static int pci_module_init(void) {
-	int err = pci_mcfg_init();
+	int err = pci_ecam_init();
 	if (err) {
 		printk("pci: MCFG not found, using legacy\n");
 		err = pci_set_hooks(&legacy_hooks);
 	} else {
-		err = pci_set_hooks(&mcfg_hooks);
+		err = pci_set_hooks(&ecam_hooks);
 	}
 
 	if (err)
