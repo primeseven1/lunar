@@ -58,7 +58,7 @@ int pci_ecam_write(struct pci_device* device, u16 off, u32 value) {
 	if (!e)
 		return -ENODEV;
 
-	uintptr_t offset = pci_ecam_offset(e, device, off);
+	size_t offset = pci_ecam_offset(e, device, off);
 	writel((u32 __iomem*)((uintptr_t)e->virtual + offset), value);
 	return 0;
 }
