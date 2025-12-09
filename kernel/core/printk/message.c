@@ -57,7 +57,7 @@ static inline void printk_handle_message_early(struct printk_msg* msg) {
 static bool use_early = true;
 
 void printk_init(void) {
-	if (unlikely(ringbuffer_init(&rb, RINGBUFFER_OVERWRITE, 512, sizeof(struct printk_msg))))
+	if (unlikely(ringbuffer_init(&rb, RINGBUFFER_OVERWRITE, 1024, sizeof(struct printk_msg))))
 		return;
 	tid_t id = kthread_create(SCHED_THIS_CPU, printk_thread, NULL, "printk");
 	if (unlikely(id < 0)) {
@@ -85,4 +85,8 @@ void printk_add_to_ringbuffer(struct printk_msg* msg) {
 void printk_sched_gone(void) {
 	spinlock_unlock(&time_lock);
 	use_early = true;
+
+	struct printk_msg msg;
+	while (ringbuffer_dequeue(&rb, &msg) == 0)
+		printk_call_hooks(&msg);
 }
