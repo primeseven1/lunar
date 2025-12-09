@@ -712,16 +712,20 @@ static void dma_zone_init(physaddr_t last_usable) {
  * Initialize a memory area, free_list_zone is the zone the free list should be allocated from,
  * so this function can be used when not every zone is initialized yet.
  */
-static int init_area(struct mem_area* area, mm_t free_list_zone, physaddr_t base, size_t real_size, bool atomic) {
+static int init_area(struct mem_area* area, physaddr_t base, size_t real_size, bool atomic, struct zone* alloc_zone) {
 	u64 rounded_size = round_power2(PAGE_SIZE, real_size);
 	unsigned int layer_count = get_layer_count(rounded_size);
 	if (layer_count == 1)
 		return -ELOOP;
 
 	size_t free_list_size = ((1 << layer_count) >> 3) + 1;
-	physaddr_t free_list = alloc_pages(free_list_zone, get_order(free_list_size));
-	if (!free_list)
-		return -ENOMEM;
+	unsigned int order = get_order(free_list_size);
+	physaddr_t free_list = __alloc_pages(alloc_zone, 0, order);
+	if (!free_list) {
+		free_list = __alloc_pages(alloc_zone, MM_ATOMIC, order);
+		if (!free_list)
+			return -ENOMEM;
+	}
 
 	area->base = base;
 	area->real_size = real_size;
@@ -745,8 +749,9 @@ static int init_area(struct mem_area* area, mm_t free_list_zone, physaddr_t base
 }
 
 /* Initialize a memory zone, alloc_zone is the zone to allocate the memory structures from */
-static int zone_init(struct zone* zone, mm_t zone_type, mm_t alloc_zone, 
-		physaddr_t last_usable, physaddr_t min_start, physaddr_t max_end) {
+static int zone_init(struct zone* zone, mm_t zone_type,
+		physaddr_t last_usable, physaddr_t min_start, physaddr_t max_end,
+		struct zone* alloc_zone) {
 	if (last_usable < min_start)
 		return -ELOOP;
 	if (last_usable < max_end)
@@ -764,34 +769,35 @@ static int zone_init(struct zone* zone, mm_t zone_type, mm_t alloc_zone,
 		atomic_count = 1;
 
 	unsigned int area_order = get_order(sizeof(struct mem_area) * area_count);
-	physaddr_t _areas = alloc_pages(alloc_zone, area_order);
+	physaddr_t _areas = __alloc_pages(alloc_zone, 0, area_order);
 	if (!_areas)
 		return -ENOMEM;
 	struct mem_area* areas = hhdm_virtual(_areas);
 
 	size_t rest = zone_size;
-	for (unsigned long i = 0; i < area_count; i++) {
+	zone->zone_type = zone_type;
+	zone->areas = areas;
+	for (zone->area_count = 0; zone->area_count < area_count; zone->area_count++) {
 		size_t area_size = rest > max_area_size ? max_area_size : rest;
-		int err = init_area(&areas[i], alloc_zone, min_start, area_size, i < atomic_count);
+		int err = init_area(&areas[zone->area_count], min_start, area_size, zone->area_count < atomic_count, alloc_zone);
+
+		/* If there is no error, then the alloc zone can be the zone being initialized now that there is at least one area */
 		if (likely(err == 0)) {
 			min_start += area_size;
 			rest -= area_size;
+			alloc_zone = zone;
 			continue;
 		}
 
 		if (err == -ELOOP) {
 			if (unlikely(--area_count == 0)) { /* Don't bother with the zone */
-				free_pages(_areas, area_order);
+				__free_pages(alloc_zone, _areas, area_order);
 				return err;
 			}
 			break;
 		}
 		return err;
 	}
-
-	zone->area_count = area_count;
-	zone->zone_type = zone_type;
-	zone->areas = areas;
 
 	return 0;
 }
@@ -826,7 +832,7 @@ void buddy_init(void) {
 	physaddr_t last_usable = mmap_get_last_usable();
 	dma_zone_init(last_usable);
 
-	int err = zone_init(&__dma32_zone, MM_ZONE_DMA32, MM_ZONE_DMA, last_usable, DMA32_START, DMA32_END);
+	int err = zone_init(&__dma32_zone, MM_ZONE_DMA32, last_usable, DMA32_START, DMA32_END, &dma_zone);
 	if (unlikely(err)) {
 		if (unlikely(err == -ELOOP)) {
 			dma32_zone = &dma_zone;
@@ -837,7 +843,7 @@ void buddy_init(void) {
 	}
 	dma32_zone = &__dma32_zone;
 
-	err = zone_init(&__normal_zone, MM_ZONE_NORMAL, MM_ZONE_DMA32, last_usable, NORMAL_START, NORMAL_END);
+	err = zone_init(&__normal_zone, MM_ZONE_NORMAL, last_usable, NORMAL_START, NORMAL_END, dma32_zone);
 	if (err) {
 		if (likely(err == -ELOOP)) {
 			normal_zone = dma32_zone;
