@@ -54,25 +54,25 @@ enum pci_caps {
 };
 
 struct pci_device {
-	u32 domain, bus, dev, func;
-	void __iomem* virtual;
+	u16 domain;
+	u8 bus, dev, func;
 };
 
 struct pci_hooks {
-	int (*open)(u32, u32, u32, struct pci_device**);
+	int (*open)(u16, u8, u8, u8, struct pci_device**);
 	int (*close)(struct pci_device*);
-	u32 (*read)(struct pci_device*, u32);
-	int (*write)(struct pci_device*, u32, u32);
+	int (*read)(struct pci_device*, u16, u32*);
+	int (*write)(struct pci_device*, u16, u32);
 };
 
-u8 pci_read_config_byte(struct pci_device* dev, u32 off);
-u16 pci_read_config_word(struct pci_device *dev, u32 off);
-u32 pci_read_config_dword(struct pci_device* dev, u32 off);
-int pci_write_config_byte(struct pci_device* dev, u32 off, u8 val);
-int pci_write_config_word(struct pci_device* dev, u32 off, u16 val);
-int pci_write_config_dword(struct pci_device* dev, u32 off, u32 val);
+int pci_read_config_byte(struct pci_device* dev, u16 off, u8* out);
+int pci_read_config_word(struct pci_device* dev, u16 off, u16* out);
+int pci_read_config_dword(struct pci_device* dev, u16 off, u32* out);
+int pci_write_config_byte(struct pci_device* dev, u16 off, u8 val);
+int pci_write_config_word(struct pci_device* dev, u16 off, u16 val);
+int pci_write_config_dword(struct pci_device* dev, u16 off, u32 val);
 
-int pci_device_open(u32 bus, u32 dev, u32 func, struct pci_device** out);
+int pci_device_open(u16 domain, u8 bus, u8 dev, u8 func, struct pci_device** out);
 int pci_device_close(struct pci_device* dev);
 
 int pci_set_hooks(const struct pci_hooks* hooks);
