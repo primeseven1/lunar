@@ -86,7 +86,7 @@ void uacpi_kernel_pci_device_close(uacpi_handle handle) {
 		printk(PRINTK_ERR "acpi: pci_device_close failed with code %i\n", err);
 }
 
-static uacpi_status pci_read(struct pci_device* device, uacpi_size offset, uacpi_u32* out, size_t count) {
+static uacpi_status pci_read(struct pci_device* device, uacpi_size offset, uacpi_u32* out, uacpi_size count) {
 	union {
 		u8 out8;
 		u16 out16;
@@ -143,7 +143,7 @@ uacpi_status uacpi_kernel_pci_read32(uacpi_handle device, uacpi_size offset, uac
 	return pci_read((struct pci_device*)device, offset, value, sizeof(u32));
 }
 
-static uacpi_status pci_write(struct pci_device* device, uacpi_size offset, u32 value, size_t count) {
+static uacpi_status pci_write(struct pci_device* device, uacpi_size offset, uacpi_u32 value, uacpi_size count) {
 	int err;
 	switch (count) {
 	case sizeof(u8):
