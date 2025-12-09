@@ -39,7 +39,7 @@ int usercopy_from_user(void* dest, const void __user* src, size_t count) {
 	usercopy_enter();
 
 	u8* d = dest;
-	u8 __user* s = src;
+	const u8 __user* s = src;
 	int err = 0;
 	while (count--) {
 		u8 x;
@@ -61,7 +61,7 @@ int usercopy_to_user(void __user* dest, const void* src, size_t count) {
 
 	int err = 0;
 	u8 __user* d = dest;
-	u8* s = src;
+	const u8* s = src;
 	while (count--) {
 		err = write_user_8(d++, *s++);
 		if (err)
