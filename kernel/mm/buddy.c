@@ -770,10 +770,13 @@ static int zone_init(struct zone* zone, mm_t zone_type,
 
 	unsigned int area_order = get_order(sizeof(struct mem_area) * area_count);
 	physaddr_t _areas = __alloc_pages(alloc_zone, 0, area_order);
-	if (!_areas)
-		return -ENOMEM;
-	struct mem_area* areas = hhdm_virtual(_areas);
+	if (unlikely(!_areas)) {
+		_areas = __alloc_pages(alloc_zone, MM_ATOMIC, area_order);
+		if (unlikely(!_areas))
+			return -ENOMEM;
+	}
 
+	struct mem_area* areas = hhdm_virtual(_areas);
 	size_t rest = zone_size;
 	zone->zone_type = zone_type;
 	zone->areas = areas;
