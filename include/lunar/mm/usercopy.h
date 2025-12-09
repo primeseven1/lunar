@@ -25,7 +25,7 @@ int usercopy_memset(void __user* dest, int val, size_t count);
  * @retval -EFAULT Bad user pointer
  * @retval 0 Successful
  */
-int usercopy_from_user(void* dest, void __user* src, size_t count);
+int usercopy_from_user(void* dest, const void __user* src, size_t count);
 
 /**
  * @brief Copy a block from kernel space to user space
@@ -37,7 +37,7 @@ int usercopy_from_user(void* dest, void __user* src, size_t count);
  * @retval -EFAULT Bad user pointer
  * @retval 0 Successful
  */
-int usercopy_to_user(void __user* dest, void* src, size_t count);
+int usercopy_to_user(void __user* dest, const void* src, size_t count);
 
 /**
  * @brief Get the length of a string from userspace

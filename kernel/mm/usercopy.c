@@ -32,7 +32,7 @@ int usercopy_memset(void __user* dest, int val, size_t count) {
 	return err;
 }
 
-int usercopy_from_user(void* dest, void __user* src, size_t count) {
+int usercopy_from_user(void* dest, const void __user* src, size_t count) {
 	if (IS_USER_ADDRESS(dest) || !IS_USER_ADDRESS(src))
 		return -EFAULT;
 
@@ -53,7 +53,7 @@ int usercopy_from_user(void* dest, void __user* src, size_t count) {
 	return err;
 }
 
-int usercopy_to_user(void __user* dest, void* src, size_t count) {
+int usercopy_to_user(void __user* dest, const void* src, size_t count) {
 	if (!IS_USER_ADDRESS(dest) || IS_USER_ADDRESS(src))
 		return -EFAULT;
 
