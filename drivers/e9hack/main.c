@@ -9,7 +9,7 @@ static void e9hack_printk_hook(const struct printk_msg* msg) {
 	const char* time_string = msg->time;
 	while (*time_string)
 		outb(0xe9, *time_string++);
-	const char* _msg = msg->msg;
+	const char* _msg = msg->msg + msg->level_count;
 	while (*_msg)
 		outb(0xe9, *_msg++);
 }
