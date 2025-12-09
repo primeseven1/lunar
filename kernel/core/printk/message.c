@@ -14,16 +14,10 @@ static int printk_thread(void* _unused) {
 	(void)_unused;
 
 	while (1) {
-		struct printk_msg* msg;
+		struct printk_msg msg;
 		if (ringbuffer_dequeue(&rb, &msg) != 0)
 			continue;
-
-		struct slab_cache* cache = msg->cache;
-		msg->cache = NULL;
-		printk_call_hooks(msg);
-
-		bug(cache == NULL);
-		slab_cache_free(cache, msg);
+		printk_call_hooks(&msg);
 	}
 
 	return 0;
@@ -55,21 +49,15 @@ static inline void handle_msg_time(struct printk_msg* msg) {
 			color, ts.tv_sec, (time_t)ts.tv_nsec / 1000);
 }
 
-void printk_handle_message_early(struct printk_msg* msg) {
+static inline void printk_handle_message_early(struct printk_msg* msg) {
 	handle_msg_time(msg);
-
-	struct slab_cache* cache = msg->cache;
-	msg->cache = NULL;
 	printk_call_hooks(msg);
-
-	if (cache)
-		slab_cache_free(cache, msg);
 }
 
 static bool use_early = true;
 
-void printk_rb_init(void) {
-	if (unlikely(ringbuffer_init(&rb, RINGBUFFER_OVERWRITE, 1024, sizeof(struct printk_msg*))))
+void printk_init(void) {
+	if (unlikely(ringbuffer_init(&rb, RINGBUFFER_OVERWRITE, 512, sizeof(struct printk_msg))))
 		return;
 	tid_t id = kthread_create(SCHED_THIS_CPU, printk_thread, NULL, "printk");
 	if (unlikely(id < 0)) {
@@ -88,13 +76,13 @@ void printk_add_to_ringbuffer(struct printk_msg* msg) {
 		printk_handle_message_early(msg);
 	} else {
 		handle_msg_time(msg);
-		ringbuffer_enqueue(&rb, &msg);
+		ringbuffer_enqueue(&rb, msg);
 	}
 
 	spinlock_unlock_irq_restore(&time_lock, &irq_flags);
 }
 
-void __printk_sched_gone(void) {
+void printk_sched_gone(void) {
 	spinlock_unlock(&time_lock);
 	use_early = true;
 }

@@ -19,11 +19,10 @@
 #define PRINTK_EMERG "\001\001"
 
 struct printk_msg {
-	struct slab_cache* cache;
-	char _msg[256];
-	char* msg;
-	char time[25];
 	int level, global_level;
+	char time[25];
+	u8 level_count;
+	char msg[1024];
 };
 
 /**

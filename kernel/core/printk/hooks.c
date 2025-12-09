@@ -61,6 +61,7 @@ void printk_call_hooks(const struct printk_msg* msg) {
 
 	if (msg->level <= msg->global_level) {
 		term_write(msg->time, strlen(msg->time));
-		term_write(msg->msg, strlen(msg->msg));
+		const char* _msg = msg->msg + msg->level_count;
+		term_write(_msg, strlen(_msg));
 	}
 }
