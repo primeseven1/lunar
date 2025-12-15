@@ -3,6 +3,7 @@
 #include <lunar/core/interrupt.h>
 #include <lunar/core/cpu.h>
 #include <lunar/core/apic.h>
+#include <lunar/sched/preempt.h>
 #include <lunar/sched/kthread.h>
 #include <lunar/init/status.h>
 #include "internal.h"
@@ -24,7 +25,7 @@ static void shootdown_ipi(struct isr* isr, struct context* ctx) {
 }
 
 static void do_shootdown(const struct smp_cpus* cpus, void* address, size_t size) {
-	spinlock_lock(&shootdown_lock);
+	spinlock_lock_preempt_disable(&shootdown_lock);
 
 	atomic_store(&shootdown_address, address);
 	atomic_store(&shootdown_size, size);
@@ -35,12 +36,11 @@ static void do_shootdown(const struct smp_cpus* cpus, void* address, size_t size
 	while (atomic_load(&shootdown_remaining))
 		cpu_relax();
 
-	spinlock_unlock(&shootdown_lock);
+	spinlock_unlock_preempt_enable(&shootdown_lock);
 }
 
 void tlb_invalidate(void* address, size_t size) {
 	const struct smp_cpus* cpus = smp_cpus_get();
-	irqflags_t irq = local_irq_save();
 
 	if (likely(init_status_get() >= INIT_STATUS_SCHED)) {
 		struct thread* current = current_thread();
@@ -50,7 +50,6 @@ void tlb_invalidate(void* address, size_t size) {
 	}
 
 	tlb_flush_range(address, size);
-	local_irq_restore(irq);
 }
 
 void vmm_tlb_init(void) {
