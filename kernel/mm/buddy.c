@@ -757,21 +757,21 @@ static int zone_init(struct zone* zone, mm_t zone_type,
 	if (last_usable < max_end)
 		max_end = last_usable;
 
-	size_t zone_size = max_end - min_start;
-	size_t max_area_size = PAGE_SIZE << (MAX_ORDER);
+	struct zone* const original_alloc_zone = alloc_zone;
 
 	/* First allocate the array of areas for the zone */
+	size_t zone_size = max_end - min_start;
+	const size_t max_area_size = PAGE_SIZE << (MAX_ORDER);
 	unsigned long area_count = zone_size / max_area_size;
 	if (unlikely(area_count == 0))
 		area_count = 1;
 	unsigned long atomic_count = (area_count * 5 + 99) / 100;
 	if (atomic_count == 0)
 		atomic_count = 1;
-
 	unsigned int area_order = get_order(sizeof(struct mem_area) * area_count);
-	physaddr_t _areas = __alloc_pages(alloc_zone, 0, area_order);
+	physaddr_t _areas = __alloc_pages(original_alloc_zone, 0, area_order);
 	if (unlikely(!_areas)) {
-		_areas = __alloc_pages(alloc_zone, MM_ATOMIC, area_order);
+		_areas = __alloc_pages(original_alloc_zone, MM_ATOMIC, area_order);
 		if (unlikely(!_areas))
 			return -ENOMEM;
 	}
@@ -784,21 +784,21 @@ static int zone_init(struct zone* zone, mm_t zone_type,
 		size_t area_size = rest > max_area_size ? max_area_size : rest;
 		int err = init_area(&areas[zone->area_count], min_start, area_size, zone->area_count < atomic_count, alloc_zone);
 
-		/* If there is no error, then the alloc zone can be the zone being initialized now that there is at least one area */
 		if (likely(err == 0)) {
 			min_start += area_size;
 			rest -= area_size;
-			alloc_zone = zone;
+			alloc_zone = zone; /* At least one area, so an attempt can be made at using the current zone */
+			continue;
+		} else if (unlikely(err == -ELOOP)) {
+			if (unlikely(--area_count == 0)) /* Don't bother with the zone */
+				__free_pages(original_alloc_zone, _areas, area_order);
+			else
+				break; /* Able to create at least one zone, so it's still usable */
+		} else if (err == -ENOMEM && zone == alloc_zone) {
+			alloc_zone = original_alloc_zone; /* Swap back to the original zone, and try the allocation there */
 			continue;
 		}
 
-		if (err == -ELOOP) {
-			if (unlikely(--area_count == 0)) { /* Don't bother with the zone */
-				__free_pages(alloc_zone, _areas, area_order);
-				return err;
-			}
-			break;
-		}
 		return err;
 	}
 
