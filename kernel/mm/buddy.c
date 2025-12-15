@@ -796,6 +796,7 @@ static int zone_init(struct zone* zone, mm_t zone_type,
 				break; /* Able to create at least one zone, so it's still usable */
 		} else if (err == -ENOMEM && zone == alloc_zone) {
 			alloc_zone = original_alloc_zone; /* Swap back to the original zone, and try the allocation there */
+			zone->area_count--;
 			continue;
 		}
 
