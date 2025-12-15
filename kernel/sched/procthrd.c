@@ -102,7 +102,7 @@ int thread_destroy(struct thread* thread) {
 	return 0;
 }
 
-struct proc* proc_create(const struct cred* cred) {
+struct proc* sched_proc_create(const struct cred* cred) {
 	struct proc* proc = slab_cache_alloc(proc_cache);
 	if (!proc)
 		return NULL;
@@ -131,7 +131,7 @@ struct proc* proc_create(const struct cred* cred) {
 	return proc;
 }
 
-int proc_destroy(struct proc* proc) {
+int sched_proc_destroy(struct proc* proc) {
 	if (atomic_load(&proc->thread_count))
 		return -EBUSY;
 

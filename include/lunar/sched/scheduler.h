@@ -1,6 +1,7 @@
 #pragma once
 
 #include <lunar/common.h>
+#include <lunar/core/abi.h>
 #include <lunar/core/spinlock.h>
 #include <lunar/core/interrupt.h>
 #include <lunar/core/timekeeper.h>
@@ -10,8 +11,6 @@
 #include <lunar/lib/list.h>
 
 struct cpu;
-typedef int pid_t;
-typedef int tid_t;
 
 #define SCHED_PRIO_MIN 1
 #define SCHED_PRIO_MAX 99
@@ -204,3 +203,22 @@ int sched_change_prio(struct thread* thread, int prio);
  * @breif Stop the current thread and make it a zombie.
  */
 _Noreturn void sched_thread_exit(void);
+
+/**
+ * @brief Create a process struct
+ * @return A pointer to the new process
+ */
+struct proc* sched_proc_create(const struct cred* cred);
+
+/**
+ * @brief Destroy a process struct
+ * @param proc The process to destroy
+ *
+ * @retval 0 Success
+ * @retval -EBUSY Process still has active threads
+ */
+int sched_proc_destroy(struct proc* proc);
+
+int sched_add_to_proctbl(struct proc* proc);
+int sched_get_from_proctbl(pid_t pid, struct proc** proc);
+int sched_remove_proctbl(pid_t pid);

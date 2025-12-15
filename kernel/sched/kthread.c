@@ -117,7 +117,7 @@ _Noreturn void kthread_exit(int exit) {
 __diag_push();
 __diag_ignore("-Wmissing-prototypes");
 
-__asmlinkage _Noreturn void __kthread_start(int (*func)(void*), void* arg) {
+_Noreturn void __asmlinkage __kthread_start(int (*func)(void*), void* arg) {
 	int ret = func(arg);
 	printk(PRINTK_WARN "kthread failed to call kthread_exit!\n");
 	dump_stack();
@@ -126,9 +126,9 @@ __asmlinkage _Noreturn void __kthread_start(int (*func)(void*), void* arg) {
 
 __diag_pop();
 
-void kthread_init(struct proc* kernel_proc) {
-	kproc = kernel_proc;
-	kthread_table = hashtable_create(50, sizeof(struct kthread));
+void kthread_init(void) {
+	sched_get_from_proctbl(0, &kproc);
+	kthread_table = hashtable_create(64, sizeof(struct kthread));
 	if (unlikely(!kthread_table))
 		panic("Failed to create kthread hashtable");
 }

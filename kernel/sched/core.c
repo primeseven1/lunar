@@ -379,14 +379,15 @@ _Noreturn void sched_thread_exit(void) {
 	__builtin_unreachable();
 }
 
-static struct proc* kproc;
-
 static void idle_thread(void) {
 	while (1)
 		cpu_halt();
 }
 
 static struct thread* create_bootstrap_thread(struct runqueue* rq, void* exec, int state, int prio) {
+	struct proc* kproc;
+	bug(sched_get_from_proctbl(0, &kproc) != 0);
+
 	struct thread* thread = thread_create(kproc, exec, PAGE_SIZE);
 	if (!thread)
 		panic("Failed to create a bootstrap thread\n");
@@ -446,13 +447,14 @@ void sched_init(void) {
 	ext_context_init();
 
 	const struct cred kernel_cred = { .gid = 0, .uid = 0 };
-	kproc = proc_create(&kernel_cred);
+	struct proc* kproc = sched_proc_create(&kernel_cred);
 	if (!kproc)
 		panic("Failed to create kernel process");
 	bug(kproc->pid != KERNEL_PID);
+	sched_add_to_proctbl(kproc);
 	kproc->mm_struct = current_cpu()->mm_struct;
 
-	kthread_init(kproc);
+	kthread_init();
 	sched_bootstrap_processor();
 	workqueue_init();
 	reaper_cpu_init();

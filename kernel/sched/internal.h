@@ -35,7 +35,7 @@ void preempt_cpu_init(void);
 void procthrd_init(void);
 void ext_context_cpu_init(void);
 void ext_context_init(void);
-void kthread_init(struct proc* kernel_proc);
+void kthread_init(void);
 void workqueue_cpu_init(void);
 void workqueue_init(void);
 void reaper_cpu_init(void);
@@ -131,21 +131,6 @@ struct thread* thread_create(struct proc* proc, void* exec, size_t stack_size);
  * @retval -EBUSY Refcount is not zero
  */
 int thread_destroy(struct thread* thread);
-
-/**
- * @brief Create a process struct
- * @return A pointer to the new process
- */
-struct proc* proc_create(const struct cred* cred);
-
-/**
- * @brief Destroy a process struct
- * @param proc The process to destroy
- *
- * @retval 0 Success
- * @retval -EBUSY Process still has active threads
- */
-int proc_destroy(struct proc* proc);
 
 /**
  * @brief Fully attach a thread to a process
