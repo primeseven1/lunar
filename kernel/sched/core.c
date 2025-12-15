@@ -445,13 +445,14 @@ void sched_init(void) {
 	preempt_cpu_init();
 	procthrd_init();
 	ext_context_init();
+	sched_proctbl_init();
 
 	const struct cred kernel_cred = { .gid = 0, .uid = 0 };
 	struct proc* kproc = sched_proc_create(&kernel_cred);
 	if (!kproc)
 		panic("Failed to create kernel process");
 	bug(kproc->pid != KERNEL_PID);
-	sched_add_to_proctbl(kproc);
+	bug(sched_add_to_proctbl(kproc) != 0);
 	kproc->mm_struct = current_cpu()->mm_struct;
 
 	kthread_init();
