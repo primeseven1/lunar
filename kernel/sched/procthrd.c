@@ -102,33 +102,33 @@ int thread_destroy(struct thread* thread) {
 	return 0;
 }
 
-struct proc* sched_proc_create(const struct cred* cred) {
+int sched_proc_create(const struct cred* cred, struct mm* mm_struct, struct proc** out) {
 	struct proc* proc = slab_cache_alloc(proc_cache);
 	if (!proc)
-		return NULL;
+		return -ENOMEM;
 
 	proc->pid = pid_alloc();
 	if (unlikely(proc->pid == -1)) {
 		slab_cache_free(proc_cache, proc);
-		return NULL;
+		return -EAGAIN;
 	}
 
-	proc->mm_struct = NULL;
+	proc->cred = *cred;
+	proc->mm_struct = mm_struct;
 	spinlock_init(&proc->tid_lock);
 	int err = tid_create_bitmap(proc);
 	if (err) {
 		pid_free(proc->pid);
 		slab_cache_free(proc_cache, proc);
-		return NULL;
+		return -ENOMEM;
 	}
-
-	proc->cred = *cred;
 
 	list_head_init(&proc->threads);
 	atomic_store(&proc->thread_count, 0);
 	spinlock_init(&proc->thread_lock);
 
-	return proc;
+	*out = proc;
+	return 0;
 }
 
 int sched_proc_destroy(struct proc* proc) {

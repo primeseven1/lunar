@@ -448,12 +448,12 @@ void sched_init(void) {
 	sched_proctbl_init();
 
 	const struct cred kernel_cred = { .gid = 0, .uid = 0 };
-	struct proc* kproc = sched_proc_create(&kernel_cred);
+	struct proc* kproc;
+	int err = sched_proc_create(&kernel_cred, current_cpu()->mm_struct, &kproc);
 	if (!kproc)
-		panic("Failed to create kernel process");
+		panic("Failed to create kernel process: %i", err);
 	bug(kproc->pid != KERNEL_PID);
 	bug(sched_add_to_proctbl(kproc) != 0);
-	kproc->mm_struct = current_cpu()->mm_struct;
 
 	kthread_init();
 	sched_bootstrap_processor();

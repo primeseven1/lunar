@@ -206,9 +206,16 @@ _Noreturn void sched_thread_exit(void);
 
 /**
  * @brief Create a process struct
- * @return A pointer to the new process
+ *
+ * @param cred The cred struct for the user
+ * @param mm_struct The memory management structure pointer
+ * @param out Where the pointer to the allocated process will be stored
+ *
+ * @retval -EAGAIN Cannot allocate a PID
+ * @retval -ENOMEM Out of memory
+ * @retval 0 Successful
  */
-struct proc* sched_proc_create(const struct cred* cred);
+int sched_proc_create(const struct cred* cred, struct mm* mm_struct, struct proc** out);
 
 /**
  * @brief Destroy a process struct
