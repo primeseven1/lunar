@@ -10,6 +10,7 @@
 #include <lunar/mm/hhdm.h>
 #include <lunar/lib/string.h>
 #include "internal.h"
+#include "lunar/mm/mm.h"
 #include "lunar/mm/vma.h"
 #include "lunar/mm/vmm.h"
 
@@ -276,12 +277,7 @@ void pagetable_init(void) {
 
 void pagetable_kmm_init(struct mm* mm_struct) {
 	pte_t* l4 = hhdm_virtual(ctl3_read());
-
-	mm_struct->pagetable = l4;
-	mm_struct->mmap_start = pagetable_get_base_address_from_top_index(L4_HH_START);
-	mm_struct->mmap_end = pagetable_get_base_address_from_top_index(L4_HH_END - 1);
-	list_head_init(&mm_struct->vma_list);
-	mutex_init(&mm_struct->vma_list_lock);
+	__mm_init(mm_struct, l4, KERNEL_SPACE_START, pagetable_get_base_address_from_top_index(L4_HH_END - 1));
 
 	/*
 	 * Create VMA's for already mapped pages, ignore the last entry as that's the kernel code/data

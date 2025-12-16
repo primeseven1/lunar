@@ -4,6 +4,13 @@
 
 #define MAX_ORDER 11
 
+static inline unsigned int get_order(size_t size) {
+	if (size <= PAGE_SIZE)
+		return 0;
+	unsigned long pages = (size + PAGE_SIZE - 1) >> PAGE_SHIFT;
+	return (sizeof(unsigned long) * 8 - __builtin_clzl(pages - 1));
+}
+
 /**
  * @brief Get the amount of memory in use by the system
  * @param total Where the total amount of memory will be stored

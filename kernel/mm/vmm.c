@@ -138,7 +138,7 @@ void* vmap(void* hint, size_t size, mmuflags_t mmu_flags, int flags, void* optio
 		mm_struct = &kernel_mm_struct;
 	}
 
-	mutex_lock(&mm_struct->vma_list_lock);
+	mutex_lock(&mm_struct->vma_lock);
 
 	/* If a fixed/replace mapping, the previous state must be saved first */
 	struct prevpage* prev_pages = NULL;
@@ -172,7 +172,7 @@ void* vmap(void* hint, size_t size, mmuflags_t mmu_flags, int flags, void* optio
 	if (prev_pages)
 		prevpage_success(prev_pages, PREVPAGE_FREE_PREVIOUS);
 	tlb_invalidate(virtual, size);
-	mutex_unlock(&mm_struct->vma_list_lock);
+	mutex_unlock(&mm_struct->vma_lock);
 
 	return virtual;
 err:
@@ -182,7 +182,7 @@ err:
 	if (prev_pages)
 		prevpage_fail(mm_struct, prev_pages);
 	tlb_invalidate(virtual, size);
-	mutex_unlock(&mm_struct->vma_list_lock);
+	mutex_unlock(&mm_struct->vma_lock);
 
 	return ERR_PTR(err);
 }
@@ -202,7 +202,7 @@ int vprotect(void* virtual, size_t size, mmuflags_t mmu_flags, int flags) {
 	int err = 0;
 	size_t tlb_flush_round = PAGE_SIZE;
 
-	mutex_lock(&mm_struct->vma_list_lock);
+	mutex_lock(&mm_struct->vma_lock);
 
 	struct prevpage* prevpages = prevpage_save(mm_struct, virtual, size);
 
@@ -245,7 +245,7 @@ out:
 	else
 		prevpage_success(prevpages, 0);
 	tlb_invalidate(start, ROUND_UP(size, tlb_flush_round));
-	mutex_unlock(&mm_struct->vma_list_lock);
+	mutex_unlock(&mm_struct->vma_lock);
 	return err;
 }
 
@@ -261,7 +261,7 @@ int vunmap(void* virtual, size_t size, int flags) {
 	size_t tlb_invalidate_round = PAGE_SIZE;
 	int err;
 
-	mutex_lock(&mm_struct->vma_list_lock);
+	mutex_lock(&mm_struct->vma_lock);
 
 	struct prevpage* prevpages = prevpage_save(mm_struct, virtual, size);
 
@@ -306,7 +306,7 @@ err:
 		prevpage_success(prevpages, PREVPAGE_FREE_PREVIOUS);
 	}
 
-	mutex_unlock(&mm_struct->vma_list_lock);
+	mutex_unlock(&mm_struct->vma_lock);
 	return err;
 }
 
@@ -383,14 +383,6 @@ void vmm_init(void) {
 	pagetable_init();
 	struct cpu* cpu = current_cpu();
 	cpu->mm_struct = &kernel_mm_struct;
+	mm_cache_init();
 	pagetable_kmm_init(&kernel_mm_struct);
-}
-
-void vmm_switch_mm_struct(struct mm* mm) {
-	irqflags_t irq = local_irq_save();
-
-	ctl3_write(hhdm_physical(mm->pagetable));
-	current_cpu()->mm_struct = mm;
-
-	local_irq_restore(irq);
 }

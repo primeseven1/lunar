@@ -15,8 +15,6 @@ static SPINLOCK_DEFINE(shootdown_lock);
 
 static struct isr* shootdown_isr;
 
-#define KERNEL_SPACE_START ((void*)0xFFFF800000000000)
-
 static void shootdown_ipi(struct isr* isr, struct context* ctx) {
 	(void)isr;
 	(void)ctx;
