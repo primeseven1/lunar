@@ -18,20 +18,23 @@ static inline u64 fnv1a64_hash(const void* bytes, size_t size) {
 	return hash;
 }
 
-struct hashtable* hashtable_create(unsigned int head_count, size_t value_size) {
-	if (head_count == 0)
+struct hashtable* hashtable_create(unsigned int bucket_count, size_t value_size) {
+	if (bucket_count == 0 || value_size == 0)
 		return NULL;
 	struct hashtable* table = kmalloc(sizeof(*table), MM_ZONE_NORMAL);
 	if (!table)
 		return NULL;
 
-	table->heads = kzalloc(head_count * sizeof(*table->heads), MM_ZONE_NORMAL);
-	if (!table->heads) {
+	table->buckets = kmalloc(bucket_count * sizeof(*table->buckets), MM_ZONE_NORMAL);
+	if (!table->buckets) {
 		kfree(table);
 		return NULL;
 	}
 
-	table->head_count = head_count;
+	for (unsigned int i = 0; i < bucket_count; i++)
+		list_head_init(&table->buckets[i]);
+
+	table->bucket_count = bucket_count;
 	table->size = 0;
 	table->value_size = value_size;
 	mutex_init(&table->lock);
@@ -50,6 +53,7 @@ hashtable_node_create(const void* key, const void* value, size_t key_size, size_
 		kfree(node);
 		return NULL;
 	}
+	node->key_size = key_size;
 
 	node->value = kmalloc(value_size, MM_ZONE_NORMAL);
 	if (!node->value) {
@@ -60,32 +64,30 @@ hashtable_node_create(const void* key, const void* value, size_t key_size, size_
 
 	memcpy(node->key, key, key_size);
 	memcpy(node->value, value, value_size);
-	node->next = NULL;
+	list_node_init(&node->link);
 
 	return node;
 }
 
 int hashtable_insert(struct hashtable* table, const void* key, size_t key_size, const void* value) {
 	u64 hash = fnv1a64_hash(key, key_size);
-	int ret;
+	int ret = 0;
 
 	mutex_lock(&table->lock);
 
-	size_t index = hash % table->head_count;
+	size_t index = hash % table->bucket_count;
+	struct list_head* bucket = &table->buckets[index];
 
-	struct hashtable_node* node = table->heads[index];
-	struct hashtable_node* prev = NULL;
-
-	/* See if the key is already in the table */
-	while (node) {
+	/* Check if the key is already in the table */
+	struct list_node* pos;
+	list_for_each(pos, bucket) {
+		struct hashtable_node* node = list_entry(pos, struct hashtable_node, link);
+		if (key_size != node->key_size)
+			continue;
 		if (memcmp(node->key, key, key_size) == 0) {
 			memcpy(node->value, value, table->value_size);
-			ret = 0;
 			goto out;
 		}
-
-		prev = node;
-		node = node->next;
 	}
 
 	/* Since there is no matching key, another node needs to be created */
@@ -95,13 +97,8 @@ int hashtable_insert(struct hashtable* table, const void* key, size_t key_size, 
 		goto out;
 	}
 
-	if (prev)
-		prev->next = new;
-	else
-		table->heads[index] = new;
+	list_add(bucket, &new->link);
 	table->size++;
-
-	ret = 0;
 out:
 	mutex_unlock(&table->lock);
 	return ret;
@@ -109,21 +106,22 @@ out:
 
 int hashtable_search(struct hashtable* table, const void* key, size_t key_size, void* value) {
 	u64 hash = fnv1a64_hash(key, key_size);
-	int ret;
+	int ret = 0;
 
 	mutex_lock(&table->lock);
 
-	size_t index = hash % table->head_count;
+	size_t index = hash % table->bucket_count;
+	struct list_head* bucket = &table->buckets[index];
 
-	const struct hashtable_node* node = table->heads[index];
-	while (node) {
+	struct list_node* pos;
+	list_for_each(pos, bucket) {
+		struct hashtable_node* node = list_entry(pos, struct hashtable_node, link);
+		if (key_size != node->key_size)
+			continue;
 		if (memcmp(node->key, key, key_size) == 0) {
 			memcpy(value, node->value, table->value_size);
-			ret = 0;
 			goto out;
 		}
-		
-		node = node->next;
 	}
 
 	ret = -ENOENT;
@@ -134,34 +132,28 @@ out:
 
 int hashtable_remove(struct hashtable* table, const void* key, size_t key_size) {
 	u64 hash = fnv1a64_hash(key, key_size);
-	int ret;
+	int ret = 0;
 
 	mutex_lock(&table->lock);
 
-	size_t index = hash % table->head_count;
+	size_t index = hash % table->bucket_count;
+	struct list_head* bucket = &table->buckets[index];
 
-	struct hashtable_node* node = table->heads[index];
-	struct hashtable_node* prev = NULL;
-
-	/* Search for the key in the table */
-	while (node) {
+	struct list_node* pos, *tmp;
+	list_for_each_safe(pos, tmp, bucket) {
+		struct hashtable_node* node = list_entry(pos, struct hashtable_node, link);
+		if (key_size != node->key_size)
+			continue;
 		if (memcmp(node->key, key, key_size) == 0) {
-			if (prev)
-				prev->next = node->next;
-			else
-				table->heads[index] = node->next;
-
 			kfree(node->key);
 			kfree(node->value);
-			kfree(node);
 
+			list_remove(&node->link);
+			kfree(node);
 			table->size--;
-			ret = 0;
+
 			goto out;
 		}
-
-		prev = node;
-		node = node->next;
 	}
 
 	ret = -ENOENT;
@@ -171,44 +163,17 @@ out:
 }
 
 void hashtable_destroy(struct hashtable* table) {
-	for (size_t i = 0; i < table->head_count; i++) {
-		struct hashtable_node* node = table->heads[i];
-		while (node) {
-			struct hashtable_node* next = node->next;
-			kfree(node->key);
-			kfree(node->value);
-			kfree(node);
-			node = next;
+	for (size_t i = 0; i < table->bucket_count; i++) {
+		struct list_head* bucket = &table->buckets[i];
+		struct hashtable_node* pos, *tmp;
+		list_for_each_entry_safe(pos, tmp, bucket, link) {
+			kfree(pos->key);
+			kfree(pos->value);
+			list_remove(&pos->link);
+			kfree(pos);
 		}
 	}
 
-	kfree(table->heads);
+	kfree(table->buckets);
 	kfree(table);
-}
-
-struct hashtable_node* ____hashtable_iter_next(struct hashtable_iter* iter) {
-	if (iter->node) {
-		iter->node = iter->node->next;
-		if (iter->node)
-			return iter->node;
-	}
-
-	while (iter->bucket < iter->table->head_count) {
-		struct hashtable_node* head = iter->table->heads[iter->bucket++];
-		if (head) {
-			iter->node = head;
-			return iter->node;
-		}
-	}
-
-	return NULL;
-}
-
-bool __hashtable_iter_next(struct hashtable_iter* iter, void* value_out) {
-	struct hashtable_node* node = ____hashtable_iter_next(iter);
-	if (!node)
-		return false;
-
-	memcpy(value_out, node->value, iter->table->value_size);
-	return true;
 }

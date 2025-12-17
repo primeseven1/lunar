@@ -5,13 +5,14 @@
 
 struct hashtable_node {
 	void* key;
+	size_t key_size;
 	void* value;
-	struct hashtable_node* next;
+	struct list_node link;
 };
 
 struct hashtable {
-	struct hashtable_node** heads;
-	unsigned int head_count;
+	struct list_head* buckets;
+	unsigned int bucket_count;
 	size_t size;
 	size_t value_size;
 	mutex_t lock;
@@ -30,7 +31,7 @@ struct hashtable_iter {
  * collisions, it uses separate chaining. Since this implementation does implement rehashing,
  * it's important that you balance the head count and memory usage.
  *
- * @param head_count The number of heads the linked list should use
+ * @param bucket_count The number of buckets, the higher the number, the less collisions
  * @param value_size The size of the values
  *
  * @return A pointer to the new hashtable, NULL if memory could not be allocated
@@ -57,6 +58,7 @@ int hashtable_insert(struct hashtable* table, const void* key, size_t key_size, 
  *
  * @param[in] table The table to search in
  * @param[in] key The key to use
+ * @param[in] key_size The size of the key
  * @param[out] value The pointer to where the value will be copied
  *
  * @retval 0 Successful
@@ -84,23 +86,3 @@ int hashtable_remove(struct hashtable* table, const void* key, size_t key_size);
  * @param table The table to destroy
  */
 void hashtable_destroy(struct hashtable* table);
-
-struct hashtable_node* ____hashtable_iter_next(struct hashtable_iter* iter);
-bool __hashtable_iter_next(struct hashtable_iter* iter, void* value_out);
-
-static inline void __hashtable_iter_init(struct hashtable* table, struct hashtable_iter* iter) {
-	iter->table = table;
-	iter->bucket = 0;
-	iter->node = NULL;
-	mutex_lock(&table->lock);
-}
-
-static inline void __hashtable_iter_finalize(struct hashtable_iter* iter) {
-	mutex_unlock(&iter->table->lock);
-}
-
-#define hashtable_for_each_entry(table, iter, val) \
-	for (__hashtable_iter_init((table), (iter)); __hashtable_iter_next((iter), &(val)) || (__hashtable_iter_finalize((iter)), 0);)
-#define hashtable_for_each_entry_safe(table, iter, val, node) \
-	for (__hashtable_iter_init((table), (iter)); ((node) = ____hashtable_iter_next((iter))) != NULL || (__hashtable_iter_finalize((iter)), 0);) \
-		for (memcpy(&(val), (node)->value, (iter)->table->value_size); node != NULL; node = NULL)
