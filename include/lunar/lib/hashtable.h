@@ -36,7 +36,7 @@ struct hashtable_iter {
  *
  * @return A pointer to the new hashtable, NULL if memory could not be allocated
  */
-struct hashtable* hashtable_create(unsigned int head_count, size_t value_size);
+struct hashtable* hashtable_create(unsigned int bucket_count, size_t value_size);
 
 /**
  * @brief Insert a value into a hash table
