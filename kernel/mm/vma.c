@@ -213,23 +213,15 @@ int vma_unmap(struct mm* mm, void* address, size_t size) {
 	if (size == 0 || !address || (uintptr_t)address % PAGE_SIZE)
 		return -EINVAL;
 
-	struct vma* split = vma_alloc();
-	bool split_needed = false;
-	bool overlap_found = false;
-
-	int err = 0;
-
 	uintptr_t start = (uintptr_t)address;
 	uintptr_t end;
-	if (__builtin_add_overflow(start, size, &end)) {
-		err = -ERANGE;
-		goto out;
-	}
-	if (end >= UINTPTR_MAX - PAGE_SIZE) {
-		err = -ERANGE;
-		goto out;
-	}
+	if (__builtin_add_overflow(start, size, &end))
+		return -ERANGE;
+	if (end >= UINTPTR_MAX - PAGE_SIZE)
+		return -ERANGE;
+	end = ROUND_UP(end, PAGE_SIZE);
 
+	bool overlap_found = false;
 	struct vma* v, *n;
 	list_for_each_entry_safe(v, n, &mm->vma_list, link) {
 		if (v->top <= start || v->start >= end)
@@ -243,25 +235,20 @@ int vma_unmap(struct mm* mm, void* address, size_t size) {
 			vma_free(v);
 		} else if (start <= v->start) {
 			v->start = end;
-			goto out;
+			break;
 		} else if (end >= v->top) {
 			v->top = start;
 		} else {
-			split_needed = true;
+			struct vma* split = vma_alloc();
 			split->start = end;
 			split->flags = v->flags;
 			split->prot = v->prot;
 			split->top = v->top;
 			v->top = start;
 			list_add_between(&v->link, v->link.next, &split->link);
-			goto out;
+			break;
 		}
 	}
 
-	if (!overlap_found)
-		err = -ENOENT;
-out:
-	if (!split_needed)
-		vma_free(split);
-	return err;
+	return overlap_found ? 0 : -ENOENT;
 }
