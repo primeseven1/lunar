@@ -124,7 +124,7 @@ int vma_map(struct mm* mm, void* hint, size_t size, mmuflags_t prot, int flags, 
 	}
 
 	if (likely(prev))
-		list_add_between(&prev->link, &iter->link, &vma->link);
+		list_add_after(&prev->link, &vma->link);
 	else
 		list_add(&mm->vma_list, &vma->link);
 
@@ -163,7 +163,7 @@ int vma_protect(struct mm* mm, void* address, size_t size, mmuflags_t prot) {
 		start_split->prot = v->prot;
 		start_split->flags = v->flags;
 		v->top = start;
-		list_add_between(&v->link, v->link.next, &start_split->link);
+		list_add_after(&v->link, &start_split->link);
 	}
 
 	/* Handle end split */
@@ -182,7 +182,7 @@ int vma_protect(struct mm* mm, void* address, size_t size, mmuflags_t prot) {
 		end_split->prot = u->prot;
 		end_split->flags = u->flags;
 		u->top = end;
-		list_add_between(&u->link, u->link.next, &end_split->link);
+		list_add_after(&u->link, &end_split->link);
 	}
 
 	/* Apply protection flags */
@@ -245,7 +245,7 @@ int vma_unmap(struct mm* mm, void* address, size_t size) {
 			split->prot = v->prot;
 			split->top = v->top;
 			v->top = start;
-			list_add_between(&v->link, v->link.next, &split->link);
+			list_add_after(&v->link, &split->link);
 			break;
 		}
 	}
