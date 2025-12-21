@@ -136,24 +136,12 @@ int vma_protect(struct mm* mm, void* address, size_t size, mmuflags_t prot) {
 	if (!address || size == 0 || (uintptr_t)address % PAGE_SIZE)
 		return -EINVAL;
 
-	struct vma* start_split = vma_alloc();
-	struct vma* end_split = vma_alloc();
-
-	bool start_split_needed = false;
-	bool end_split_needed = false;
-
-	int err = 0;
-
 	uintptr_t start = (uintptr_t)address;
 	uintptr_t end;
-	if (__builtin_add_overflow(start, size, &end)) {
-		err = -ERANGE;
-		goto out;
-	}
-	if (end >= UINTPTR_MAX - PAGE_SIZE) {
-		err = -ERANGE;
-		goto out;
-	}
+	if (__builtin_add_overflow(start, size, &end))
+		return -ERANGE;
+	if (end >= UINTPTR_MAX - PAGE_SIZE)
+		return -ERANGE;
 	end = ROUND_UP(end, PAGE_SIZE);
 
 	struct vma* v = NULL;
@@ -164,14 +152,12 @@ int vma_protect(struct mm* mm, void* address, size_t size, mmuflags_t prot) {
 			break;
 		}
 	}
-	if (!v) {
-		err = -ENOENT;
-		goto out;
-	}
+	if (!v)
+		return -ENOENT;
 
 	/* Handle start split */
 	if (start > v->start) {
-		start_split_needed = true;
+		struct vma* start_split = vma_alloc();
 		start_split->start = start;
 		start_split->top = v->top;
 		start_split->prot = v->prot;
@@ -188,9 +174,9 @@ int vma_protect(struct mm* mm, void* address, size_t size, mmuflags_t prot) {
 			break;
 		}
 	}
-	assert(u != NULL);
+	bug(u == NULL);
 	if (end < u->top) {
-		end_split_needed = true;
+		struct vma* end_split = vma_alloc();
 		end_split->start = end;
 		end_split->top = u->top;
 		end_split->prot = u->prot;
@@ -219,12 +205,8 @@ int vma_protect(struct mm* mm, void* address, size_t size, mmuflags_t prot) {
 
 		current = next;
 	}
-out:
-	if (!start_split_needed)
-		vma_free(start_split);
-	if (!end_split_needed)
-		vma_free(end_split);
-	return err;
+
+	return 0;
 }
 
 int vma_unmap(struct mm* mm, void* address, size_t size) {
