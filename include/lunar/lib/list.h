@@ -43,10 +43,6 @@ static inline void list_add_tail(struct list_head* head, struct list_node* node)
 	__list_add(node, head->node.prev, &head->node);
 }
 
-static inline void list_add_between(struct list_node* prev, struct list_node* next, struct list_node* node) {
-	__list_add(node, prev, next);
-}
-
 static inline void list_add_before(struct list_node* pos, struct list_node* node) {
 	__list_add(node, pos->prev, pos);
 }
