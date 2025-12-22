@@ -46,7 +46,8 @@ static const struct sched_policy* decide_sched_policy(void) {
 
 static inline void set_policy(const struct sched_policy* policy) {
 	struct cpu* cpu = current_cpu();
-	assert(policy->ops->init(&cpu->runqueue) == 0);
+	if (unlikely(policy->ops->init(&cpu->runqueue)))
+		panic("Failed to set scheduling policy %s, please select a different policy", policy->name);
 	cpu->runqueue.policy = policy;
 }
 

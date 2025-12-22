@@ -134,24 +134,28 @@ struct thread* thread_create(struct proc* proc, void* exec, size_t stack_size);
 int thread_destroy(struct thread* thread);
 
 /**
- * @brief Fully attach a thread to a process
+ * @brief Adds a thread to the process's list
  *
- * Attaches to the process that was chosen when the thread was created.
+ * Process is taken from thread->proc
  *
  * @param thread The thread to attach
+ *
  * @retval -EALREADY Thread already attached
  * @retval 0 Success
  */
-int thread_attach_to_proc(struct thread* thread);
+int thread_add_to_proc(struct thread* thread);
 
 /**
- * @brief Fully detach a thread from a process
+ * @brief Remove a thread from a process list
  *
- * @param thread The thread to detach
- * @reval -ENOENT Thread not previously attached
+ * Process is taken from thread->proc
+ *
+ * @param thread The thread to remove
+ *
+ * @reval -ENOENT Thread not previously added
  * @reval 0 Success
  */
-int thread_detach_from_proc(struct thread* thread);
+int thread_remove_from_proc(struct thread* thread);
 
 /**
  * @brief Allocate an extended processor context

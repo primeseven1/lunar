@@ -82,7 +82,7 @@ struct thread* thread_create(struct proc* proc, void* exec, size_t stack_size) {
 err_utk_stack:
 	ext_ctx_free(thread->ctx.extended);
 err_ctx:
-	assert(vunmap(thread->stack, stack_total, 0) == 0);
+	bug(vunmap(thread->stack, stack_total, 0) != 0);
 err_stack:
 	tid_free(proc, thread->id);
 err_id:
@@ -94,7 +94,7 @@ int thread_destroy(struct thread* thread) {
 		return -EBUSY;
 
 	const size_t stack_total = thread->stack_size + THREAD_STACK_GUARD_SIZE;
-	assert(vunmap(thread->stack, stack_total, 0) == 0);
+	bug(vunmap(thread->stack, stack_total, 0) != 0);
 	tid_free(thread->proc, thread->id);
 	ext_ctx_free(thread->ctx.extended);
 
@@ -142,7 +142,7 @@ int sched_proc_destroy(struct proc* proc) {
 	return 0;
 }
 
-int thread_attach_to_proc(struct thread* thread) {
+int thread_add_to_proc(struct thread* thread) {
 	struct proc* proc = thread->proc;
 	irqflags_t irq;
 	spinlock_lock_irq_save(&proc->thread_lock, &irq);
@@ -161,7 +161,7 @@ err:
 	return err;
 }
 
-int thread_detach_from_proc(struct thread* thread) {
+int thread_remove_from_proc(struct thread* thread) {
 	struct proc* proc = thread->proc;
 	irqflags_t irq;
 	spinlock_lock_irq_save(&proc->thread_lock, &irq);

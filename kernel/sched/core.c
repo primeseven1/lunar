@@ -23,7 +23,7 @@ int sched_thread_attach(struct runqueue* rq, struct thread* thread, int prio) {
 		return -ENOMEM;
 
 	atomic_store(&thread->state, THREAD_READY);
-	assert(thread_attach_to_proc(thread) == 0);
+	bug(thread_add_to_proc(thread) != 0);
 
 	thread->policy_priv = priv;
 
@@ -51,7 +51,7 @@ void sched_thread_detach(struct runqueue* rq, struct thread* thread) {
 	atomic_sub_fetch(&rq->thread_count, 1);
 	spinlock_unlock_irq_restore(&rq->lock, &irq);
 
-	assert(thread_detach_from_proc(thread) == 0);
+	bug(thread_remove_from_proc(thread) != 0);
 	size_t sz = rq->policy->thread_priv_size;
 	thread->attached = false;
 	if (sz == 0)
