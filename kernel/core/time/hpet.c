@@ -99,9 +99,7 @@ static int init(struct timekeeper_source** out) {
 		goto err_cleanup;
 	}
 
-	/* May be accessed by another CPU, so do a memory fence here */
 	hpet_source = &_hpet_source;
-	atomic_thread_fence(ATOMIC_SEQ_CST);
 	*out = hpet_source;
 
 	/* Enable the HPET */

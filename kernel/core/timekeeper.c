@@ -134,7 +134,5 @@ void timekeeper_init(void) {
 	}
 
 	get_timekeeper(TIMEKEEPER_WALLCLOCK, false, &wallclock_source);
-
-	atomic_thread_fence(ATOMIC_RELEASE);
 	printk(PRINTK_INFO "core: Timekeeper source %s chosen (frequency %llu mhz)\n", name, source->fb_freq / 1000000);
 }
