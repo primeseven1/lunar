@@ -1,5 +1,6 @@
 #include <lunar/asm/wrap.h>
 #include <lunar/asm/cpuid.h>
+#include <lunar/asm/ctl.h>
 #include <lunar/asm/segment.h>
 #include <lunar/core/cpu.h>
 #include <lunar/core/printk.h>
@@ -104,13 +105,32 @@ static void enable_syscall(void) {
 	u32 _unused, edx;
 	cpuid(CPUID_EXT_LEAF_PROC_INFO, 0, &_unused, &_unused, &_unused, &edx);
 	if (unlikely(!(edx & (1 << 11))))
-		panic("syscall instruction unsupported by CPU");
+		panic("syscall instruction unsupported by CPU\n");
 
 	wrmsr(MSR_EFER, rdmsr(MSR_EFER) | MSR_EFER_SCE);
 	wrmsr(MSR_LSTAR, (uintptr_t)asm_syscall_entry);
 	wrmsr(MSR_STAR, SEGMENT_KERNEL_CODE << 16 | SEGMENT_USER_CODE);
 	wrmsr(MSR_CSTAR, 0);
 	wrmsr(MSR_SF_MASK, CPU_FLAG_INTERRUPT);
+}
+
+static void enable_sse(void) {
+	u32 edx, _unused;
+
+	/* Check for fxsave/fxrstor, any real x86_64 bit cpu will have this bit set */
+	cpuid(1, 0, &_unused, &_unused, &_unused, &edx);
+	if (unlikely(!(edx & (1 << 24))))
+		panic("CPU does not support fxsave/fxrstor\n");
+
+	unsigned long ctl = ctl0_read();
+	ctl &= ~CTL0_EM;
+	ctl |= CTL0_MP;
+	ctl0_write(ctl);
+	ctl = ctl4_read();
+	ctl |= CTL4_OSFXSR | CTL4_OSXMMEXCEPT;
+	ctl4_write(ctl);
+
+	cpu_ldmxcsr(0x1f80);
 }
 
 static atomic(u32) sched_ids = atomic_init(1);
@@ -145,4 +165,5 @@ void percpu_bsp_init(void) {
 	wrmsr(MSR_GS_BASE, (uintptr_t)&bsp_cpu);
 
 	enable_syscall();
+	enable_sse();
 }
