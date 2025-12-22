@@ -418,7 +418,6 @@ static void sched_bootstrap_processor(void) {
 void sched_cpu_init(void) {
 	sched_policy_cpu_init();
 	preempt_cpu_init();
-	ext_context_cpu_init();
 	sched_bootstrap_processor();
 	workqueue_cpu_init();
 	reaper_cpu_init();
