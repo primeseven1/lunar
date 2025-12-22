@@ -175,5 +175,4 @@ void heap_init(void) {
 	vmalloc_hashtable = hashtable_create(128, sizeof(void*));
 	if (!vmalloc_hashtable)
 		panic("Failed to create vmalloc hashtable");
-	atomic_thread_fence(ATOMIC_RELEASE);
 }
