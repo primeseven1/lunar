@@ -102,5 +102,5 @@ static struct timekeeper __timekeeper tsc_timekeeper = {
 	.type = TIMEKEEPER_FROMBOOT,
 	.init = init,
 	.rating = 90, /* Good with invariant TSC, and very fast */
-	.early = false
+	.flags = 0
 };

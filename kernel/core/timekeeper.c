@@ -1,11 +1,13 @@
 #include <lunar/types.h>
 #include <lunar/common.h>
+#include <lunar/init/status.h>
 #include <lunar/asm/wrap.h>
 #include <lunar/core/printk.h>
 #include <lunar/core/panic.h>
 #include <lunar/core/timekeeper.h>
 #include <lunar/core/cpu.h>
 #include <lunar/core/interrupt.h>
+#include <lunar/sched/preempt.h>
 
 static inline time_t scale_ticks_to_ns(time_t ticks, unsigned long long freq) {
 	i128 tmp = (i128)ticks * 1000000000ull;
@@ -44,15 +46,12 @@ struct timespec timekeeper_time(int type) {
 }
 
 void timekeeper_stall(time_t usec) {
-	irqflags_t irq_state = local_irq_save();
-	struct timekeeper_source* tk_src = current_cpu()->timekeeper;
+	bool init_sched = init_status_get() >= INIT_STATUS_SCHED;
+	if (likely(init_sched))
+		preempt_disable();
 
-	/*
-	 * Returning instead of a panic can be bad since a stall is required for some hardware,
-	 * and stalling for more than 5 seconds is dumb
-	 */
+	struct timekeeper_source* tk_src = current_cpu()->timekeeper;
 	bug(tk_src == NULL);
-	bug(usec > 5000000);
 
 	unsigned long long ticks_per_us = tk_src->fb_freq / 1000000;
 	time_t start = tk_src->fb_ticks();
@@ -61,7 +60,8 @@ void timekeeper_stall(time_t usec) {
 	while (tk_src->fb_ticks() < end)
 		cpu_relax();
 
-	local_irq_restore(irq_state);
+	if (likely(init_sched))
+		preempt_enable();
 }
 
 extern struct timekeeper _ld_kernel_timekeepers_start[];
@@ -75,7 +75,8 @@ static struct timekeeper* __get_timekeeper(int type, bool early) {
 		struct timekeeper* tk = &_ld_kernel_timekeepers_start[i];
 		if (tk->type != type)
 			continue;
-		if (tk->rating == 0 || tk->early != early)
+		bool tk_early = !!(tk->flags & TIMEKEEPER_FLAG_EARLY);
+		if (tk->rating == 0 || early != tk_early)
 			continue;
 
 		if (!best)
@@ -109,8 +110,8 @@ void timekeeper_cpu_init(void) {
 	err = keeper->init(&current_cpu()->timekeeper);
 	if (err)
 		panic("Failed to initialize timekeeper for AP");
-	printk(PRINTK_INFO "core: Timekeeper frequency %llu mhz on CPU %u\n", 
-			cpu->timekeeper->fb_freq / 1000000, cpu->sched_processor_id);
+	printk(PRINTK_INFO "timekeeper: %s frequency %llu mhz on CPU %u\n", 
+			keeper->name, cpu->timekeeper->fb_freq / 1000000, cpu->sched_processor_id);
 }
 
 void timekeeper_init(void) {
@@ -119,7 +120,7 @@ void timekeeper_init(void) {
 	/* The real timekeeper may need another working timekeeper */
 	struct timekeeper_source* source;
 	early_keeper = get_timekeeper(TIMEKEEPER_FROMBOOT, true, &source);
-	if (!early_keeper)
+	if (unlikely(!early_keeper))
 		panic("No early timekeeper could be selected");
 	current_cpu()->timekeeper = source;
 	name = early_keeper->name;
@@ -131,8 +132,10 @@ void timekeeper_init(void) {
 		current_cpu()->timekeeper = source;
 	} else {
 		keeper = early_keeper;
+		if (unlikely(keeper->flags & TIMEKEEPER_FLAG_EARLY_ONLY))
+			panic("No available late timekeeper");
 	}
 
 	get_timekeeper(TIMEKEEPER_WALLCLOCK, false, &wallclock_source);
-	printk(PRINTK_INFO "core: Timekeeper source %s chosen (frequency %llu mhz)\n", name, source->fb_freq / 1000000);
+	printk(PRINTK_INFO "timekeeper: Source %s chosen (frequency %llu mhz)\n", name, source->fb_freq / 1000000);
 }

@@ -37,6 +37,7 @@ enum hpet_caps {
 
 static struct acpi_hpet* hpet;
 static u64 __iomem* hpet_virtual;
+static bool hpet_32bit = false;
 
 static inline u64 hpet_read(unsigned int reg) {
 	return readq(hpet_virtual + reg);
@@ -47,11 +48,22 @@ static inline void hpet_write(unsigned int reg, u64 x) {
 }
 
 static time_t fb_ticks(void) {
-	return hpet_read(HPET_REG_COUNTER);	
+	u64 value = hpet_read(HPET_REG_COUNTER);
+	return hpet_32bit ? value & U32_MAX : value; /* early only for 32 bit, so wrap around should never happen */
 }
 
 static struct timekeeper_source _hpet_source;
 static struct timekeeper_source* hpet_source = NULL;
+
+static int init(struct timekeeper_source** out);
+
+static struct timekeeper __timekeeper hpet_timekeeper = {
+	.name = "hpet",
+	.type = TIMEKEEPER_FROMBOOT,
+	.init = init,
+	.rating = 60, /* Slow to access, but very accurate */
+	.flags = TIMEKEEPER_FLAG_EARLY
+};
 
 static int init(struct timekeeper_source** out) {
 	if (hpet_source) {
@@ -93,10 +105,10 @@ static int init(struct timekeeper_source** out) {
 	hpet_write(HPET_REG_CONFIG, 0);
 	hpet_write(HPET_REG_COUNTER, 0);
 
-	/* Make sure the HPET supports 64 bit */
+	/* If only a 32 bit counter, this can ONLY be used for early boot */
 	if (!(hpet->block_id & ACPI_HPET_COUNT_SIZE_CAP)) {
-		err = -ENOSYS;
-		goto err_cleanup;
+		hpet_timekeeper.flags |= TIMEKEEPER_FLAG_EARLY_ONLY;
+		hpet_32bit = true;
 	}
 
 	hpet_source = &_hpet_source;
@@ -106,17 +118,7 @@ static int init(struct timekeeper_source** out) {
 	hpet_write(HPET_REG_CONFIG, 1);
 	return 0;
 err_cleanup:
-	if (unlikely(iounmap(hpet_virtual, PAGE_SIZE)))
-		printk(PRINTK_ERR "core: Failed to unmap IO memory for HPET in error handling\n");
+	bug(iounmap(hpet_virtual, PAGE_SIZE) != 0);
 	hpet_virtual = NULL;
-
 	return err;
 }
-
-static struct timekeeper __timekeeper hpet_timekeeper = {
-	.name = "hpet",
-	.type = TIMEKEEPER_FROMBOOT,
-	.init = init,
-	.rating = 60, /* Slow to access, but very accurate */
-	.early = true
-};

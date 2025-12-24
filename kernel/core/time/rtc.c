@@ -127,6 +127,6 @@ static struct timekeeper __timekeeper rtc_timekeeper = {
 	.name = "rtc",
 	.type = TIMEKEEPER_WALLCLOCK,
 	.init = init,
-	.early = false,
+	.flags = 0,
 	.rating = 1 /* No idea how this should be rated */
 };

@@ -11,6 +11,11 @@ enum timekeeper_types {
 	TIMEKEEPER_WALLCLOCK /* Starts from epoch time */
 };
 
+enum timekeeper_flags {
+	TIMEKEEPER_FLAG_EARLY = (1 << 0),
+	TIMEKEEPER_FLAG_EARLY_ONLY = (1 << 1)
+};
+
 struct timekeeper;
 
 struct timekeeper_source {
@@ -24,8 +29,8 @@ struct timekeeper {
 	const char* name;
 	int type;
 	int (*init)(struct timekeeper_source**);
-	int rating;
-	bool early;
+	unsigned int rating; /* Changes to zero if init fails */
+	int flags; /* These flags may change during initialization */
 };
 
 /**
