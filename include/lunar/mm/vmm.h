@@ -51,7 +51,7 @@ typedef unsigned long pte_t;
  * If VMM_USER is used, the mapping will be placed in user space.
  * If in a kthread context, -EINVAL is returned UNLESS the optional argument is provided.
  * The optional argument type is of struct mm* in this case. Using this flag in combination with VMM_PHYSICAL
- * or VMM_IOMEM is invalid and will return -EINVAL.
+ * or VMM_IOMEM is invalid and will return -EINVAL. Do not use this flag directly. Instead use uvmap/uvprotect/uvunmap
  *
  * If VMM_HUGEPAGE_2M is used, the mapping will use 2MiB hugepages instead of 4K pages.
  *
@@ -100,7 +100,7 @@ int vunmap(void* virtual, size_t size, int flags);
  * @param size The size of the mapping, the page offset is automatically added
  * @param mmu_flags The MMU flags to use
  *
- * @return The pointer to the memory, the page offset is automatically added
+ * @return The pointer to the memory, the page offset is automatically added. Returns NULL on failure
  */
 void __iomem* iomap(physaddr_t physical, size_t size, mmuflags_t mmu_flags);
 
@@ -113,6 +113,19 @@ void __iomem* iomap(physaddr_t physical, size_t size, mmuflags_t mmu_flags);
  * @return -errno on failure
  */
 int iounmap(void __iomem* virtual, size_t size);
+
+static inline void __user* uvmap(void __user* hint, size_t size,
+		mmuflags_t mmu_flags, int flags, void* optional) {
+	return (void __user __force*)vmap((void __force*)hint, size, mmu_flags, flags | VMM_USER, optional);
+}
+
+static inline int uvprotect(void __user* virtual, size_t size, mmuflags_t mmu_flags, int flags) {
+	return vprotect((void __force*)virtual, size, mmu_flags, flags);
+}
+
+static inline int uvunmap(void __user* virtual, size_t size, int flags) {
+	return vunmap((void __force*)virtual, size, flags);
+}
 
 /**
  * @brief Create a stack that is KSTACK_SIZE in length
