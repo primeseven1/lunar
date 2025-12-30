@@ -2,7 +2,7 @@
 #include <lunar/mm/vmm.h>
 #include <lunar/core/interrupt.h>
 #include <lunar/core/cpu.h>
-#include <lunar/core/apic.h>
+#include <lunar/core/intctl.h>
 #include <lunar/sched/preempt.h>
 #include <lunar/sched/kthread.h>
 #include <lunar/init/status.h>
@@ -29,8 +29,8 @@ static void do_shootdown(const struct smp_cpus* cpus, void* address, size_t size
 	atomic_store(&shootdown_size, size);
 	atomic_store(&shootdown_remaining, cpus->count - 1);
 
-	bug(apic_send_ipi(NULL, shootdown_isr, APIC_IPI_CPU_OTHERS, true) != 0);
-
+	for (u32 i = 0; i < cpus->count; i++)
+		bug(intctl_send_ipi(cpus->cpus[i], shootdown_isr, 0) != 0);
 	while (atomic_load(&shootdown_remaining))
 		cpu_relax();
 
@@ -59,5 +59,5 @@ void vmm_tlb_init(void) {
 	if (unlikely(!shootdown_isr))
 		panic("Failed to create TLB shootdown ISR\n");
 
-	interrupt_register(shootdown_isr, shootdown_ipi, apic_set_irq, -1, NULL, false);
+	interrupt_register(shootdown_isr, NULL, shootdown_ipi);
 }
