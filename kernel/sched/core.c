@@ -5,7 +5,7 @@
 #include <lunar/core/spinlock.h>
 #include <lunar/core/cpu.h>
 #include <lunar/core/printk.h>
-#include <lunar/core/apic.h>
+#include <lunar/core/intctl.h>
 #include <lunar/core/time.h>
 #include <lunar/sched/scheduler.h>
 #include <lunar/sched/preempt.h>
@@ -436,7 +436,7 @@ static void resched_ipi(struct isr* isr, struct context* ctx) {
 }
 
 void sched_send_resched(struct cpu* target) {
-	apic_send_ipi(target, resched_isr, APIC_IPI_CPU_TARGET, true);
+	intctl_send_ipi(target, resched_isr, 0);
 }
 
 void sched_init(void) {
@@ -462,5 +462,5 @@ void sched_init(void) {
 	resched_isr = interrupt_alloc();
 	if (unlikely(!resched_isr))
 		panic("Failed to allocate resched ISR");
-	interrupt_register(resched_isr, resched_ipi, apic_set_irq, -1, NULL, false);
+	interrupt_register(resched_isr, NULL, resched_ipi);
 }

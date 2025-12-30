@@ -37,7 +37,7 @@ void preempt_cpu_init(void) {
 		lapic_timer_isr = interrupt_alloc();
 		if (unlikely(!lapic_timer_isr))
 			panic("Failed to allocate LAPIC timer ISR");
-		interrupt_register(lapic_timer_isr, lapic_timer, apic_set_irq, -1, NULL, false);
+		interrupt_register(lapic_timer_isr, NULL, lapic_timer);
 	}
 
 	u32 ticks = lapic_timer_get_ticks_for_preempt();
