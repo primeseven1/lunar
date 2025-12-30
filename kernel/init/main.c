@@ -14,6 +14,7 @@
 #include <lunar/core/cpu.h>
 #include <lunar/core/cmdline.h>
 #include <lunar/core/term.h>
+#include <lunar/core/intctl.h>
 #include <lunar/core/interrupt.h>
 #include <lunar/core/apic.h>
 #include <lunar/core/timekeeper.h>
@@ -67,7 +68,7 @@ _Noreturn __asmlinkage void ap_kernel_main(struct limine_mp_info* mp_info) {
 	vmm_cpu_init();
 	segments_init();
 	interrupts_cpu_init();
-	apic_ap_init();
+	intctl_init_ap();
 	timekeeper_cpu_init();
 	sched_cpu_init();
 	softirq_cpu_init();
@@ -171,9 +172,7 @@ _Noreturn __asmlinkage void kernel_main(void) {
 	if (unlikely(acpi_status != UACPI_STATUS_OK))
 		panic("acpi_early_init(): %s", uacpi_status_to_string(acpi_status));
 
-	err = apic_bsp_init();
-	if (unlikely(err))
-		panic("Failed to initialize APIC, err: %i", err);
+	intctl_init_bsp();
 	timekeeper_init();
 
 	pci_init();
