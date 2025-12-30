@@ -51,6 +51,11 @@ _ld_kernel_start = .;
 	KEEP(*(.timekeepers .timekeepers.*))
 	_ld_kernel_timekeepers_end = .;
 
+	. = ALIGN(8);
+	_ld_kernel_intctl_start = .;
+	KEEP(*(.intctl .intctl.*))
+	_ld_kernel_intctl_end = .;
+
 	KEEP(*(.limine_requests_start_marker))
 	KEEP(*(.limine_requests))
 	KEEP(*(.limine_requests_end_marker))
