@@ -3,7 +3,7 @@
 #include <lunar/core/printk.h>
 #include <lunar/core/limine.h>
 #include <lunar/core/pci.h>
-#include <lunar/core/apic.h>
+#include <lunar/core/intctl.h>
 #include <lunar/core/io.h>
 #include <lunar/core/spinlock.h>
 #include <lunar/core/mutex.h>
@@ -348,50 +348,63 @@ static void uacpi_irq(struct isr* isr, struct context* ctx) {
 }
 
 uacpi_status uacpi_kernel_install_interrupt_handler(uacpi_u32 irq, uacpi_interrupt_handler handler, uacpi_handle ctx, uacpi_handle* out_handle) {
+	struct isr* isr_struct = NULL;
+	struct irq* irq_struct = NULL;
+
 	struct uacpi_irq_ctx* actx = kmalloc(sizeof(*actx), MM_ZONE_NORMAL);
 	if (!actx)
 		return UACPI_STATUS_OUT_OF_MEMORY;
-	struct isr* isr = interrupt_alloc();
-	if (!isr) {
-		kfree(actx);
-		return UACPI_STATUS_INTERNAL_ERROR;
-	}
-	int err = interrupt_register(isr, uacpi_irq, apic_set_irq, irq, current_cpu(), true);
-	if (err) {
-		interrupt_free(isr);
-		kfree(actx);
-		return UACPI_STATUS_INTERNAL_ERROR;
-	}
 
-	actx->isr = isr;
+	isr_struct = interrupt_alloc();
+	if (!isr_struct)
+		goto err;
+	irq_struct = intctl_install_irq(irq, isr_struct, current_cpu());
+	if (IS_PTR_ERR(irq_struct))
+		goto err;
+
+	actx->isr = isr_struct;
 	actx->ctx = ctx;
 	actx->handler = handler;
-	isr->private = actx;
+	isr_struct->private = actx;
+
+	if (unlikely(interrupt_register(isr_struct, irq_struct, uacpi_irq) != 0))
+		goto err;
 
 	mutex_lock(&uacpi_interrupts_lock);
 	list_node_init(&actx->link);
 	list_add(&uacpi_interrupts, &actx->link);
 	mutex_unlock(&uacpi_interrupts_lock);
+	intctl_enable_irq(irq_struct);
 
-	isr->irq.set_masked(isr, false);
-	*out_handle = isr;
+	*out_handle = isr_struct;
 	return UACPI_STATUS_OK;
+err:
+	if (irq_struct)
+		intctl_uninstall_irq(irq_struct);
+	if (isr_struct)
+		interrupt_free(isr_struct);
+	kfree(actx);
+	return UACPI_STATUS_INTERNAL_ERROR;
 }
 
 uacpi_status uacpi_kernel_uninstall_interrupt_handler(uacpi_interrupt_handler handler, uacpi_handle irq_handle) {
 	(void)handler;
 	struct isr* isr = irq_handle;
-	mutex_lock(&uacpi_interrupts_lock);
+
+	irq_disable(isr->irq);
+	irq_synchronize(isr->irq);
 
 	struct uacpi_irq_ctx* actx = isr->private;
 	if (interrupt_unregister(isr) != 0)
 		return UACPI_STATUS_INTERNAL_ERROR;
-	list_remove(&actx->link);
 
+	mutex_lock(&uacpi_interrupts_lock);
+	list_remove(&actx->link);
 	mutex_unlock(&uacpi_interrupts_lock);
 
-	kfree(actx);
+	intctl_uninstall_irq(isr->irq);
 	interrupt_free(isr);
+	kfree(actx);
 	return UACPI_STATUS_OK;
 }
 
@@ -474,10 +487,11 @@ uacpi_status uacpi_kernel_schedule_work(uacpi_work_type type, uacpi_work_handler
 uacpi_status uacpi_kernel_wait_for_work_completion(void) {
 	mutex_lock(&uacpi_interrupts_lock);
 
-	/* First sync and block all interrupts installed by uACPI */
 	struct uacpi_irq_ctx* ctx;
-	list_for_each_entry(ctx, &uacpi_interrupts, link)
-		bug(interrupt_synchronize(ctx->isr) != 0);
+	list_for_each_entry(ctx, &uacpi_interrupts, link) {
+		irq_disable(ctx->isr->irq);
+		irq_synchronize(ctx->isr->irq);
+	}
 
 	/* Now wait for deferred work to finish */
 	while (atomic_load(&gpe_work_counter))
@@ -485,9 +499,8 @@ uacpi_status uacpi_kernel_wait_for_work_completion(void) {
 	while (atomic_load(&notify_work_counter))
 		schedule();
 
-	/* Allow interrupts to run again */
 	list_for_each_entry(ctx, &uacpi_interrupts, link)
-		bug(interrupt_allow_entry_if_synced(ctx->isr) != 0);
+		irq_enable(ctx->isr->irq);
 
 	mutex_unlock(&uacpi_interrupts_lock);
 	return UACPI_STATUS_OK;
@@ -508,15 +521,19 @@ uacpi_status uacpi_kernel_initialize(uacpi_init_level current_init_lvl) {
 }
 
 void uacpi_kernel_deinitialize(void) {
-	uacpi_kernel_wait_for_work_completion();
-
 	struct list_node* pos, *tmp;
 	list_for_each_safe(pos, tmp, &uacpi_interrupts) {
 		struct uacpi_irq_ctx* ctx = list_entry(pos, struct uacpi_irq_ctx, link);
+		irq_disable(ctx->isr->irq);
+		irq_synchronize(ctx->isr->irq);
 		interrupt_unregister(ctx->isr);
+		intctl_uninstall_irq(ctx->isr->irq);
 		interrupt_free(ctx->isr);
 		list_remove(pos);
 	}
+
+	/* No IRQ handlers, but it's possible for deferred work to still be running */
+	uacpi_kernel_wait_for_work_completion();
 
 	if (work_cache)
 		slab_cache_destroy(work_cache);
