@@ -5,6 +5,7 @@
 #include <lunar/core/panic.h>
 #include <lunar/core/apic.h>
 #include <lunar/core/printk.h>
+#include <lunar/core/intctl.h>
 #include <lunar/mm/buddy.h>
 #include <lunar/mm/vmm.h>
 #include <lunar/mm/heap.h>
@@ -78,23 +79,45 @@ void lapic_write(unsigned int reg, u32 x) {
 	writel(io, x);
 }
 
-static void ioapic_redtbl_write(u32 __iomem* ioapic, u8 entry, u8 vector, 
-		u8 delivery, u8 destmode, u8 polarity, u8 trigger, u8 masked, u8 dest) {
-	u32 x = vector;
+struct ioapic_redtbl_entry {
+	u8 vector;
+	u8 delivery;
+	u8 destmode;
+	u8 polarity;
+	u8 trigger;
+	u8 masked;
+	u8 dest;
+};
 
-	x |= (delivery & 0b111) << 8;
-	x |= (destmode & 1) << 11;
-	x |= (polarity & 1) << 13;
-	x |= (trigger & 1) << 15;
-	x |= (masked & 1) << 16;
+static void ioapic_redtbl_write(u32 __iomem* ioapic, u8 entry, const struct ioapic_redtbl_entry* re) {
+	u32 x = re->vector;
+
+	x |= (re->delivery & 0b111) << 8;
+	x |= (re->destmode & 1) << 11;
+	x |= (re->polarity & 1) << 13;
+	x |= (re->trigger & 1) << 15;
+	x |= (re->masked & 1) << 16;
 
 	ioapic_write(ioapic, IOAPIC_REG_REDTBL_BASE + entry * 2, x);
-	ioapic_write(ioapic, IOAPIC_REG_REDTBL_BASE + 1 + (entry * 2), (u32)dest << 24);
+	ioapic_write(ioapic, IOAPIC_REG_REDTBL_BASE + 1 + (entry * 2), (u32)re->dest << 24);
 }
 
-static void apic_eoi(const struct isr* isr) {
-	(void)isr;
+static void ioapic_redtbl_read(u32 __iomem* ioapic, u8 entry, struct ioapic_redtbl_entry* out) {
+	u32 low = ioapic_read(ioapic, IOAPIC_REG_REDTBL_BASE + entry * 2);
+	u32 high = ioapic_read(ioapic, IOAPIC_REG_REDTBL_BASE + 1 + entry * 2);
+	out->vector = low & 0xFF;
+	out->delivery = (low >> 8) & 0b111;
+	out->destmode = (low >> 11) & 1;
+	out->polarity = (low >> 13) & 1;
+	out->trigger = (low >> 15) & 1;
+	out->masked = (low >> 16) & 1;
+	out->dest = (high >> 24) & 0xFF;
+}
+
+static int apic_eoi(int irq) {
+	(void)irq;
 	lapic_write(LAPIC_REG_EOI, 0);
+	return 0;
 }
 
 static int ioapic_set_irq(u8 irq, u8 vector, u8 processor, bool masked) {
@@ -119,7 +142,16 @@ static int ioapic_set_irq(u8 irq, u8 vector, u8 processor, bool masked) {
 		return -ENOENT;
 	
 	irq = irq - desc->base;
-	ioapic_redtbl_write(desc->address, irq, vector, 0, 0, polarity, trigger, masked, processor);
+	struct ioapic_redtbl_entry re = {
+		.vector = vector,
+		.masked = masked,
+		.polarity = polarity,
+		.trigger = trigger,
+		.dest = processor,
+		.destmode = 0,
+		.delivery = 0
+	};
+	ioapic_redtbl_write(desc->address, irq, &re);
 
 	return 0;
 }
@@ -130,59 +162,49 @@ static inline bool lapic_vec_test(unsigned int reg, u8 vector) {
 	return (lapic_read(reg + bank * 0x10) & mask) != 0;
 }
 
-static bool apic_is_pending(struct isr* isr) {
-	int vector = interrupt_get_vector(isr);
+static inline bool lapic_is_pending(int vector) {
 	return lapic_vec_test(LAPIC_REG_IRR_BASE, vector);
 }
 
-static bool apic_in_service(struct isr* isr) {
-	int vector = interrupt_get_vector(isr);
-	return lapic_vec_test(LAPIC_REG_ISR_BASE, vector);
-}
-
-static int apic_set_masked(const struct isr* isr, bool masked) {
-	if (isr->irq.irq == -1)
-		return -EINVAL;
-	return ioapic_set_irq(isr->irq.irq, interrupt_get_vector(isr), isr->irq.cpu->lapic_id, masked);
-}
-
-static bool apic_is_masked(const struct isr* isr) {
-	if (isr->irq.irq == -1)
-		return false;
-	struct ioapic_desc* desc = get_ioapic_gsi(isr->irq.irq);
+static int apic_wait_pending(int irq) {
+	struct ioapic_desc* desc = get_ioapic_gsi(irq);
 	if (!desc)
-		return false;
+		return -EINVAL;
 
-	u8 rte_low_index = IOAPIC_REG_REDTBL_BASE + 2 * isr->irq.irq;
-	u32 low = ioapic_read(desc->address, rte_low_index);
-	return (low >> 16) & 1;
-}
-
-static void apic_unset_irq(struct isr* isr) {
-	while (apic_in_service(isr) || apic_is_pending(isr))
-		schedule();
-
-	isr->irq = (struct irq){ .eoi = NULL, .set_masked = NULL, .unset_irq = NULL,
-		.irq = -1, .cpu = NULL, .is_masked = NULL
-	};
-}
-
-int apic_set_irq(struct isr* isr, int irq, struct cpu* cpu, bool masked) {
-	int vector = interrupt_get_vector(isr);
-	if (irq == -1) {
-		isr->irq = (struct irq){ .cpu = NULL, .irq = -1, .eoi = apic_eoi,
-			.set_masked = NULL, .unset_irq = apic_unset_irq,
-			.is_masked = NULL
-		};
-	} else {
-		isr->irq = (struct irq){ .cpu = cpu, .irq = irq,
-			.eoi = apic_eoi, .set_masked = apic_set_masked, .unset_irq = apic_unset_irq,
-			.is_masked = apic_is_masked
-		};
-		return ioapic_set_irq(irq, vector, cpu->lapic_id, masked);
-	}
+	struct ioapic_redtbl_entry re;
+	ioapic_redtbl_read(desc->address, irq, &re);
+	while (lapic_is_pending(re.vector))
+		cpu_relax();
 
 	return 0;
+}
+
+static int apic_enable_irq(int irq) {
+	struct ioapic_desc* desc = get_ioapic_gsi(irq);
+	if (!desc)
+		return -EINVAL;
+
+	struct ioapic_redtbl_entry re;
+	ioapic_redtbl_read(desc->address, irq, &re);
+	return ioapic_set_irq(irq, re.vector, re.dest, false);
+}
+
+static int apic_disable_irq(int irq) {
+	struct ioapic_desc* desc = get_ioapic_gsi(irq);
+	if (!desc)
+		return -EINVAL;
+
+	struct ioapic_redtbl_entry re;
+	ioapic_redtbl_read(desc->address, irq, &re);
+	return ioapic_set_irq(irq, re.vector, re.dest, true);
+}
+
+static int apic_install(int irq, const struct isr* isr, const struct cpu* cpu) {
+	return ioapic_set_irq(irq, interrupt_get_vector(isr), cpu->lapic_id, true);
+}
+
+static int apic_uninstall(int irq) {
+	return ioapic_set_irq(irq, 0xfe, 0, true);
 }
 
 #define LAPIC_ICR_DELIV_STATUS (1u << 12)
@@ -200,6 +222,13 @@ enum apic_dest_modes {
 enum apic_triggers {
 	APIC_TRIGGER_EDGE,
 	APIC_TRIGGER_LEVEL
+};
+
+enum apic_ipitargets {
+	APIC_IPI_CPU_TARGET = 0,
+	APIC_IPI_CPU_SELF = 1,
+	APIC_IPI_CPU_ALL = 2,
+	APIC_IPI_CPU_OTHERS = 3
 };
 
 static void lapic_send_ipi(u32 cpu, u8 vector, u8 delivm, u8 trigger, u8 shorthand) {
@@ -220,26 +249,19 @@ static void lapic_send_ipi(u32 cpu, u8 vector, u8 delivm, u8 trigger, u8 shortha
 		cpu_relax();
 }
 
-int apic_send_ipi(struct cpu* target_cpu, const struct isr* isr, int targets, bool maskable) {
-	if (targets != APIC_IPI_CPU_TARGET && targets != APIC_IPI_CPU_ALL &&
-			targets != APIC_IPI_CPU_OTHERS && targets != APIC_IPI_CPU_SELF)
+static int apic_send_ipi(const struct cpu* cpu, const struct isr* isr, int flags) {
+	u32 id = cpu ? cpu->lapic_id : 0;
+	u8 delivm = flags & INTCTL_IPI_CRITICAL ? APIC_DM_FIXED : APIC_DM_NMI;
+
+	int vector = isr ? interrupt_get_vector(isr) : -1;
+	if (delivm != APIC_DM_NMI && vector == -1)
 		return -EINVAL;
 
-	u32 id = target_cpu ? target_cpu->lapic_id : 0;
-	u8 delivm = maskable ? APIC_DM_FIXED : APIC_DM_NMI;
-
-	u8 vector = isr ? interrupt_get_vector(isr) : 0;
-	if (maskable && vector == 0)
-		return -EINVAL;
-
-	irqflags_t irq = local_irq_save();
-	lapic_send_ipi(id, vector, delivm, APIC_TRIGGER_EDGE, targets);
-	local_irq_restore(irq);
-
+	lapic_send_ipi(id, vector, delivm, APIC_TRIGGER_EDGE, APIC_IPI_CPU_TARGET);
 	return 0;
 }
 
-void apic_ap_init(void) {
+static int apic_ap_init(void) {
 	unsigned long nmi_count = get_entry_count(ACPI_MADT_ENTRY_TYPE_LAPIC_NMI);
 	for (unsigned long i = 0; i < nmi_count; i++) {
 		struct acpi_madt_lapic_nmi* nmi = get_entry(ACPI_MADT_ENTRY_TYPE_LAPIC_NMI, i);
@@ -250,6 +272,7 @@ void apic_ap_init(void) {
 	}
 
 	lapic_write(LAPIC_REG_SPURIOUS, INTERRUPT_SPURIOUS_VECTOR | 0x100);
+	return 0;
 }
 
 static uacpi_status madt_init(void) {
@@ -303,21 +326,20 @@ err:
 	return err;
 }
 
-int apic_bsp_init(void) {
+static int apic_bsp_init(void) {
 	uacpi_status err = madt_init();
 	switch (err) {
 	case UACPI_STATUS_MAPPING_FAILED:
 	case UACPI_STATUS_OUT_OF_MEMORY:
 		return -ENOMEM;
-	case UACPI_STATUS_NOT_FOUND:
-		return -ENOENT;
 	case UACPI_STATUS_OK:
 		break;
+	case UACPI_STATUS_NOT_FOUND:
 	default:
-		return -EINVAL;
+		return -ENOTSUP;
 	}
 
-	i8259_init();
+	i8259_disable();
 
 	/* Get the physical memory address of the LAPIC and map it to virtual memory */
 	physaddr_t lapic_physical = ROUND_DOWN(rdmsr(MSR_APIC_BASE), PAGE_SIZE);
@@ -329,10 +351,36 @@ int apic_bsp_init(void) {
 	ioapic_count = get_entry_count(ACPI_MADT_ENTRY_TYPE_IOAPIC);
 	for (unsigned long i = 0; i < ioapic_count; i++) {
 		struct ioapic_desc* ioapic = &ioapics[i];
+		const struct ioapic_redtbl_entry re = {
+			.vector = 0xfe,
+			.delivery = 0,
+			.dest = 0,
+			.masked = 1,
+			.polarity = 0,
+			.trigger = 0,
+			.destmode = 0
+		};
 		for (u32 j = ioapic->base; j < ioapic->top; j++)
-			ioapic_redtbl_write(ioapic->address, j - ioapic->base, 0xfe, 0, 0, 0, 0, 1, 0);
+			ioapic_redtbl_write(ioapic->address, j - ioapic->base, &re);
 	}
 
-	apic_ap_init();
-	return 0;
+	return apic_ap_init();
 }
+
+static const struct intctl_ops x1ops = {
+	.init_bsp = apic_bsp_init,
+	.init_ap = apic_ap_init,
+	.install = apic_install,
+	.uninstall = apic_uninstall,
+	.send_ipi = apic_send_ipi,
+	.enable = apic_enable_irq,
+	.disable = apic_disable_irq,
+	.eoi = apic_eoi,
+	.wait_pending = apic_wait_pending
+};
+
+static struct intctl __intctl apic_x1 = {
+	.name = "apic_x1",
+	.rating = 75,
+	.ops = &x1ops
+};

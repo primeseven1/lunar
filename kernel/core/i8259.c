@@ -9,22 +9,10 @@
 
 #define PIC_EOI 0x20
 
-static void i8259_spurious_eoi(const struct isr* isr) {
-	if (isr->irq.irq == 15)
+void i8259_spurious_isr(struct isr* isr, struct context* ctx) {
+	(void)ctx;
+	if (isr->irq->number == 15)
 		outb(PIC1, PIC_EOI);
-}
-
-int i8259_set_irq(struct isr* isr, int irq, struct cpu* cpu, bool masked) {
-	(void)cpu;
-	if (!masked || (irq != 7 && irq != 15))
-		return -ENOSYS;
-
-	isr->irq.irq = irq;
-	isr->irq.cpu = NULL;
-	isr->irq.eoi = i8259_spurious_eoi;
-	isr->irq.set_masked = NULL;
-
-	return 0;
 }
 
 #define ICW1_ICW4 0x01
@@ -38,7 +26,7 @@ int i8259_set_irq(struct isr* isr, int irq, struct cpu* cpu, bool masked) {
 #define ICW4_BUF_MASTER 0x0C
 #define ICW4_SFNM 0x10
 
-void i8259_init(void) {
+void i8259_disable(void) {
 	/* Start initiailization in cascade mode */
 	outb(PIC1, ICW1_INIT | ICW1_ICW4);
 	io_wait();

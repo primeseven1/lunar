@@ -11,6 +11,7 @@
 #include <lunar/core/softirq.h>
 #include <lunar/core/apic.h>
 #include <lunar/core/traps.h>
+#include <lunar/core/intctl.h>
 #include <lunar/init/status.h>
 #include <lunar/mm/vmm.h>
 #include <lunar/sched/scheduler.h>
@@ -70,12 +71,12 @@ static SPINLOCK_DEFINE(isr_free_list_lock);
 int interrupt_get_vector(const struct isr* isr) {
 	uintptr_t base = (uintptr_t)&isr_handlers[0];
 	uintptr_t end = base + (INTERRUPT_COUNT * sizeof(struct isr));
-	if ((uintptr_t)isr < base || (uintptr_t)isr >= end)
-		return INT_MAX;
 
+	if ((uintptr_t)isr < base || (uintptr_t)isr >= end)
+		return -1;
 	size_t off = (uintptr_t)isr - base;
 	if (off % sizeof(struct isr) != 0)
-		return INT_MAX;
+		return -1;
 
 	return (int)(off / sizeof(struct isr));
 }
@@ -102,7 +103,7 @@ struct isr* interrupt_alloc(void) {
 
 int interrupt_free(struct isr* isr) {
 	int vector = interrupt_get_vector(isr);
-	if (vector == INT_MAX || vector < INTERRUPT_EXCEPTION_COUNT)
+	if (vector < INTERRUPT_EXCEPTION_COUNT)
 		return -EINVAL;
 
 	irqflags_t irq;
@@ -113,130 +114,98 @@ int interrupt_free(struct isr* isr) {
 	return 0;
 }
 
-int interrupt_register(struct isr* isr, void (*func)(struct isr*, struct context*),
-		int (*set_irq)(struct isr* isr, int irq, struct cpu* cpu, bool masked),
-		int irq, struct cpu* cpu, bool masked) {
-	if (interrupt_get_vector(isr) == INT_MAX)
+int interrupt_register(struct isr* isr, struct irq* irq, void (*func)(struct isr*, struct context*)) {
+	int vector = interrupt_get_vector(isr);
+	if (vector < INTERRUPT_EXCEPTION_COUNT)
 		return -EINVAL;
 	if (isr->func)
-		return -EALREADY;
+		return -EEXIST;
 
 	isr->func = func;
-	atomic_store_explicit(&isr->inflight, 0, ATOMIC_RELEASE);
-
-	return set_irq(isr, irq, cpu, masked);
+	isr->irq = irq;
+	isr->need_eoi = true;
+	return 0;
 }
 
-/* Must be called on the target CPU of the ISR */
-static void interrupt_unregister_work(void* arg) {
+static void __interrupt_unregister(void* arg) {
 	struct isr* isr = arg;
+
+	/* Is an IRQ, make 100% sure there are no pending interrupts on the controller before nulling everything out */
+	if (isr->irq)
+		intctl_wait_pending(isr->irq);
+
+	irqflags_t irq_flags = local_irq_save();
+
 	struct semaphore* sem = isr->private;
-	isr->irq.unset_irq(isr);
-	semaphore_signal(sem);
+	isr->private = NULL;
+	isr->func = NULL;
+	isr->irq = NULL;
+	isr->need_eoi = false;
+
+	local_irq_restore(irq_flags);
+	if (sem)
+		semaphore_signal(sem);
 }
 
-static int __interrupt_unregister(struct isr* isr) {
+int interrupt_unregister(struct isr* isr) {
+	int vector = interrupt_get_vector(isr);
+	if (vector < INTERRUPT_EXCEPTION_COUNT)
+		return -EINVAL;
+	if (!isr->irq) {
+		isr->private = NULL;
+		__interrupt_unregister(isr);
+		return 0;
+	}
+
 	struct semaphore* sem = kmalloc(sizeof(*sem), MM_ZONE_NORMAL);
 	if (!sem)
 		return -ENOMEM;
 
-	int err = isr->irq.set_masked(isr, true);
-	if (err) {
-		kfree(sem);
-		return err;
-	}
-	bug(interrupt_synchronize(isr) != 0);
-
-	semaphore_init(sem, 0);
-	isr->private = sem; /* Safe, since the ISR is blocked from running after syncing */
-	err = sched_workqueue_add_on(isr->irq.cpu, interrupt_unregister_work, isr);
-	while (err == -EAGAIN) {
-		schedule();
-		err = sched_workqueue_add_on(isr->irq.cpu, interrupt_unregister_work, isr);
-	}
-
+	isr->private = sem;
+	sched_workqueue_add_on(isr->irq->cpu, __interrupt_unregister, isr);
 	semaphore_wait(sem, 0);
-	kfree(sem);
+
 	return 0;
 }
 
-int interrupt_unregister(struct isr* isr) {
-	if (init_status_get() < INIT_STATUS_SCHED)
-		return -EWOULDBLOCK;
-
-	/* Can't unregister interrupts that cannot be masked or have no real IRQ */
-	if (interrupt_get_vector(isr) == INT_MAX ||
-			isr->irq.irq == -1 || !isr->irq.set_masked)
-		return -EINVAL;
-
-	int err = __interrupt_unregister(isr);
-	if (err == 0) {
-		isr->private = NULL;
-		isr->func = NULL;
-	}
-	return err;
-}
-
-int interrupt_synchronize(struct isr* isr) {
-	if (init_status_get() < INIT_STATUS_SCHED)
-		return -EWOULDBLOCK;
-
-	/* Don't synchronize the interrupt unless it has a real IRQ assocated with it */
-	int vector = interrupt_get_vector(isr);
-	if (vector == INT_MAX || isr->irq.irq == -1)
-		return -EINVAL;
-
-	irqflags_t irq;
-	spinlock_lock_irq_save(&isr->lock, &irq);
-
-	if (atomic_load(&isr->inflight) >= 0)
-		atomic_add_fetch(&isr->inflight, LONG_MIN);
-
-	spinlock_unlock_irq_restore(&isr->lock, &irq);
-
-	while (atomic_load(&isr->inflight) != LONG_MIN)
+void irq_synchronize(struct irq* irq) {
+	while (atomic_load(&irq->inflight))
 		schedule();
-
-	return 0;
 }
 
-int interrupt_allow_entry_if_synced(struct isr* isr) {
-	if (interrupt_get_vector(isr) == INT_MAX || isr->irq.irq == -1)
-		return -EINVAL;
-
-	irqflags_t irq;
-	spinlock_lock_irq_save(&isr->lock, &irq);
-
-	int err = 0;
-	if (atomic_load(&isr->inflight) == LONG_MIN)
-		atomic_store(&isr->inflight, 0);
-	else
-		err = -EBUSY;
-
-	spinlock_unlock_irq_restore(&isr->lock, &irq);
-	return err;
+static inline void __irq_toggle(struct irq* irq, bool allow) {
+	irqflags_t irq_flags;
+	spinlock_lock_irq_save(&irq->lock, &irq_flags);
+	irq->allow_entry = allow;
+	spinlock_unlock_irq_restore(&irq->lock, &irq_flags);
 }
 
-static inline bool irq_enter(struct isr* isr) {
-	spinlock_lock(&isr->lock);
+void irq_disable(struct irq* irq) {
+	intctl_disable_irq(irq);
+	__irq_toggle(irq, false);
+}
 
-	bool can_enter = atomic_load(&isr->inflight) >= 0;
-	if (can_enter) {
+void irq_enable(struct irq* irq) {
+	__irq_toggle(irq, true);
+	intctl_enable_irq(irq);
+}
+
+static inline bool irq_enter(struct irq* irq) {
+	spinlock_lock(&irq->lock);
+
+	bool allow = irq->allow_entry;
+	if (allow) {
 		preempt_offset(HARDIRQ_OFFSET);
-		atomic_add_fetch(&isr->inflight, 1);
+		atomic_add_fetch(&irq->inflight, 1);
 	}
 
-	spinlock_unlock(&isr->lock);
-	return can_enter;
+	spinlock_unlock(&irq->lock);
+	return allow;
 }
 
-static inline void irq_exit(struct isr* isr) {
+static inline void irq_exit(struct irq* irq) {
 	preempt_offset(-HARDIRQ_OFFSET);
-	atomic_sub_fetch(&isr->inflight, 1);
-}
-
-static inline bool is_irq(const struct isr* isr) {
-	return !!isr->irq.eoi;
+	atomic_sub_fetch(&irq->inflight, 1);
 }
 
 static inline bool in_weird_interrupt(u8 vector) {
@@ -265,10 +234,9 @@ void __asmlinkage do_interrupt(struct context* ctx) {
 	const int init_status = init_status_get();
 
 	struct isr* isr = &isr_handlers[ctx->vector];
-	bool irq = is_irq(isr);
 	bool can_enter = true;
-	if (irq) {
-		can_enter = irq_enter(isr);
+	if (isr->irq) {
+		can_enter = irq_enter(isr->irq);
 	} else if (likely(!weird_interrupt)) {
 		if (!local_irq_enabled(ctx->rflags))
 			panic("Trap occurred in atomic context");
@@ -280,11 +248,11 @@ void __asmlinkage do_interrupt(struct context* ctx) {
 			isr->func(isr, ctx);
 		else
 			printk(PRINTK_CRIT "core: Interrupt %lu happened, there is no handler for it!\n", ctx->vector);
-		if (irq)
-			irq_exit(isr);
+		if (isr->irq)
+			irq_exit(isr->irq);
 	}
-	if (isr->irq.eoi)
-		isr->irq.eoi(isr);
+	if (isr->need_eoi)
+		intctl_eoi(isr->irq);
 
 	local_irq_disable();
 
@@ -335,7 +303,7 @@ static void spurious_isr(struct isr* isr, struct context* ctx) {
 	if (interrupt_get_vector(isr) == INTERRUPT_SPURIOUS_VECTOR) {
 		printk(PRINTK_WARN "core: spurious interrupt (count %lu)\n", counter);
 	} else {
-		printk(PRINTK_WARN "core: spurious interrupt on IRQ %hhu (count %lu)\n", isr->irq.irq, counter);
+		printk(PRINTK_WARN "core: spurious interrupt on IRQ %hhu (count %lu)\n", isr->irq->number, counter);
 	}
 }
 
@@ -358,8 +326,7 @@ static inline void trap_register(int vector, void (*func)(struct isr*, struct co
 static inline void i8259_set_spurious(u8 irq) {
 	u8 vector = I8259_VECTOR_OFFSET + irq;
 	isr_free_list[vector] = true;
-	isr_handlers[vector].func = spurious_isr;
-	bug(i8259_set_irq(&isr_handlers[vector], irq, NULL, true) != 0);
+	isr_handlers[vector].func = i8259_spurious_isr;
 }
 
 static inline void apic_set_spurious(void) {
@@ -377,8 +344,9 @@ void interrupts_init(void) {
 			isr_handlers[i].func = generic_trap_isr;
 			isr_free_list[i] = true;
 		}
-		spinlock_init(&isr_handlers[i].lock);
-		isr_handlers[i].irq.irq = -1;
+		isr_handlers[i].irq = NULL;
+		isr_handlers[i].private = NULL;
+		isr_handlers[i].need_eoi = false;
 	}
 
 	trap_register(INTERRUPT_NMI_VECTOR, nmi_isr);

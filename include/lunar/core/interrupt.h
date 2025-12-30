@@ -49,18 +49,16 @@ struct isr;
 
 struct irq {
 	struct cpu* cpu; /* CPU this IRQ will run on, used by interrupt controller driver */
-	int irq; /* IRQ the device uses, -1 for software IRQ */
-	void (*eoi)(const struct isr*); /* End of interrupt signal */
-	int (*set_masked)(const struct isr*, bool); /* Mask/unmask an interrupt */
-	bool (*is_masked)(const struct isr*); /* Check if an interrupt is masked */
-	void (*unset_irq)(struct isr*); /* Detach an IRQ. Must be called on the target CPU and be masked */
+	int number; /* IRQ the device uses */
+	bool allow_entry; /* Allow entry into the ISR function */
+	atomic(unsigned long) inflight; /* How many handlers are running */
+	spinlock_t lock; /* For deciding if the IRQ should run */
 };
 
 struct isr {
-	struct irq irq; /* Set by the interrupt controller driver */
+	struct irq* irq; /* IRQ that this ISR handles */
 	void (*func)(struct isr*, struct context*); /* Called by the ISR entry */
-	atomic(long) inflight; /* How many CPU's are running this ISR */
-	spinlock_t lock; /* Lock for inflight, used when deciding whether the ISR can run */
+	bool need_eoi; /* If set, intctl_eoi() is called by the ISR entry. irq can be NULL */
 	void* private; /* For use by whoever registers the interrupt */
 };
 
@@ -94,30 +92,23 @@ int interrupt_free(struct isr* isr);
  *
  * @param isr The ISR to register
  * @param func The function to execute
- * @param set_irq Interrupt controller set_irq (eg. apic_set_irq)
- * @param irq The IRQ this interrupt is associated with (-1 for software generated)
- * @param cpu The target CPU this IRQ should run on (NULL is valid for software generated IRQ's)
- * @param masked Whether or not the interrupt should be masked when registered
  *
- * @return -errno on failure
+ * @retval 0 Success
+ * @retval -EEXIST Interrupt handler already registered
+ * @retval -EINVAL Invalid ISR
  */
-int interrupt_register(struct isr* isr, void (*func)(struct isr*, struct context*),
-		int (*set_irq)(struct isr* isr, int irq, struct cpu* cpu, bool masked),
-		int irq, struct cpu* cpu, bool masked);
+int interrupt_register(struct isr* isr, struct irq* irq, void (*func)(struct isr*, struct context*));
 
 /**
  * @brief Unregister an interrupt
  *
- * Software generated IRQ's and exceptions cannot be unregistered.
- * Same with interrupts that cannot be masked. The reason for this is that the interrupt
- * will be synced before unregistering.
+ * This function does NOT do any synchronization before unregistering.
+ * Make sure it's safe to do so before calling this function.
  *
  * @param isr The ISR to unregister
  *
- * @return -errno on failure
- * @retval -EWOULDBLOCK Scheduler not initialized yet
- * @retval -EINVAL ISR is software generated, an exception, bad pointer, or cannot be masked
- * @retval -ENOMEM Ran out of memory trying to unregister the IRQ
+ * @retval 0 Success
+ * @retval -EINVAL Invalid ISR
  */
 int interrupt_unregister(struct isr* isr);
 
@@ -136,20 +127,15 @@ int interrupt_unregister(struct isr* isr);
 int interrupt_synchronize(struct isr* isr);
 
 /**
- * @brief Re-allow entry into an ISR after interrupt_synchronize
- * @param isr The isr to allow entry in to
- *
- * @retval -EBUSY Not synced
- * @retval 0 Successful
- */
-int interrupt_allow_entry_if_synced(struct isr* isr);
-
-/**
  * @brief Get the interrupt vector for an interrupt
  * @param isr The ISR
- * @return INT_MAX on invalid ISR, otherwise the vector is returned
+ * @return -1 on invalid ISR, otherwise the vector is returned
  */
 int interrupt_get_vector(const struct isr* isr);
+
+void irq_synchronize(struct irq* irq);
+void irq_disable(struct irq* irq);
+void irq_enable(struct irq* irq);
 
 void interrupts_cpu_init(void);
 void interrupts_init(void);

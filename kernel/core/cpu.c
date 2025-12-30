@@ -7,7 +7,7 @@
 #include <lunar/core/syscall.h>
 #include <lunar/core/interrupt.h>
 #include <lunar/core/timekeeper.h>
-#include <lunar/core/apic.h>
+#include <lunar/core/intctl.h>
 #include <lunar/lib/string.h>
 #include <lunar/mm/buddy.h>
 #include <lunar/mm/hhdm.h>
@@ -45,7 +45,8 @@ void smp_send_stop(void) {
 		return;
 
 	atomic_store(&stop_cpus_left, smp_cpus->count - 1);
-	apic_send_ipi(NULL, stop_isr, APIC_IPI_CPU_OTHERS, true);
+	for (u32 i = 0; i < smp_cpus->count; i++)
+		intctl_send_ipi(smp_cpus->cpus[i], stop_isr, 0);
 
 	struct timespec ts = timekeeper_time(TIMEKEEPER_FROMBOOT);
 	time_t timeout_ns = timespec_to_ns(&ts) + 1000000000; /* 1 second timeout */
@@ -57,9 +58,8 @@ void smp_send_stop(void) {
 
 	if (atomic_load(&stop_cpus_left) == 0)
 		return;
-
-	/* Send an NMI */
-	apic_send_ipi(NULL, NULL, APIC_IPI_CPU_OTHERS, false);
+	for (u32 i = 0; i < smp_cpus->count; i++)
+		intctl_send_ipi(smp_cpus->cpus[i], stop_isr, INTCTL_IPI_CRITICAL);
 }
 
 void smp_struct_init(void) {
@@ -79,7 +79,7 @@ void smp_startup(void) {
 		stop_isr = interrupt_alloc();
 		if (unlikely(!stop_isr))
 			panic("smp_startup() failed!");
-		int err = interrupt_register(stop_isr, stop_ipi, apic_set_irq, -1, NULL, false);
+		int err = interrupt_register(stop_isr, NULL, stop_ipi);
 		if (unlikely(err))
 			panic("smp_startup() failed: interrupt_register(): %i", err);
 	}
