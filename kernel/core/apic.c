@@ -251,7 +251,7 @@ static void lapic_send_ipi(u32 cpu, u8 vector, u8 delivm, u8 trigger, u8 shortha
 
 static int apic_send_ipi(const struct cpu* cpu, const struct isr* isr, int flags) {
 	u32 id = cpu ? cpu->lapic_id : 0;
-	u8 delivm = flags & INTCTL_IPI_CRITICAL ? APIC_DM_FIXED : APIC_DM_NMI;
+	u8 delivm = flags & INTCTL_IPI_CRITICAL ? APIC_DM_NMI : APIC_DM_FIXED;
 
 	int vector = isr ? interrupt_get_vector(isr) : -1;
 	if (delivm != APIC_DM_NMI && vector == -1)
