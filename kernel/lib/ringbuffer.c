@@ -3,77 +3,76 @@
 #include <lunar/lib/string.h>
 #include <lunar/mm/heap.h>
 
-static bool check_flags(int flags) {
-	int count = 0;
-	if (flags & RINGBUFFER_OVERWRITE)
-		count++;
-	if (flags & RINGBUFFER_BOUNDED)
-		count++;
-	if (flags & RINGBUFFER_DROP_NEW)
-		count++;
-	return count == 1;
-}
+#define RB_KMALLOC_LIMIT PAGE_SIZE
 
-int ringbuffer_init(struct ringbuffer* rb, int flags, size_t capacity, size_t element_size) {
-	if (!check_flags(flags) || capacity < 16 || (capacity & (capacity - 1)))
+int ringbuffer_init(struct ringbuffer* rb, size_t capacity) {
+	if (capacity & (capacity - 1))
 		return -EINVAL;
-
-	rb->buffer = kmalloc(capacity * element_size, MM_ZONE_NORMAL);
+	rb->buffer = capacity < RB_KMALLOC_LIMIT ? kzalloc(capacity, MM_ZONE_NORMAL) : vmalloc(capacity);
 	if (!rb->buffer)
 		return -ENOMEM;
 
-	rb->flags = flags;
 	rb->capacity = capacity;
-	rb->element_size = element_size;
-	rb->head = 0;
-	rb->tail = 0;
-	spinlock_init(&rb->lock);
+	rb->read = 0;
+	rb->write = 0;
 
 	return 0;
 }
 
-int ringbuffer_enqueue(struct ringbuffer* rb, const void* element) {
-	irqflags_t irq_flags;
-	spinlock_lock_irq_save(&rb->lock, &irq_flags);
-
-	int err = 0;
-	size_t next = (rb->head + 1) & (rb->capacity - 1);
-	if (next == rb->tail) {
-		if (rb->flags & RINGBUFFER_OVERWRITE)
-			rb->tail = (rb->tail + 1) & (rb->capacity - 1);
-		else if (rb->flags & RINGBUFFER_BOUNDED)
-			err = -ENOSPC;
-		else if (rb->flags & RINGBUFFER_DROP_NEW)
-			goto out;
-		if (err)
-			goto out;
-	}
-
-	memcpy((u8*)rb->buffer + rb->head * rb->element_size, element, rb->element_size);
-	rb->head = next;
-out:
-	spinlock_unlock_irq_restore(&rb->lock, &irq_flags);
-	return err;
-}
-
-int ringbuffer_dequeue(struct ringbuffer* rb, void* element) {
-	irqflags_t irq_flags;
-	spinlock_lock_irq_save(&rb->lock, &irq_flags);
-
-	int err = 0;
-	if (rb->head == rb->tail) {
-		err = -ENODATA;
-		goto out;
-	}
-
-	memcpy(element, (u8*)rb->buffer + rb->tail * rb->element_size, rb->element_size);
-	rb->tail = (rb->tail + 1) & (rb->capacity - 1);
-out:
-	spinlock_unlock_irq_restore(&rb->lock, &irq_flags);
-	return err;
-}
-
 void ringbuffer_destroy(struct ringbuffer* rb) {
-	kfree(rb->buffer);
-	rb->buffer = NULL;
+	if (rb->capacity < RB_KMALLOC_LIMIT)
+		kfree(rb->buffer);
+	else
+		vfree(rb->buffer);
+}
+
+size_t ringbuffer_write(struct ringbuffer* rb, const void* src, size_t count) {
+	size_t space = ringbuffer_space(rb);
+	if (count > space)
+		count = space;
+
+	u8* to = rb->buffer;
+	const u8* from = src;
+	for (size_t i = 0; i < count; i++) {
+		to[rb->write] = from[i];
+		rb->write = (rb->write + 1) & (rb->capacity - 1);
+	}
+
+	return count;
+}
+
+size_t ringbuffer_read(struct ringbuffer* rb, void* dest, size_t count) {
+	size_t space = ringbuffer_size(rb);
+	if (count > space)
+		count = space;
+
+	const u8* from = rb->buffer;
+	u8* to = dest;
+	for (size_t i = 0; i < count; i++) {
+		if (to)
+			to[i] = from[rb->read];
+		rb->read = (rb->read + 1) & (rb->capacity - 1);
+	}
+
+	return count;
+}
+
+ssize_t ringbuffer_peek(struct ringbuffer* rb, size_t* cursor, void* dest, size_t count) {
+	size_t r = *cursor;
+	if (r >= rb->capacity)
+		return -EINVAL;
+
+	size_t avail = rb->write >= r ? rb->write - r : rb->capacity - (r - rb->write);
+	if (count > avail)
+		count = avail;
+
+	const u8* from = rb->buffer;
+	u8* to = dest;
+	for (size_t i = 0; i < count; i++) {
+		to[i] = from[r];
+		r = (r + 1) & (rb->capacity - 1);
+	}
+
+	*cursor = r;
+	return count;
 }
