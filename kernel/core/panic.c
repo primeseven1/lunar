@@ -17,11 +17,10 @@ _Noreturn void panic(const char* fmt, ...) {
 		goto end;
 
 	smp_send_stop();
+	printk_sched_gone();
 
 	va_list va;
 	va_start(va, fmt);
-
-	printk_sched_gone();
 
 	vsnprintf(panic_msg, sizeof(panic_msg), fmt, va);
 	dump_stack();
