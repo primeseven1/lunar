@@ -1,7 +1,6 @@
 #include <lunar/asm/wrap.h>
 #include <lunar/core/panic.h>
 #include <lunar/core/interrupt.h>
-#include <lunar/core/apic.h>
 #include <lunar/core/cpu.h>
 #include <lunar/core/printk.h>
 #include <lunar/core/trace.h>

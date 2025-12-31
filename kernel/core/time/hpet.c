@@ -3,7 +3,6 @@
 #include <lunar/core/timekeeper.h>
 #include <lunar/core/io.h>
 #include <lunar/core/interrupt.h>
-#include <lunar/core/apic.h>
 #include <lunar/core/cpu.h>
 #include <lunar/core/printk.h>
 

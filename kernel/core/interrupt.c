@@ -9,7 +9,6 @@
 #include <lunar/core/interrupt.h>
 #include <lunar/core/trace.h>
 #include <lunar/core/softirq.h>
-#include <lunar/core/apic.h>
 #include <lunar/core/traps.h>
 #include <lunar/core/intctl.h>
 #include <lunar/init/status.h>

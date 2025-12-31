@@ -3,7 +3,7 @@
 #include <lunar/asm/wrap.h>
 #include <lunar/core/cpu.h>
 #include <lunar/core/panic.h>
-#include <lunar/core/apic.h>
+#include <lunar/core/io.h>
 #include <lunar/core/printk.h>
 #include <lunar/core/intctl.h>
 #include <lunar/mm/buddy.h>
@@ -19,9 +19,6 @@ enum apic_base_flags {
 	APIC_BASE_BSP = (1 << 8),
 	APIC_BASE_ENABLE = (1 << 11)
 };
-
-#define LVT_DELIVERY_NMI (0b100 << 8)
-#define LVT_MASK (1 << 16)
 
 static u32 __iomem* lapic_address;
 struct ioapic_desc {
@@ -69,12 +66,60 @@ static struct ioapic_desc* get_ioapic_gsi(u32 gsi) {
 	return NULL;
 }
 
-u32 lapic_read(unsigned int reg) {
+enum ioapic_regs { 
+	IOAPIC_REG_ID = 0,
+	IOAPIC_REG_ENTRY_COUNT = 1,
+	IOAPIC_REG_PRIORITY = 2,
+	IOAPIC_REG_REDTBL_BASE = 0x10
+};
+
+static inline u32 ioapic_read(u32 __iomem* ioapic, u8 reg) {
+	u32 __iomem* io = ioapic;
+	writel(io, reg);
+	return readl(io + 4);
+}
+
+static inline void ioapic_write(u32 __iomem* ioapic, u8 reg, u32 x) {
+	u32 __iomem* io = ioapic;
+	writel(io, reg);
+	writel(io + 4, x);
+}
+
+enum lapic_regs {
+	LAPIC_REG_ID = 0x20,
+	LAPIC_REG_EOI = 0xB0,
+	LAPIC_REG_SPURIOUS = 0xF0,
+	LAPIC_REG_ISR_BASE = 0x100,
+	LAPIC_REG_TMR_BASE = 0x180,
+	LAPIC_REG_IRR_BASE = 0x200,
+	LAPIC_REG_LVT_TIMER = 0x320,
+	LAPIC_REG_LVT_THERMAL = 0x330,
+	LAPIC_REG_LVT_PERFORMANCE = 0x340,
+	LAPIC_REG_LVT_LINT0 = 0x350,
+	LAPIC_REG_LVT_LINT1 = 0x360,
+	LAPIC_REG_LVT_ERROR = 0x370,
+	LAPIC_REG_ICR_LOW = 0x300,
+	LAPIC_REG_ICR_HIGH = 0x310,
+	LAPIC_REG_TIMER_INITIAL = 0x380,
+	LAPIC_REG_TIMER_CURRENT = 0x390,
+	LAPIC_REG_TIMER_DIVIDE = 0x3E0
+};
+
+enum lapic_reg_values {
+	LAPIC_TIMER_DIVIDE_16 = 0x03,
+
+	LAPIC_LVT_DELIVERY_NMI = (0b100 << 8),
+	LAPIC_LVT_MASK = (1 << 16),
+	LAPIC_LVT_TIMER_PERIODIC = (1 << 17),
+	LAPIC_LVT_TIMER_TSC_DEADLINE = (1 << 18)
+};
+
+static inline u32 lapic_read(unsigned int reg) {
 	u32 __iomem* io = (u32 __iomem*)((u8 __iomem*)lapic_address + reg);
 	return readl(io);
 }
 
-void lapic_write(unsigned int reg, u32 x) {
+static inline void lapic_write(unsigned int reg, u32 x) {
 	u32 __iomem* io = (u32 __iomem*)((u8 __iomem*)lapic_address + reg);
 	writel(io, x);
 }
@@ -262,12 +307,19 @@ static int apic_send_ipi(const struct cpu* cpu, const struct isr* isr, int flags
 }
 
 static int apic_ap_init(void) {
+	lapic_write(LAPIC_REG_LVT_THERMAL, LAPIC_LVT_MASK);
+	lapic_write(LAPIC_REG_LVT_PERFORMANCE, LAPIC_LVT_MASK);
+	lapic_write(LAPIC_REG_LVT_LINT0, LAPIC_LVT_MASK);
+	lapic_write(LAPIC_REG_LVT_LINT1, LAPIC_LVT_MASK);
+	lapic_write(LAPIC_REG_LVT_ERROR, LAPIC_LVT_MASK);
+	lapic_write(LAPIC_REG_LVT_TIMER, LAPIC_LVT_MASK);
+
 	unsigned long nmi_count = get_entry_count(ACPI_MADT_ENTRY_TYPE_LAPIC_NMI);
 	for (unsigned long i = 0; i < nmi_count; i++) {
 		struct acpi_madt_lapic_nmi* nmi = get_entry(ACPI_MADT_ENTRY_TYPE_LAPIC_NMI, i);
 		if (nmi->uid == current_cpu()->processor_id || nmi->uid == 0xff) {
 			lapic_write(LAPIC_REG_LVT_LINT0 + 0x10 * nmi->lint, 
-					INTERRUPT_NMI_VECTOR | LVT_DELIVERY_NMI | (nmi->flags << 12));
+					INTERRUPT_NMI_VECTOR | LAPIC_LVT_DELIVERY_NMI | (nmi->flags << 12));
 		}
 	}
 
@@ -367,7 +419,7 @@ static int apic_bsp_init(void) {
 	return apic_ap_init();
 }
 
-static const struct intctl_ops x1ops = {
+static const struct intctl_ops x1_ops = {
 	.init_bsp = apic_bsp_init,
 	.init_ap = apic_ap_init,
 	.install = apic_install,
@@ -379,8 +431,33 @@ static const struct intctl_ops x1ops = {
 	.wait_pending = apic_wait_pending
 };
 
+static int lapic_timer_setup(const struct isr* isr, time_t usec) {
+	lapic_write(LAPIC_REG_TIMER_DIVIDE, LAPIC_TIMER_DIVIDE_16);
+	lapic_write(LAPIC_REG_TIMER_INITIAL, U32_MAX);
+
+	timekeeper_stall(usec);
+	u32 ticks = U32_MAX - lapic_read(LAPIC_REG_TIMER_CURRENT);
+
+	lapic_write(LAPIC_REG_TIMER_DIVIDE, 0x03);
+	lapic_write(LAPIC_REG_TIMER_INITIAL, ticks);
+	lapic_write(LAPIC_REG_LVT_TIMER, interrupt_get_vector(isr) | LAPIC_LVT_TIMER_PERIODIC);
+
+	return 0;
+}
+
+static const struct intctl_timer_ops lapic_timer_ops = {
+	.setup = lapic_timer_setup,
+	.on_interrupt = NULL
+};
+
+static const struct intctl_timer lapic_timer = {
+	.name = "lapic",
+	.ops = &lapic_timer_ops
+};
+
 static struct intctl __intctl apic_x1 = {
 	.name = "apic_x1",
 	.rating = 75,
-	.ops = &x1ops
+	.ops = &x1_ops,
+	.timer = &lapic_timer
 };

@@ -69,6 +69,10 @@ void intctl_wait_pending(const struct irq* irq) {
 	bug(intctl->ops->wait_pending(irq->number) != 0);
 }
 
+const struct intctl_timer* intctl_get_timer(void) {
+	return intctl->timer;
+}
+
 extern struct intctl _ld_kernel_intctl_start[];
 extern struct intctl _ld_kernel_intctl_end[];
 

@@ -2,6 +2,17 @@
 
 #include <lunar/asm/errno.h>
 #include <lunar/core/interrupt.h>
+#include <lunar/core/abi.h>
+
+struct intctl_timer_ops {
+	int (*setup)(const struct isr*, time_t usec);
+	void (*on_interrupt)(void);
+};
+
+struct intctl_timer {
+	const char* name;
+	const struct intctl_timer_ops* ops;
+};
 
 struct intctl_ops {
 	int (*init_bsp)(void);
@@ -19,6 +30,7 @@ struct intctl {
 	const char* name;
 	int rating;
 	const struct intctl_ops* ops;
+	const struct intctl_timer* timer;
 };
 
 enum intctl_ipi_flags {
@@ -60,6 +72,8 @@ void intctl_enable_irq(const struct irq* irq);
 void intctl_disable_irq(const struct irq* irq);
 
 void intctl_wait_pending(const struct irq* irq);
+
+const struct intctl_timer* intctl_get_timer(void);
 
 void intctl_init_bsp(void);
 void intctl_init_ap(void);
