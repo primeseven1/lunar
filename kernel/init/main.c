@@ -16,7 +16,6 @@
 #include <lunar/core/term.h>
 #include <lunar/core/intctl.h>
 #include <lunar/core/interrupt.h>
-#include <lunar/core/apic.h>
 #include <lunar/core/timekeeper.h>
 #include <lunar/mm/buddy.h>
 #include <lunar/mm/heap.h>
