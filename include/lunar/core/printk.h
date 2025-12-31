@@ -18,13 +18,6 @@
 #define PRINTK_CRIT "\001\002"
 #define PRINTK_EMERG "\001\001"
 
-struct printk_msg {
-	int level, global_level;
-	char time[25];
-	u8 level_count;
-	char msg[1024];
-};
-
 /**
  * @brief Set a printk hook
  *
@@ -38,14 +31,14 @@ struct printk_msg {
  * @param hook The hook to use
  * @return -errno on failure
  */
-int printk_set_hook(void (*hook)(const struct printk_msg*));
+int printk_set_hook(void (*hook)(int, int, const char*));
 
 /**
  * @brief Remove a printk hook
  * @param hook The hook to remove
  * @return -errno on failure
  */
-int printk_remove_hook(void (*hook)(const struct printk_msg*));
+int printk_remove_hook(void (*hook)(int, int, const char*));
 
 /**
  * @brief Set the printk level
