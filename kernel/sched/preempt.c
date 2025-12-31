@@ -3,8 +3,8 @@
 #include <lunar/asm/segment.h>
 #include <lunar/core/cpu.h>
 #include <lunar/core/io.h>
-#include <lunar/core/apic.h>
 #include <lunar/core/printk.h>
+#include <lunar/core/intctl.h>
 #include <lunar/core/panic.h>
 #include <lunar/core/softirq.h>
 #include <lunar/core/timekeeper.h>
@@ -12,41 +12,32 @@
 #include <lunar/mm/vmm.h>
 #include "internal.h"
 
-#define TIMER_TRIGGER_TIME_USEC 1000u
+static const struct intctl_timer* timer = NULL;
+static struct isr* timer_isr = NULL;
 
-static u32 lapic_timer_get_ticks_for_preempt(void) {
-	lapic_write(LAPIC_REG_TIMER_DIVIDE, 0x03); /* Set the divisor to 16 */
-	lapic_write(LAPIC_REG_TIMER_INITIAL, U32_MAX); /* Set the initial count to the maximum */
-	timekeeper_stall(TIMER_TRIGGER_TIME_USEC);
-	lapic_write(LAPIC_REG_LVT_TIMER, 1 << 16); /* Stop timer */
-
-	/* Now just return the difference of the initial count and the current count */
-	return U32_MAX - lapic_read(LAPIC_REG_TIMER_CURRENT); 
-}
-
-static void lapic_timer(struct isr* isr, struct context* ctx) {
+static void do_timer(struct isr* isr, struct context* ctx) {
 	(void)isr;
 	(void)ctx;
 	raise_softirq(SOFTIRQ_TIMER);
+	if (timer->ops->on_interrupt)
+		timer->ops->on_interrupt();
 }
 
-static struct isr* lapic_timer_isr = NULL;
-
 void preempt_cpu_init(void) {
-	if (!lapic_timer_isr) {
-		lapic_timer_isr = interrupt_alloc();
-		if (unlikely(!lapic_timer_isr))
+	if (!timer_isr) {
+		timer_isr = interrupt_alloc();
+		if (unlikely(!timer_isr))
 			panic("Failed to allocate LAPIC timer ISR");
-		interrupt_register(lapic_timer_isr, NULL, lapic_timer);
+		interrupt_register(timer_isr, NULL, do_timer);
+	}
+	if (!timer) {
+		timer = intctl_get_timer();
+		if (!timer)
+			panic("No timer available for preempt");
+		printk("sched: per-cpu timer %s chosen\n", timer->name);
+		bug(register_softirq(sched_tick, SOFTIRQ_TIMER) != 0);
 	}
 
-	u32 ticks = lapic_timer_get_ticks_for_preempt();
-	lapic_write(LAPIC_REG_LVT_TIMER, interrupt_get_vector(lapic_timer_isr) | (1 << 17));
-	lapic_write(LAPIC_REG_TIMER_DIVIDE, 0x03);
-	lapic_write(LAPIC_REG_TIMER_INITIAL, ticks);
-
-	printk(PRINTK_DBG "sched: LAPIC timer calibrated at %u ticks per %u us on CPU %u\n", 
-			ticks, TIMER_TRIGGER_TIME_USEC, current_cpu()->sched_processor_id);
-	if (current_cpu()->sched_processor_id == 0)
-		bug(register_softirq(sched_tick, SOFTIRQ_TIMER) != 0);
+	if (unlikely(timer->ops->setup(timer_isr, 1000) != 0))
+		panic("Failed to set up per-cpu timer for CPU %u", current_cpu()->sched_processor_id);
 }
