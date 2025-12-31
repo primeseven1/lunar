@@ -5,13 +5,11 @@
 #include <lunar/core/printk.h>
 #include <lunar/core/io.h>
 
-static void e9hack_printk_hook(const struct printk_msg* msg) {
-	const char* time_string = msg->time;
-	while (*time_string)
-		outb(0xe9, *time_string++);
-	const char* _msg = msg->msg + msg->level_count;
-	while (*_msg)
-		outb(0xe9, *_msg++);
+static void e9hack_printk_hook(int level, int global_level, const char* msg) {
+	(void)level;
+	(void)global_level;
+	while (*msg)
+		outb(0xe9, *msg++);
 }
 
 static int e9hack_init(void) {
