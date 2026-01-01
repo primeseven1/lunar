@@ -29,8 +29,10 @@ static void do_shootdown(const struct smp_cpus* cpus, void* address, size_t size
 	atomic_store(&shootdown_size, size);
 	atomic_store(&shootdown_remaining, cpus->count - 1);
 
-	for (u32 i = 0; i < cpus->count; i++)
-		bug(intctl_send_ipi(cpus->cpus[i], shootdown_isr, 0) != 0);
+	for (u32 i = 0; i < cpus->count; i++) {
+		if (likely(cpus->cpus[i] != current_cpu()))
+			bug(intctl_send_ipi(cpus->cpus[i], shootdown_isr, 0) != 0);
+	}
 	while (atomic_load(&shootdown_remaining))
 		cpu_relax();
 
