@@ -17,13 +17,13 @@ struct intctl_timer {
 struct intctl_ops {
 	int (*init_bsp)(void);
 	int (*init_ap)(void);
-	int (*install)(int, const struct isr*, const struct cpu*);
-	int (*uninstall)(int);
-	int (*send_ipi)(const struct cpu*, const struct isr*, int);
-	int (*enable)(int);
-	int (*disable)(int);
-	int (*eoi)(int);
-	int (*wait_pending)(int);
+	int (*install)(int, const struct isr*, const struct cpu*); /* Install an IRQ handler. IRQ's are OFF */
+	int (*uninstall)(int); /* Remove an IRQ handler, IRQ's are OFF */
+	int (*send_ipi)(const struct cpu*, const struct isr*, int); /* Send an IPI to another CPU. IRQ's are OFF */
+	int (*enable)(int); /* Unmask an IRQ. IRQ's are OFF */
+	int (*disable)(int); /* Mask an IRQ. IRQ's are OFF */
+	int (*eoi)(int); /* Interrupt controller EOI signal */
+	int (*wait_pending)(int); /* Wait for any pending interrupts in the controller's IRR. IRQ's are ON. Called on the CPU that handles the IRQ */
 };
 
 struct intctl {
@@ -52,19 +52,32 @@ void intctl_eoi(const struct irq* irq);
 /**
  * @brief Install an IRQ handler
  *
- * If irq is NULL, the function sets isr->need_eoi to true, and intctl->install is called
- * with an IRQ number of -1. The ISR is then considered to be used for an IPI.
- *
  * The interrupt will be masked after returning
  *
  * @param irq The IRQ to install
  * @param isr The ISR that handles the IRQ
  * @param cpu The target CPU to run the IRQ on
+ *
+ * @return Returns -errno as a pointer on failure
  */
 struct irq* intctl_install_irq(int irq, const struct isr* isr, struct cpu* cpu);
 
+/**
+ * @brief Uninstall an IRQ handler
+ * @param irq The IRQ to remove
+ * @return -errno on failure
+ */
 int intctl_uninstall_irq(struct irq* irq);
 
+/**
+ * @brief Send an IPI to another CPU
+ *
+ * @param cpu The CPU to send the IPI to
+ * @param isr The ISR for that CPU to run
+ * @param flags Flags for how to send the IPI
+ *
+ * @return -errno on failure
+ */
 int intctl_send_ipi(const struct cpu* cpu, const struct isr* isr, int flags);
 
 void intctl_enable_irq(const struct irq* irq);

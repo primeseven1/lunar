@@ -27,6 +27,7 @@ struct ioapic_desc {
 };
 static struct ioapic_desc* ioapics;
 static unsigned long ioapic_count;
+static SPINLOCK_DEFINE(ioapic_lock);
 
 static struct acpi_madt* madt = NULL;
 
@@ -165,6 +166,7 @@ static int apic_eoi(int irq) {
 	return 0;
 }
 
+/* Sets an IRQ entry in the redirection table, the IOAPIC is expected to be locked */
 static int ioapic_set_irq(u8 irq, u8 vector, u8 processor, bool masked) {
 	u8 polarity = 1;
 	u8 trigger = 0;
@@ -201,14 +203,15 @@ static int ioapic_set_irq(u8 irq, u8 vector, u8 processor, bool masked) {
 	return 0;
 }
 
-static inline bool lapic_vec_test(unsigned int reg, u8 vector) {
+/* Should be used with the IRR/ISR registers to check if an interrupt is pending or in service */
+static inline bool __lapic_vec_test(unsigned int reg, u8 vector) {
 	int bank = vector >> 5;
 	u32 mask = 1u << (vector & 31);
 	return (lapic_read(reg + bank * 0x10) & mask) != 0;
 }
 
 static inline bool lapic_is_pending(int vector) {
-	return lapic_vec_test(LAPIC_REG_IRR_BASE, vector);
+	return __lapic_vec_test(LAPIC_REG_IRR_BASE, vector);
 }
 
 static int apic_wait_pending(int irq) {
@@ -217,7 +220,12 @@ static int apic_wait_pending(int irq) {
 		return -EINVAL;
 
 	struct ioapic_redtbl_entry re;
+
+	irqflags_t irq_flags;
+	spinlock_lock_irq_save(&ioapic_lock, &irq_flags);
 	ioapic_redtbl_read(desc->address, irq, &re);
+	spinlock_unlock_irq_restore(&ioapic_lock, &irq_flags);
+
 	while (lapic_is_pending(re.vector))
 		cpu_relax();
 
@@ -230,8 +238,13 @@ static int apic_enable_irq(int irq) {
 		return -EINVAL;
 
 	struct ioapic_redtbl_entry re;
+
+	spinlock_lock(&ioapic_lock);
 	ioapic_redtbl_read(desc->address, irq, &re);
-	return ioapic_set_irq(irq, re.vector, re.dest, false);
+	int err = ioapic_set_irq(irq, re.vector, re.dest, false);
+	spinlock_unlock(&ioapic_lock);
+
+	return err;
 }
 
 static int apic_disable_irq(int irq) {
@@ -240,16 +253,31 @@ static int apic_disable_irq(int irq) {
 		return -EINVAL;
 
 	struct ioapic_redtbl_entry re;
+
+	spinlock_lock(&ioapic_lock);
 	ioapic_redtbl_read(desc->address, irq, &re);
-	return ioapic_set_irq(irq, re.vector, re.dest, true);
+	int err = ioapic_set_irq(irq, re.vector, re.dest, true);
+	spinlock_unlock(&ioapic_lock);
+
+	return err;
 }
 
 static int apic_install(int irq, const struct isr* isr, const struct cpu* cpu) {
-	return ioapic_set_irq(irq, interrupt_get_vector(isr), cpu->lapic_id, true);
+	int vector = interrupt_get_vector(isr);
+
+	spinlock_lock(&ioapic_lock);
+	int err = ioapic_set_irq(irq, vector, cpu->lapic_id, true);
+	spinlock_unlock(&ioapic_lock);
+
+	return err;
 }
 
 static int apic_uninstall(int irq) {
-	return ioapic_set_irq(irq, 0xfe, 0, true);
+	spinlock_lock(&ioapic_lock);
+	int err = ioapic_set_irq(irq, 0xfe, 0, true);
+	spinlock_unlock(&ioapic_lock);
+
+	return err;
 }
 
 #define LAPIC_ICR_DELIV_STATUS (1u << 12)
@@ -348,11 +376,11 @@ static uacpi_status madt_init(void) {
 			err = UACPI_STATUS_NOT_FOUND;
 			goto err;
 		}
+
 		if (unlikely(entry->address % PAGE_SIZE != 0)) {
 			err = UACPI_STATUS_MAPPING_FAILED;
 			goto err;
 		}
-
 		ioapics[i].address = iomap(entry->address, PAGE_SIZE, MMU_READ | MMU_WRITE);
 		if (!ioapics[i].address) {
 			err = UACPI_STATUS_MAPPING_FAILED;
@@ -362,7 +390,7 @@ static uacpi_status madt_init(void) {
 		ioapics[i].base = entry->gsi_base;
 		u32 _top = (ioapic_read(ioapics[i].address, IOAPIC_REG_ENTRY_COUNT) >> 16 & 0xFF) + 1;
 		ioapics[i].top = ioapics[i].base + _top;
-		printk(PRINTK_DBG "acpi: ioapic%lu at base: %u, top: %u\n", i, ioapics[i].base, ioapics[i].top);
+		printk(PRINTK_DBG "apic: ioapic%lu at base: %u, top: %u\n", i, ioapics[i].base, ioapics[i].top);
 	}
 
 	return UACPI_STATUS_OK;
@@ -432,13 +460,16 @@ static const struct intctl_ops x1_ops = {
 };
 
 static int lapic_timer_setup(const struct isr* isr, time_t usec) {
+	/* Slow down the timer, this also makes it easier to calibrate */
 	lapic_write(LAPIC_REG_TIMER_DIVIDE, LAPIC_TIMER_DIVIDE_16);
-	lapic_write(LAPIC_REG_TIMER_INITIAL, U32_MAX);
 
+	/* Now record the amount of ticks in the elapsed time period */
+	lapic_write(LAPIC_REG_TIMER_INITIAL, U32_MAX);
 	timekeeper_stall(usec);
 	u32 ticks = U32_MAX - lapic_read(LAPIC_REG_TIMER_CURRENT);
 
-	lapic_write(LAPIC_REG_TIMER_DIVIDE, 0x03);
+	/* Now re-program the divide register and initial count, and set up the interrupt */
+	lapic_write(LAPIC_REG_TIMER_DIVIDE, LAPIC_TIMER_DIVIDE_16);
 	lapic_write(LAPIC_REG_TIMER_INITIAL, ticks);
 	lapic_write(LAPIC_REG_LVT_TIMER, interrupt_get_vector(isr) | LAPIC_LVT_TIMER_PERIODIC);
 
