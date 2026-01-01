@@ -203,6 +203,27 @@ static int ioapic_set_irq(u8 irq, u8 vector, u8 processor, bool masked) {
 	return 0;
 }
 
+static int ioapic_get_irq(u8 irq, struct ioapic_redtbl_entry* re) {
+	const u8 type = ACPI_MADT_ENTRY_TYPE_INTERRUPT_SOURCE_OVERRIDE;
+	unsigned long count = get_entry_count(type);
+	for (unsigned long i = 0; i < count; i++) {
+		struct acpi_madt_interrupt_source_override* override = get_entry(type, i);
+		if (override->source != irq)
+			continue;
+
+		irq = override->gsi;
+		break;
+	}
+
+	struct ioapic_desc* desc = get_ioapic_gsi(irq);
+	if (unlikely(!desc))
+		return -ENOENT;
+
+	irq = irq - desc->base;
+	ioapic_redtbl_read(desc->address, irq, re);
+	return 0;
+}
+
 /* Should be used with the IRR/ISR registers to check if an interrupt is pending or in service */
 static inline bool __lapic_vec_test(unsigned int reg, u8 vector) {
 	int bank = vector >> 5;
@@ -215,16 +236,14 @@ static inline bool lapic_is_pending(int vector) {
 }
 
 static int apic_wait_pending(int irq) {
-	struct ioapic_desc* desc = get_ioapic_gsi(irq);
-	if (!desc)
-		return -EINVAL;
-
 	struct ioapic_redtbl_entry re;
 
 	irqflags_t irq_flags;
 	spinlock_lock_irq_save(&ioapic_lock, &irq_flags);
-	ioapic_redtbl_read(desc->address, irq, &re);
+	int err = ioapic_get_irq(irq, &re);
 	spinlock_unlock_irq_restore(&ioapic_lock, &irq_flags);
+	if (err)
+		return err;
 
 	while (lapic_is_pending(re.vector))
 		cpu_relax();
@@ -233,30 +252,24 @@ static int apic_wait_pending(int irq) {
 }
 
 static int apic_enable_irq(int irq) {
-	struct ioapic_desc* desc = get_ioapic_gsi(irq);
-	if (!desc)
-		return -EINVAL;
-
 	struct ioapic_redtbl_entry re;
 
 	spinlock_lock(&ioapic_lock);
-	ioapic_redtbl_read(desc->address, irq, &re);
-	int err = ioapic_set_irq(irq, re.vector, re.dest, false);
+	int err = ioapic_get_irq(irq, &re);
+	if (err == 0)
+		err = ioapic_set_irq(irq, re.vector, re.dest, false);
 	spinlock_unlock(&ioapic_lock);
 
 	return err;
 }
 
 static int apic_disable_irq(int irq) {
-	struct ioapic_desc* desc = get_ioapic_gsi(irq);
-	if (!desc)
-		return -EINVAL;
-
 	struct ioapic_redtbl_entry re;
 
 	spinlock_lock(&ioapic_lock);
-	ioapic_redtbl_read(desc->address, irq, &re);
-	int err = ioapic_set_irq(irq, re.vector, re.dest, true);
+	int err = ioapic_get_irq(irq, &re);
+	if (err == 0)
+		err = ioapic_set_irq(irq, re.vector, re.dest, true);
 	spinlock_unlock(&ioapic_lock);
 
 	return err;
