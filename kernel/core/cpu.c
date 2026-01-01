@@ -45,8 +45,10 @@ void smp_send_stop(void) {
 		return;
 
 	atomic_store(&stop_cpus_left, smp_cpus->count - 1);
-	for (u32 i = 0; i < smp_cpus->count; i++)
-		intctl_send_ipi(smp_cpus->cpus[i], stop_isr, 0);
+	for (u32 i = 0; i < smp_cpus->count; i++) {
+		if (likely(smp_cpus->cpus[i] != current_cpu()))
+			intctl_send_ipi(smp_cpus->cpus[i], stop_isr, 0);
+	}
 
 	struct timespec ts = timekeeper_time(TIMEKEEPER_FROMBOOT);
 	time_t timeout_ns = timespec_to_ns(&ts) + 1000000000; /* 1 second timeout */
@@ -58,8 +60,10 @@ void smp_send_stop(void) {
 
 	if (atomic_load(&stop_cpus_left) == 0)
 		return;
-	for (u32 i = 0; i < smp_cpus->count; i++)
-		intctl_send_ipi(smp_cpus->cpus[i], stop_isr, INTCTL_IPI_CRITICAL);
+	for (u32 i = 0; i < smp_cpus->count; i++) {
+		if (likely(smp_cpus->cpus[i] != current_cpu()))
+			intctl_send_ipi(smp_cpus->cpus[i], stop_isr, INTCTL_IPI_CRITICAL);
+	}
 }
 
 void smp_struct_init(void) {
