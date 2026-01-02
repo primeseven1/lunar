@@ -8,16 +8,19 @@
 #include <lunar/core/cpu.h>
 #include "internal.h"
 
+static struct slab_cache* atomic_work_cache = NULL;
+
 static LIST_HEAD_DEFINE(global_workqueue);
 static SPINLOCK_DEFINE(global_lock);
 static SEMAPHORE_DEFINE(global_sem, 0);
 
 static int worker_thread(void* arg) {
-	struct cpu* cpu = arg;
+	struct cpu* const cpu = arg;
 
+	struct list_head* const queue = cpu ? &cpu->workqueue : &global_workqueue;
 	spinlock_t* const lock = cpu ? &cpu->workqueue_lock : &global_lock;
-	struct list_head* const list = cpu ? &cpu->workqueue : &global_workqueue;
 	struct semaphore* const sem = cpu ? &cpu->workqueue_sem : &global_sem;
+
 	while (1) {
 		semaphore_wait(sem, 0);
 
@@ -25,47 +28,48 @@ static int worker_thread(void* arg) {
 		spinlock_lock_irq_save(lock, &irq);
 
 		struct work* work = NULL;
-		if (!list_empty(list)) {
-			work = list_first_entry(list, struct work, link);
+		if (!list_empty(queue)) {
+			work = list_first_entry(queue, struct work, link);
 			list_remove(&work->link);
 		}
 
 		spinlock_unlock_irq_restore(lock, &irq);
-		if (work)
+		if (work) {
 			work->fn(work->arg);
+			slab_cache_free(atomic_work_cache, work);
+		}
 	}
 
 	kthread_exit(0);
 }
 
-static struct slab_cache* atomic_work_cache = NULL;
-
-static int __sched_workqueue_add(struct list_head* wq,
-		struct semaphore* wq_sem, spinlock_t* wq_lock,
-		void (*fn)(void*), void* arg) {
+static int __sched_workqueue_add(struct cpu* cpu, void (*fn)(void*), void* arg) {
 	struct work* work = slab_cache_alloc(atomic_work_cache);
 	if (!work)
 		return -ENOMEM;
-
 	work->fn = fn;
 	work->arg = arg;
 	list_node_init(&work->link);
 
-	irqflags_t irq;
-	spinlock_lock_irq_save(wq_lock, &irq);
-	list_add_tail(wq, &work->link);
-	spinlock_unlock_irq_restore(wq_lock, &irq);
+	struct list_head* const queue = cpu ? &cpu->workqueue : &global_workqueue;
+	spinlock_t* const lock = cpu ? &cpu->workqueue_lock : &global_lock;
+	struct semaphore* const sem = cpu ? &cpu->workqueue_sem : &global_sem;
 
-	semaphore_signal(wq_sem);
+	irqflags_t irq_flags;
+	spinlock_lock_irq_save(lock, &irq_flags);
+	list_add_tail(queue, &work->link);
+	spinlock_unlock_irq_restore(lock, &irq_flags);
+
+	semaphore_signal(sem);
 	return 0;
 }
 
 int sched_workqueue_add(void (*fn)(void*), void* arg) {
-	return __sched_workqueue_add(&global_workqueue, &global_sem, &global_lock, fn, arg);
+	return __sched_workqueue_add(NULL, fn, arg);
 }
 
 int sched_workqueue_add_on(struct cpu* cpu, void(*fn)(void*), void* arg) {
-	return __sched_workqueue_add(&cpu->workqueue, &cpu->workqueue_sem, &cpu->workqueue_lock, fn, arg);
+	return __sched_workqueue_add(cpu, fn, arg);
 }
 
 void workqueue_cpu_init(void) {
@@ -91,8 +95,7 @@ void workqueue_cpu_init(void) {
 }
 
 void workqueue_init(void) {
-	atomic_work_cache = slab_cache_create(sizeof(struct work), _Alignof(struct work),
-			MM_ZONE_NORMAL | MM_ATOMIC, NULL, NULL);
+	atomic_work_cache = slab_cache_create(sizeof(struct work), _Alignof(struct work), MM_ZONE_NORMAL | MM_ATOMIC, NULL, NULL);
 	if (unlikely(!atomic_work_cache))
 		panic("Failed to create atomic workqueue cache");
 	workqueue_cpu_init();
