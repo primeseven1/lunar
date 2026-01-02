@@ -194,5 +194,5 @@ struct elf64_rela {
 	i64 r_addend;
 };
 
-int elf_validate(struct elf64_ehdr* ehdr);
+bool elf_validate(struct elf64_ehdr* ehdr);
 int elf_load(struct vnode* vnode);
