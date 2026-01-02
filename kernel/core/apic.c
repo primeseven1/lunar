@@ -14,6 +14,7 @@
 #include <uacpi/acpi.h>
 
 #include "internal.h"
+#include "lunar/core/interrupt.h"
 
 enum apic_base_flags {
 	APIC_BASE_BSP = (1 << 8),
@@ -287,7 +288,7 @@ static int apic_install(int irq, const struct isr* isr, const struct cpu* cpu) {
 
 static int apic_uninstall(int irq) {
 	spinlock_lock(&ioapic_lock);
-	int err = ioapic_set_irq(irq, 0xfe, 0, true);
+	int err = ioapic_set_irq(irq, INTERRUPT_SPURIOUS_VECTOR, 0, true);
 	spinlock_unlock(&ioapic_lock);
 
 	return err;
@@ -445,7 +446,7 @@ static int apic_bsp_init(void) {
 	for (unsigned long i = 0; i < ioapic_count; i++) {
 		struct ioapic_desc* ioapic = &ioapics[i];
 		const struct ioapic_redtbl_entry re = {
-			.vector = 0xfe,
+			.vector = INTERRUPT_SPURIOUS_VECTOR,
 			.delivery = 0,
 			.dest = 0,
 			.masked = 1,
