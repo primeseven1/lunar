@@ -46,7 +46,7 @@ struct thread* thread_create(struct proc* proc, void* exec, size_t stack_size) {
 	thread->stack = vmap(NULL, stack_total, MMU_READ | MMU_WRITE, VMM_ALLOC, NULL);
 	if (IS_PTR_ERR(thread->stack))
 		goto err_stack;
-	bug(vprotect(thread->stack, THREAD_STACK_GUARD_SIZE, MMU_NONE, 0) != 0); /* guard page */
+	bug(vprotect(thread->stack, THREAD_STACK_GUARD_SIZE, MMU_NONE, 0, NULL) != 0); /* guard page */
 	thread->stack_size = stack_size;
 
 	memset(&thread->ctx.general, 0, sizeof(thread->ctx.general));
@@ -65,7 +65,7 @@ struct thread* thread_create(struct proc* proc, void* exec, size_t stack_size) {
 		u8* const utk_stack = vmap(NULL, utk_stack_total, MMU_READ | MMU_WRITE, VMM_ALLOC, NULL);
 		if (unlikely(IS_PTR_ERR(utk_stack)))
 			goto err_utk_stack;
-		bug(vprotect(utk_stack, THREAD_STACK_GUARD_SIZE, MMU_NONE, 0) != 0);
+		bug(vprotect(utk_stack, THREAD_STACK_GUARD_SIZE, MMU_NONE, 0, NULL) != 0);
 		thread->utk_stack_top = utk_stack + utk_stack_total;
 		thread->ctx.general.cs = SEGMENT_USER_CODE;
 		thread->ctx.general.ss = SEGMENT_USER_DATA;
@@ -82,7 +82,7 @@ struct thread* thread_create(struct proc* proc, void* exec, size_t stack_size) {
 err_utk_stack:
 	ext_ctx_free(thread->ctx.extended);
 err_ctx:
-	bug(vunmap(thread->stack, stack_total, 0) != 0);
+	bug(vunmap(thread->stack, stack_total, 0, NULL) != 0);
 err_stack:
 	tid_free(proc, thread->id);
 err_id:
@@ -94,7 +94,7 @@ int thread_destroy(struct thread* thread) {
 		return -EBUSY;
 
 	const size_t stack_total = thread->stack_size + THREAD_STACK_GUARD_SIZE;
-	bug(vunmap(thread->stack, stack_total, 0) != 0);
+	bug(vunmap(thread->stack, stack_total, 0, NULL) != 0);
 	tid_free(thread->proc, thread->id);
 	ext_ctx_free(thread->ctx.extended);
 
