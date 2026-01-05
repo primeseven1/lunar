@@ -129,13 +129,11 @@ void* vmap(void* hint, size_t size, mmuflags_t mmu_flags, int flags, void* optio
 	if (flags & VMM_HUGEPAGE_2M)
 		pt_flags |= PT_HUGEPAGE;
 
-	struct mm* mm_struct;
+	struct mm* mm_struct = &kernel_mm_struct;
 	if (flags & VMM_USER) {
 		mm_struct = optional ? optional : current_cpu()->mm_struct;
 		if (mm_struct == &kernel_mm_struct)
 			return ERR_PTR(-EINVAL);
-	} else {
-		mm_struct = &kernel_mm_struct;
 	}
 
 	mutex_lock(&mm_struct->vma_lock);
@@ -188,17 +186,23 @@ err:
 }
 
 static inline bool vprotect_flags_valid(int flags) {
-	return flags == 0;
+	return (flags == 0 || flags == VMM_USER);
 }
 
-int vprotect(void* virtual, size_t size, mmuflags_t mmu_flags, int flags) {
+int vprotect(void* virtual, size_t size, mmuflags_t mmu_flags, int flags, void* optional) {
 	if ((uintptr_t)virtual & (PAGE_SIZE - 1) || size == 0 || !vprotect_flags_valid(flags))
 		return -EINVAL;
 	unsigned long pt_flags = pagetable_mmu_to_pt(mmu_flags);
 	if (pt_flags == ULONG_MAX)
 		return -EINVAL;
 
-	struct mm* mm_struct = current_cpu()->mm_struct;
+	struct mm* mm_struct = &kernel_mm_struct;
+	if (flags & VMM_USER) {
+		mm_struct = optional ? optional : current_cpu()->mm_struct;
+		if (mm_struct == &kernel_mm_struct)
+			return -EINVAL;
+	}
+
 	int err = 0;
 	size_t tlb_flush_round = PAGE_SIZE;
 
@@ -250,14 +254,20 @@ out:
 }
 
 static inline bool vunmap_flags_valid(int flags) {
-	return flags == 0;
+	return (flags == 0 || flags == VMM_USER);
 }
 
-int vunmap(void* virtual, size_t size, int flags) {
+int vunmap(void* virtual, size_t size, int flags, void* optional) {
 	if ((uintptr_t)virtual & (PAGE_SIZE - 1) || size == 0 || !vunmap_flags_valid(flags))
 		return -EINVAL;
 
-	struct mm* mm_struct = current_cpu()->mm_struct;
+	struct mm* mm_struct = &kernel_mm_struct;
+	if (flags & VMM_USER) {
+		mm_struct = optional ? optional : current_cpu()->mm_struct;
+		if (mm_struct == &kernel_mm_struct)
+			return -EINVAL;
+	}
+
 	size_t tlb_invalidate_round = PAGE_SIZE;
 	int err;
 
@@ -325,19 +335,19 @@ void __iomem* iomap(physaddr_t physical, size_t size, mmuflags_t mmu_flags) {
 		return NULL;
 
 	/* Add guard pages, errors should not happen here */
-	if (unlikely(vprotect(base, PAGE_SIZE, MMU_NONE, 0) != 0)) {
-		bug(vunmap(base, total_size, 0) != 0);
+	if (unlikely(vprotect(base, PAGE_SIZE, MMU_NONE, 0, NULL) != 0)) {
+		bug(vunmap(base, total_size, 0, NULL) != 0);
 		return NULL;
 	}
-	if (unlikely(vprotect(base + PAGE_SIZE + map_size, PAGE_SIZE, MMU_NONE, 0) != 0)) {
-		bug(vunmap(base, total_size, 0) != 0);
+	if (unlikely(vprotect(base + PAGE_SIZE + map_size, PAGE_SIZE, MMU_NONE, 0, NULL) != 0)) {
+		bug(vunmap(base, total_size, 0, NULL) != 0);
 		return NULL;
 	}
 
 	u8* iomem = base + PAGE_SIZE;
 	u8* const ret = vmap(iomem, map_size, mmu_flags, VMM_IOMEM | VMM_FIXED, &physical);
 	if (unlikely(IS_PTR_ERR(ret))) {
-		vunmap(base, total_size, 0);
+		vunmap(base, total_size, 0, NULL);
 		return NULL;
 	}
 
@@ -348,29 +358,43 @@ int iounmap(void __iomem* virtual, size_t size) {
 	const size_t page_offset = (uintptr_t)virtual % PAGE_SIZE;
 	u8 __iomem* const base = (u8 __iomem*)virtual - page_offset - PAGE_SIZE;
 	const size_t total_size = size + page_offset + PAGE_SIZE * 2;
-	return vunmap((void __force*)base, total_size, 0);
+	return vunmap((void __force*)base, total_size, 0, NULL);
 }
 
-void* vmap_kstack(void) {
-	const size_t total_size = KSTACK_SIZE + PAGE_SIZE;
-
-	u8* ptr = vmap(NULL, total_size, MMU_READ | MMU_WRITE, VMM_ALLOC, NULL);
+static void* __vmap_stack(size_t size, int flags, bool return_top, void* optional) {
+	const size_t total_size = size + PAGE_SIZE;
+	u8* ptr = vmap(NULL, total_size, MMU_READ | MMU_WRITE, VMM_ALLOC | flags, optional);
 	if (IS_PTR_ERR(ptr))
-		return NULL;
-
-	/* Map guard page */
-	if (unlikely(vprotect(ptr, PAGE_SIZE, MMU_NONE, 0) != 0)) {
-		bug(vunmap(ptr, total_size, 0) != 0);
-		return NULL;
+		return ptr;
+	int err = vprotect(ptr, PAGE_SIZE, MMU_NONE, 0, NULL);
+	if (unlikely(err)) {
+		bug(vunmap(ptr, total_size, 0, NULL) != 0);
+		return ERR_PTR(err);
 	}
-
-	return ptr + total_size;
+	return return_top ? ptr + total_size : ptr;
 }
 
-int vunmap_kstack(void* stack) {
-	const size_t total_size = KSTACK_SIZE + PAGE_SIZE;
-	stack = (u8*)stack - total_size;
-	return vunmap(stack, total_size, 0);
+static int __vunmap_stack(void* stack, size_t size, int flags, bool is_top, void* optional) {
+	const size_t total_size = size + PAGE_SIZE;
+	if (is_top)
+		stack = (u8*)stack - total_size;
+	return vunmap(stack, total_size, flags, optional);
+}
+
+void* vmap_stack(size_t size, bool return_top) {
+	return __vmap_stack(size, VMM_ALLOC, return_top, NULL);
+}
+
+int vunmap_stack(void* stack, size_t size, bool is_top) {
+	return __vunmap_stack(stack, size, 0, is_top, NULL);
+}
+
+void __user* uvmap_stack(size_t size, bool return_top, struct mm* mm) {
+	return (__force void __user*)__vmap_stack(size, VMM_ALLOC | VMM_USER, return_top, mm);
+}
+
+int uvunmap_stack(void __user* stack, size_t size, bool is_top, struct mm* mm) {
+	return __vunmap_stack((__force void*)stack, size, VMM_USER, is_top, mm);
 }
 
 void vmm_cpu_init(void) {

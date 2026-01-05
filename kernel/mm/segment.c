@@ -106,11 +106,12 @@ void segments_init(void) {
 	tss->iopb = sizeof(*tss);
 
 	/* Create stacks */
-	tss->rsp[0] = vmap_kstack();
-	assert(tss->rsp[0] != NULL);
+	tss->rsp[0] = vmap_stack(KSTACK_SIZE, true);
+	if (IS_PTR_ERR(tss->rsp[0]))
+		panic("semgents_init() failed!");
 	for (int i = 0; i < 3; i++) {
-		tss->ist[i] = vmap_kstack();
-		if (!tss->ist[i])
+		tss->ist[i] = vmap_stack(KSTACK_SIZE, true);
+		if (IS_PTR_ERR(tss->ist[i]))
 			panic("segments_init() failed!");
 	}
 

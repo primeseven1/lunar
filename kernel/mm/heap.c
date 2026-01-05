@@ -150,7 +150,7 @@ void* vmalloc(size_t size) {
 
 	struct vmalloc_info ai = { .size = size };
 	if (hashtable_insert(vmalloc_hashtable, &virtual, sizeof(void*), &ai)) {
-		bug(vunmap(virtual, size, 0) != 0);
+		bug(vunmap(virtual, size, 0, NULL) != 0);
 		return NULL;
 	}
 
@@ -165,7 +165,7 @@ void vfree(void* ptr) {
 		printk(PRINTK_ERR "Invalid pointer passed to vfree: %p\n", ptr);
 		return;
 	}
-	bug(vunmap(ptr, ai.size, 0) != 0);
+	bug(vunmap(ptr, ai.size, 0, NULL) != 0);
 }
 
 void heap_init(void) {

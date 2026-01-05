@@ -10,6 +10,8 @@
 #define PAGE_SHIFT 12
 #define HUGEPAGE_2M_SHIFT 21
 
+struct mm;
+
 typedef enum {
 	MMU_NONE = 0,
 	MMU_READ = (1 << 0),
@@ -74,22 +76,24 @@ void* vmap(void* hint, size_t size, mmuflags_t mmu_flags, int flags, void* optio
  * @param virtual The virtual address to change, must be aligned
  * @param size The size of the mapping you want to change
  * @param mmu_flags The new MMU flags to use
- * @param flags Unimplemented, must be zero.
+ * @param flags 0 and VMM_USER are the only valid flags
+ * @param optional Type is a struct mm* if flags has VMM_USER set
  *
  * @return -errno on failure
  */
-int vprotect(void* virtual, size_t size, mmuflags_t mmu_flags, int flags);
+int vprotect(void* virtual, size_t size, mmuflags_t mmu_flags, int flags, void* optional);
 
 /**
  * @brief Unmap a block allocated with vmap
  *
  * @param virtual The virtual address, must be aligned
  * @param size The original size of the mapping
- * @param flags Unimplemented, must be zero.
+ * @param flags 0 and VMM_USER are the only valid flags.
+ * @param optional Type is a struct mm* if flags has VMM_USER set
  *
  * @return -errno on failure
  */
-int vunmap(void* virtual, size_t size, int flags);
+int vunmap(void* virtual, size_t size, int flags, void* optional);
 
 /**
  * @brief Map pages as IO memory
@@ -115,32 +119,22 @@ void __iomem* iomap(physaddr_t physical, size_t size, mmuflags_t mmu_flags);
 int iounmap(void __iomem* virtual, size_t size);
 
 static inline void __user* uvmap(void __user* hint, size_t size,
-		mmuflags_t mmu_flags, int flags, void* optional) {
-	return (void __user __force*)vmap((void __force*)hint, size, mmu_flags, flags | VMM_USER, optional);
+		mmuflags_t mmu_flags, int flags, struct mm* mm) {
+	return (__force void __user*)vmap((void __force*)hint, size, mmu_flags, flags | VMM_USER, mm);
 }
 
-static inline int uvprotect(void __user* virtual, size_t size, mmuflags_t mmu_flags, int flags) {
-	return vprotect((void __force*)virtual, size, mmu_flags, flags);
+static inline int uvprotect(void __user* virtual, size_t size, mmuflags_t mmu_flags, int flags, struct mm* mm) {
+	return vprotect((void __force*)virtual, size, mmu_flags, flags | VMM_USER, mm);
 }
 
-static inline int uvunmap(void __user* virtual, size_t size, int flags) {
-	return vunmap((void __force*)virtual, size, flags);
+static inline int uvunmap(void __user* virtual, size_t size, int flags, struct mm* mm) {
+	return vunmap((void __force*)virtual, size, flags | VMM_USER, mm);
 }
 
-/**
- * @brief Create a stack that is KSTACK_SIZE in length
- *
- * Adds a 4K guard page at the end of the stack.
- *
- * @return The address of the stack, the pointer returned points to the top of the stack.
- */
-void* vmap_kstack(void);
-
-/**
- * @brief Unmap a kernel stack
- * @param stack The stack to unmap
- */
-int vunmap_kstack(void* stack);
+void* vmap_stack(size_t size, bool return_top);
+int vunmap_stack(void* stack, size_t size, bool is_top);
+void __user* uvmap_stack(size_t size, bool return_top, struct mm* mm);
+int uvunmap_stack(void __user* stack, size_t size, bool is_top, struct mm* mm);
 
 void vmm_tlb_init(void);
 void vmm_cpu_init(void);
