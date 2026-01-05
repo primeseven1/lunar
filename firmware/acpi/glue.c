@@ -51,7 +51,7 @@ void* uacpi_kernel_map(uacpi_phys_addr physical, uacpi_size size) {
 void uacpi_kernel_unmap(void* virtual, uacpi_size size) {
 	size_t page_offset = (uintptr_t)virtual % PAGE_SIZE;
 	void* _virtual = (u8*)virtual - page_offset;
-	int err = vunmap(_virtual, size + page_offset, 0);
+	int err = vunmap(_virtual, size + page_offset, 0, NULL);
 	if (err)
 		printk(PRINTK_ERR "acpi: %s failed with error code %i\n", __func__, err);
 }
