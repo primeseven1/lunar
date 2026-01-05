@@ -58,7 +58,7 @@ int cmdline_parse(void) {
 			break;
 	}
 
-	if (unlikely(vprotect(cmdline_base, cmdline_size, MMU_READ, 0)))
+	if (unlikely(vprotect(cmdline_base, cmdline_size, MMU_READ, 0, NULL)))
 		printk(PRINTK_ERR "core: Failed to remap command line arguments as read only!\n");
 	return err;
 }

@@ -50,7 +50,7 @@ static void idt_init(void) {
 		if (IS_PTR_ERR(idt))
 			panic("Failed to map the interrupt table\n");
 		__idt_init();
-		vprotect(idt, idt_size, MMU_READ, 0);
+		vprotect(idt, idt_size, MMU_READ, 0, NULL);
 	}
 
 	struct {
