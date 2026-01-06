@@ -1,6 +1,7 @@
 #pragma once
 
 #include <lunar/asm/msr.h>
+#include <lunar/asm/segment.h>
 #include <lunar/sched/scheduler.h>
 #include <lunar/lib/list.h>
 #include <lunar/lib/ringbuffer.h>
@@ -21,6 +22,7 @@ struct cpu {
 	bool need_resched;
 	struct timekeeper_source* timekeeper;
 	unsigned long softirqs_pending;
+	struct tss_descriptor* tss;
 };
 
 /* Sanity check, assembly code will expect this offset */
