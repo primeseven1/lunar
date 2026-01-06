@@ -1,4 +1,5 @@
 #include <lunar/core/panic.h>
+#include <lunar/core/cpu.h>
 #include <lunar/asm/ctl.h>
 #include <lunar/asm/cpuid.h>
 #include <lunar/asm/wrap.h>
@@ -10,13 +11,15 @@ void atomic_context_switch(struct thread* prev, struct thread* next, struct cont
 	prev->ctx.general = *ctx;
 	cpu_fxsave(prev->ctx.extended);
 	*ctx = next->ctx.general;
+	current_cpu()->tss->rsp[0] = next->utk_stack_top;
 	cpu_fxrstor(next->ctx.extended);
 }
 
 void context_switch(struct thread* prev, struct thread* next) {
 	cpu_fxsave(prev->ctx.extended);
+	current_cpu()->tss->rsp[0] = next->utk_stack_top;
 	asm_context_switch(&prev->ctx.general, &next->ctx.general);
-	cpu_fxrstor(prev->ctx.extended); /* Resuming on the previous thread */
+	cpu_fxrstor(prev->ctx.extended);
 }
 
 static struct slab_cache* ext_ctx_cache = NULL;
