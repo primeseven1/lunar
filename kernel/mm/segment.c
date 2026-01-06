@@ -24,17 +24,6 @@ struct tss_segment_descriptor {
 	u32 __reserved;
 } __attribute__((packed));
 
-struct tss_descriptor {
-	u32 __reserved0;
-	void* rsp[3];
-	u64 __reserved1;
-	void* ist[7];
-	u32 __reserved2;
-	u32 __reserved3;
-	u16 __reserved4;
-	u16 iopb;
-} __attribute__((packed));
-
 struct kernel_segments {
 	struct segment_descriptor segments[SEGMENT_COUNT];
 	struct tss_segment_descriptor tss;
@@ -105,10 +94,7 @@ void segments_init(void) {
 	memset(tss, INT_MAX, tss_size);
 	tss->iopb = sizeof(*tss);
 
-	/* Create stacks */
-	tss->rsp[0] = vmap_stack(KSTACK_SIZE, true);
-	if (IS_PTR_ERR(tss->rsp[0]))
-		panic("semgents_init() failed!");
+	memset(tss->rsp, 0, sizeof(tss->rsp));
 	for (int i = 0; i < 3; i++) {
 		tss->ist[i] = vmap_stack(KSTACK_SIZE, true);
 		if (IS_PTR_ERR(tss->ist[i]))
@@ -135,5 +121,6 @@ void segments_init(void) {
 	};
 	__asm__ volatile("lgdt %0" : : "m"(gdtr) : "memory");
 
+	current_cpu()->tss = tss;
 	reload_segment_registers();
 }
