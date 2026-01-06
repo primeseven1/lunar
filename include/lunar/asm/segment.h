@@ -8,6 +8,19 @@
 
 #ifndef __ASSEMBLER__
 
+#include <lunar/types.h>
+
+struct tss_descriptor {
+	u32 __reserved0;
+	void* rsp[3];
+	u64 __reserved1;
+	void* ist[7];
+	u32 __reserved2;
+	u32 __reserved3;
+	u16 __reserved4;
+	u16 iopb;
+} __attribute__((packed));
+
 /**
  * @brief Initialize the global descriptor table
  */
