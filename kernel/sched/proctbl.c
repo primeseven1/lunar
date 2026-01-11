@@ -14,10 +14,11 @@ int sched_add_to_proctbl(struct proc* proc) {
 	return hashtable_insert(process_table, &proc->pid, sizeof(proc->pid), &proc);
 }
 
-int sched_get_from_proctbl(pid_t pid, struct proc** proc) {
-	return hashtable_search(process_table, &pid, sizeof(pid), proc);
+struct proc* sched_get_from_proctbl(pid_t pid) {
+	struct proc* proc;
+	return hashtable_search(process_table, &pid, sizeof(pid), &proc) != 0 ? ERR_PTR(-ESRCH) : proc;
 }
 
 int sched_remove_proctbl(pid_t pid) {
-	return hashtable_remove(process_table, &pid, sizeof(pid));
+	return hashtable_remove(process_table, &pid, sizeof(pid)) != 0 ? -ESRCH : 0;
 }

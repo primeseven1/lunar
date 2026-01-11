@@ -8,6 +8,7 @@
 #include <lunar/core/semaphore.h>
 #include <lunar/core/panic.h>
 #include <lunar/core/cred.h>
+#include <lunar/sched/procthrd.h>
 #include <lunar/lib/list.h>
 
 struct cpu;
@@ -16,28 +17,9 @@ struct cpu;
 #define SCHED_PRIO_MAX 99
 #define SCHED_PRIO_DEFAULT 45
 
-enum thread_states {
-	THREAD_NEW,
-	THREAD_READY,
-	THREAD_RUNNING,
-	THREAD_BLOCKED,
-	THREAD_SLEEPING,
-	THREAD_ZOMBIE
-};
-
-enum sched_flags {
-	SCHED_THIS_CPU = (1 << 0),
-	SCHED_CPU0 = (1 << 1)
-};
-
 enum sched_sleep_flags {
-	SCHED_SLEEP_INTERRUPTIBLE = (1 << 1),
-	SCHED_SLEEP_BLOCK = (1 << 2)
-};
-
-enum thread_rings {
-	THREAD_RING_KERNEL,
-	THREAD_RING_USER
+	SCHED_SLEEP_INTERRUPTIBLE = (1 << 0),
+	SCHED_SLEEP_BLOCK = (1 << 1)
 };
 
 struct work {
@@ -46,77 +28,12 @@ struct work {
 	struct list_node link;
 };
 
-struct proc {
-	pid_t pid; /* Process ID */
-	struct mm* mm_struct; /* Memory manager context */
-	struct cred cred;
-	u8* tid_map; /* Thread ID bitmap */
-	spinlock_t tid_lock;
-	struct list_head threads; /* The list of threads for this process, linked with proc_link */
-	atomic(unsigned long) thread_count; /* The number of threads for this process, don't write without locking first */
-	spinlock_t thread_lock; /* For the thread linked list */
-};
-
-struct thread {
-	void* utk_stack_top; /* User to kernel stack */
-	tid_t id; /* Thread ID */
-	struct cpu* target_cpu; /* What queue this thread is in */
-	unsigned long cpu_mask;
-	bool attached; /* Attached to the policy? */
-	struct proc* proc; /* The process struct this thread is linked to */
-	bool in_usercopy; /* For the page fault handler */
-	int ring; /* Kernel mode or user mode thread */
-	int prio; /* Priority of the current thread */
-	atomic(int) state; /* ready, blocked, running, etc.. */
-	time_t wakeup_time; /* When the thread should wake up in nanoseconds */
-	atomic(int) wakeup_err; /* Wakeup error code (eg. -ETIMEDOUT, -EINTR)*/
-	atomic(bool) sleep_interruptable; /* Can be interrupted by signals */
-	bool should_exit; /* Checked on preempt, or schedule() */
-	long preempt_count; /* Task can be preempted when zero */
-	void* stack; /* Base address of the stack */
-	size_t stack_size;
-	struct {
-		struct context general; /* General purpose registers */
-		void* thread_local; /* Unused for kernel threads */
-		void* extended; /* SSE, AVX, etc.. */
-	} ctx; /* For the task switcher, obviously */
-	struct list_node proc_link; /* Link for proc->threads */
-	struct list_node sleep_link; /* Link so the scheduler can wake up threads */
-	struct list_node block_link; /* Link for things like mutexes/semaphores */
-	struct list_node zombie_link; /* For reaper thread */
-	void* policy_priv; /* For the scheduling algorithm */
-	atomic(unsigned long) refcount;
-};
-
-/* Not needed (probably), but make 100% sure this is the case, assembly code expects this to be here */
-static_assert(offsetof(struct thread, utk_stack_top) == 0, "offsetof(struct thread, utk_stack_top) == 0");
-
-struct sched_policy;
-
-struct runqueue {
-	const struct sched_policy* policy;
-	struct thread* current, *idle;
-	struct list_head sleepers; /* Sleeping threads, may also contain blocked threads for timeouts */
-	struct list_head zombies; /* For reaper thread */
-	atomic(unsigned long) thread_count;
-	void* policy_priv; /* For scheduling algorithm */
-	spinlock_t lock, zombie_lock;
-	struct semaphore reaper_sem;
-};
-
 void sched_cpu_init(void);
 void sched_init(void);
 
 void atomic_context_switch(struct thread* prev, struct thread* next, struct context* ctx);
+
 struct thread* atomic_schedule(void);
-
-static inline void thread_ref(struct thread* thread) {
-	atomic_fetch_add_explicit(&thread->refcount, 1, ATOMIC_RELEASE);
-}
-
-static inline void thread_unref(struct thread* thread) {
-	bug(atomic_fetch_sub_explicit(&thread->refcount, 1, ATOMIC_ACQ_REL) == 0);
-}
 
 /**
  * @brief Switch to another runnable thread.
@@ -226,6 +143,24 @@ int sched_proc_create(const struct cred* cred, struct mm* mm_struct, struct proc
  */
 int sched_proc_destroy(struct proc* proc);
 
+/**
+ * @brief Add a process to the global table
+ * @param proc The process to add
+ * @return -errno on failure
+ */
 int sched_add_to_proctbl(struct proc* proc);
-int sched_get_from_proctbl(pid_t pid, struct proc** proc);
+
+/**
+ * @brief Get a process from a table
+ *
+ * @param pid The PID
+ *
+ * @retval -ESRCH No such process
+ * @retval 0 Successful
+ */
+struct proc* sched_get_from_proctbl(pid_t pid);
+
+/**
+ *
+ */
 int sched_remove_proctbl(pid_t pid);

@@ -5,19 +5,20 @@
 #include <lunar/asm/wrap.h>
 #include <lunar/mm/slab.h>
 #include <lunar/lib/string.h>
+#include <lunar/sched/scheduler.h>
 #include "internal.h"
 
 void atomic_context_switch(struct thread* prev, struct thread* next, struct context* ctx) {
 	prev->ctx.general = *ctx;
 	cpu_fxsave(prev->ctx.extended);
 	*ctx = next->ctx.general;
-	current_cpu()->tss->rsp[0] = next->utk_stack_top;
+	current_cpu()->tss->rsp[0] = next->utk_stack;
 	cpu_fxrstor(next->ctx.extended);
 }
 
 void context_switch(struct thread* prev, struct thread* next) {
 	cpu_fxsave(prev->ctx.extended);
-	current_cpu()->tss->rsp[0] = next->utk_stack_top;
+	current_cpu()->tss->rsp[0] = next->utk_stack;
 	asm_context_switch(&prev->ctx.general, &next->ctx.general);
 	cpu_fxrstor(prev->ctx.extended);
 }

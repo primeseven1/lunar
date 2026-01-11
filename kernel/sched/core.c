@@ -10,23 +10,24 @@
 #include <lunar/sched/scheduler.h>
 #include <lunar/sched/preempt.h>
 #include "internal.h"
+#include "lunar/sched/topology.h"
 
 int sched_thread_attach(struct runqueue* rq, struct thread* thread, int prio) {
-	size_t sz = rq->policy->thread_priv_size;
-	if (unlikely(sz == 0))
-		return 0;
 	if (thread->attached)
 		return 0;
 
-	void* priv = kzalloc(sz, MM_ZONE_NORMAL);
-	if (!priv)
-		return -ENOMEM;
+	size_t sz = rq->policy->thread_priv_size;
+	void* priv = NULL;
+	if (likely(sz)) {
+		priv = kzalloc(sz, MM_ZONE_NORMAL);
+		if (!priv)
+			return -ENOMEM;
+	}
 
 	atomic_store(&thread->state, THREAD_READY);
 	bug(thread_add_to_proc(thread) != 0);
 
 	thread->policy_priv = priv;
-
 	if (prio < SCHED_PRIO_MIN)
 		prio = SCHED_PRIO_MIN;
 	if (prio > SCHED_PRIO_MAX)
@@ -34,21 +35,26 @@ int sched_thread_attach(struct runqueue* rq, struct thread* thread, int prio) {
 
 	irqflags_t irq;
 	spinlock_lock_irq_save(&rq->lock, &irq);
+
+	thread_ref(thread);
+	atomic_add_fetch(&rq->thread_count, 1);
 	if (rq->policy->ops->thread_attach)
 		rq->policy->ops->thread_attach(rq, thread, prio);
-	atomic_add_fetch(&rq->thread_count, 1);
-	spinlock_unlock_irq_restore(&rq->lock, &irq);
 
+	spinlock_unlock_irq_restore(&rq->lock, &irq);
 	thread->attached = true;
+
 	return 0;
 }
 
 void sched_thread_detach(struct runqueue* rq, struct thread* thread) {
 	irqflags_t irq;
 	spinlock_lock_irq_save(&rq->lock, &irq);
+
+	atomic_sub_fetch(&rq->thread_count, 1);
 	if (rq->policy->ops->thread_detach)
 		rq->policy->ops->thread_detach(rq, thread);
-	atomic_sub_fetch(&rq->thread_count, 1);
+
 	spinlock_unlock_irq_restore(&rq->lock, &irq);
 
 	bug(thread_remove_from_proc(thread) != 0);
@@ -60,22 +66,17 @@ void sched_thread_detach(struct runqueue* rq, struct thread* thread) {
 		kfree(thread->policy_priv);
 		thread->policy_priv = NULL;
 	}
+	thread_unref(thread);
 }
 
 int sched_enqueue(struct runqueue* rq, struct thread* thread) {
 	irqflags_t irq;
 	spinlock_lock_irq_save(&rq->lock, &irq);
 
-	assert(thread->attached);
-	assert(rq->policy->ops->enqueue != NULL);
+	bug(thread->attached == false);
 	int ret = rq->policy->ops->enqueue(rq, thread);
-	if (ret == 0 && thread->prio > rq->current->prio) {
-		struct cpu* this_cpu = current_cpu();
-		if (thread->target_cpu == this_cpu)
-			this_cpu->need_resched = true;
-		else
-			sched_send_resched(thread->target_cpu);
-	}
+	if (ret == 0 && thread->prio > rq->current->prio)
+		sched_send_resched(thread->topology.target);
 
 	spinlock_unlock_irq_restore(&rq->lock, &irq);
 	return ret;
@@ -85,8 +86,7 @@ int sched_dequeue(struct runqueue* rq, struct thread* thread) {
 	irqflags_t irq;
 	spinlock_lock_irq_save(&rq->lock, &irq);
 
-	assert(thread->attached == true);
-	assert(rq->policy->ops->dequeue != NULL);
+	bug(thread->attached == false);
 	int ret = rq->policy->ops->dequeue(rq, thread);
 
 	spinlock_unlock_irq_restore(&rq->lock, &irq);
@@ -101,66 +101,33 @@ struct thread* sched_pick_next(struct runqueue* rq) {
 	return ret;
 }
 
-struct cpu* sched_decide_cpu(int flags) {
-	if (flags & SCHED_CPU0) {
-		const struct smp_cpus* cpus = smp_cpus_get();
-		for (u64 i = 0; i < cpus->count; i++) {
-			if (cpus->cpus[i]->processor_id == 0)
-				return cpus->cpus[i];
-		}
-	} else if (flags & SCHED_THIS_CPU) {
-		return current_cpu();
-	}
-
-	const struct smp_cpus* smp_cpus = smp_cpus_get();
-	struct cpu* best = current_cpu();
-	unsigned long best_tc = atomic_load(&best->runqueue.thread_count);
-	for (u32 i = 0; i < smp_cpus->count; i++) {
-		struct cpu* current = smp_cpus->cpus[i];
-		if (current == best)
-			continue;
-		unsigned long current_tc = atomic_load(&current->runqueue.thread_count);
-		if (current_tc < best_tc) {
-			best = current;
-			best_tc = current_tc;
-		}
-	}
-
-	return best;
-}
-
-static int __sched_wakeup_locked(struct thread* thread, int wakeup_err) {
-	if (wakeup_err != 0 && wakeup_err != -ETIMEDOUT && wakeup_err != -EINTR)
-		return -EINVAL;
+static void __sched_wakeup_locked(struct thread* thread, int wakeup_err) {
 	int state = atomic_load(&thread->state);
 	if (state == THREAD_READY || state == THREAD_RUNNING)
-		return 0;
+		return;
 
 	if (list_node_linked(&thread->sleep_link))
 		list_remove(&thread->sleep_link);
 
-	struct runqueue* rq = &thread->target_cpu->runqueue;
-
 	atomic_store(&thread->wakeup_err, wakeup_err);
 	atomic_store(&thread->state, THREAD_READY);
-	assert(rq->policy->ops->enqueue(rq, thread) == 0);
+	struct runqueue* rq = &thread->topology.target->runqueue;
+	bug(rq->policy->ops->enqueue(rq, thread) != 0);
+}
+
+int sched_wakeup(struct thread* thread, int wakeup_err) {
+	struct runqueue* rq = &thread->topology.target->runqueue;
+
+	irqflags_t irq;
+	spinlock_lock_irq_save(&rq->lock, &irq);
+	__sched_wakeup_locked(thread, wakeup_err);
+	spinlock_unlock_irq_restore(&rq->lock, &irq);
 
 	return 0;
 }
 
-int sched_wakeup(struct thread* thread, int wakeup_err) {
-	struct runqueue* rq = &thread->target_cpu->runqueue;
-
-	irqflags_t irq;
-	spinlock_lock_irq_save(&rq->lock, &irq);
-	int ret = __sched_wakeup_locked(thread, wakeup_err);
-	spinlock_unlock_irq_restore(&rq->lock, &irq);
-
-	return ret;
-}
-
 int sched_change_prio(struct thread* thread, int prio) {
-	struct runqueue* rq = &thread->target_cpu->runqueue;
+	struct runqueue* rq = &thread->topology.target->runqueue;
 	if (!rq->policy->ops->change_prio)
 		return -ENOSYS;
 
@@ -175,13 +142,8 @@ int sched_change_prio(struct thread* thread, int prio) {
 	int err = rq->policy->ops->change_prio(rq, thread, prio);
 	if (likely(err == 0)) {
 		thread->prio = prio;
-		if (rq->current->prio > thread->prio) {
-			struct cpu* this_cpu = current_cpu();
-			if (thread->target_cpu == this_cpu)
-				this_cpu->need_resched = true;
-			else
-				sched_send_resched(thread->target_cpu);
-		}
+		if (rq->current->prio > thread->prio)
+			sched_send_resched(thread->topology.target);
 	}
 
 	spinlock_unlock_irq_restore(&rq->lock, &irq);
@@ -292,7 +254,6 @@ int sched_yield(void) {
 	struct runqueue* rq = &cpu->runqueue;
 	struct thread* current = rq->current;
 
-	assert(rq->policy->ops->on_yield);
 	spinlock_lock(&rq->lock);
 	rq->policy->ops->on_yield(rq, current);
 	spinlock_unlock(&rq->lock);
@@ -367,16 +328,16 @@ _Noreturn void sched_thread_exit(void) {
 	 * If that happens, the scheduler can start executing the thread again after schedule().
 	 */
 	bug(atomic_load(&current->state) != THREAD_RUNNING);
-
 	atomic_store(&current->state, THREAD_ZOMBIE);
+
 	spinlock_lock(&rq->zombie_lock);
 	list_add(&rq->zombies, &current->zombie_link);
 	spinlock_unlock(&rq->zombie_lock);
 
 	local_irq_enable();
-	schedule();
 
-	__builtin_unreachable();
+	schedule();
+	bug("unreachable");
 }
 
 static void idle_thread(void) {
@@ -385,14 +346,14 @@ static void idle_thread(void) {
 }
 
 static struct thread* create_bootstrap_thread(struct runqueue* rq, void* exec, int state, int prio) {
-	struct proc* kproc;
-	bug(sched_get_from_proctbl(0, &kproc) != 0);
+	struct proc* kproc = sched_get_from_proctbl(0);
+	bug(kproc == NULL);
 
-	struct thread* thread = thread_create(kproc, exec, PAGE_SIZE);
+	struct thread* thread = thread_create(kproc, PAGE_SIZE, TOPOLOGY_THIS_CPU | TOPOLOGY_NO_MIGRATE);
 	if (!thread)
 		panic("Failed to create a bootstrap thread\n");
 
-	thread->target_cpu = current_cpu();
+	thread_prep_exec_kernel(thread, exec);
 	sched_thread_attach(rq, thread, prio);
 	atomic_store(&thread->state, state);
 
@@ -408,6 +369,8 @@ static void sched_bootstrap_processor(void) {
 	struct thread* thread = create_bootstrap_thread(rq, NULL, THREAD_RUNNING, SCHED_PRIO_DEFAULT);
 	rq->current = thread;
 	current_cpu()->current_thread = rq->current;
+	thread_unref(thread);
+
 	thread = create_bootstrap_thread(rq, idle_thread, THREAD_READY, SCHED_PRIO_MIN);
 	rq->idle = thread;
 
@@ -449,10 +412,12 @@ void sched_init(void) {
 	const struct cred kernel_cred = { .gid = 0, .uid = 0 };
 	struct proc* kproc;
 	int err = sched_proc_create(&kernel_cred, current_cpu()->mm_struct, &kproc);
-	if (!kproc)
-		panic("Failed to create kernel process: %i", err);
+	if (unlikely(!kproc))
+		panic("sched_proc_create() failed: %i", err);
 	bug(kproc->pid != KERNEL_PID);
-	bug(sched_add_to_proctbl(kproc) != 0);
+	err = sched_add_to_proctbl(kproc);
+	if (unlikely(err))
+		panic("sched_add_to_proctbl() failed: %i", err);
 
 	kthread_init();
 	sched_bootstrap_processor();
@@ -462,5 +427,5 @@ void sched_init(void) {
 	resched_isr = interrupt_alloc();
 	if (unlikely(!resched_isr))
 		panic("Failed to allocate resched ISR");
-	interrupt_register(resched_isr, NULL, resched_ipi);
+	bug(interrupt_register(resched_isr, NULL, resched_ipi) != 0);
 }

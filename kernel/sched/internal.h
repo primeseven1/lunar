@@ -2,33 +2,11 @@
 
 #include <lunar/compiler.h>
 #include <lunar/asm/errno.h>
-#include <lunar/sched/scheduler.h>
+#include <lunar/core/cpu.h>
+#include <lunar/sched/policy.h>
 
 #define KERNEL_PID 0
-
-/*
- * NOTES:
- * thread_enqueue, thread_dequeue, pick_next may be called from an atomic context.
- */
-struct sched_policy_ops {
-	int (*init)(struct runqueue*); /* Initialize the runqueue */
-	void (*thread_attach)(struct runqueue*, struct thread*, int); /* Attach a thread to a runqueue */
-	void (*thread_detach)(struct runqueue*, struct thread*); /* Detach a thread from a runqueue */
-	int (*enqueue)(struct runqueue*, struct thread*); /* Add a new thread to the queue */
-	int (*dequeue)(struct runqueue*, struct thread*); /* Remove a thread from the queue */
-	struct thread* (*pick_next)(struct runqueue*); /* Add the current thread to the queue only if running, and return the next thread */
-	int (*change_prio)(struct runqueue*, struct thread*, int); /* Change the priority of a thread, returns -errno on failure */
-	bool (*on_tick)(struct runqueue*, struct thread*); /* Happens on a timer interrupt, returns true if should reschedule */
-	void (*on_yield)(struct runqueue*, struct thread*); /* Called when yielding (but not for sleeping/blocking) */
-};
-
-struct sched_policy {
-	const char* name, *desc;
-	const struct sched_policy_ops* ops;
-	size_t thread_priv_size; /* Size of thread->policy_priv, allocated by the core */
-};
-
-#define __sched_policy __attribute__((section(".schedpolicies"), aligned(8), used))
+#define THREAD_RFLAGS_DEFAULT 0x202
 
 void sched_policy_cpu_init(void);
 void preempt_cpu_init(void);
@@ -48,16 +26,10 @@ void reaper_cpu_init(void);
 void sched_send_resched(struct cpu* target);
 
 /**
- * @brief Decide the CPU a thread should run on
- * @param flags Scheduler flags to decide the cpu
- */
-struct cpu* sched_decide_cpu(int flags);
-
-/**
  * @brief Attach a thread to the runqueue
  *
- * Not safe to call from an atomic context.
- * Thread is attached to the process automatically.
+ * Not safe to call from an atomic context. This function also adds the thread to the associated process.
+ * Adds two refs (from attaching to the runqueue, and to the proc).
  *
  * @param rq The runqueue to attach the thread to
  * @param thread The thread to attach
@@ -70,8 +42,8 @@ int sched_thread_attach(struct runqueue* rq, struct thread* thread, int prio);
 /**
  * @brief Detach a thread from a runqueue
  *
- * Not safe to call from an atomic context.
- * Thread is detached from the process.
+ * Not safe to call from an atomic context. Also removes the thread from the process struct.
+ * Removes two refs (runqueue and proc).
  *
  * @param rq The runqueue to detach from
  * @param thread The thread to detach
@@ -81,7 +53,7 @@ void sched_thread_detach(struct runqueue* rq, struct thread* thread);
 /**
  * @brief Insert a thread into a runqueue
  *
- * Safe to call from an atomic context
+ * Safe to call from an atomic context.
  *
  * @param rq The runqueue to insert the thread into
  * @param thread The thread to insert
@@ -93,7 +65,7 @@ int sched_enqueue(struct runqueue* rq, struct thread* thread);
 /**
  * @brief Remove a thread from a runqueue
  *
- * Safe to call from an atomic context
+ * Safe to call from an atomic context.
  *
  * @param rq The runqueue to remove the thread from
  * @param thread The thread to remove
@@ -104,7 +76,12 @@ int sched_dequeue(struct runqueue* rq, struct thread* thread);
 
 /**
  * @brief Pick the next thread to run
+ *
+ * Adds the current thread into the runqueue (unless the thread is no longer runnable).
+ * Not safe to call from a normal context.
+ *
  * @param rq The runqueue to pick the thread from
+ * @return The next thread that should be ran.
  */
 struct thread* sched_pick_next(struct runqueue* rq);
 
@@ -116,13 +93,33 @@ void sched_tick(void);
 /**
  * @brief Create a thread structure
  *
+ * The thread is returned with a ref. Once the thread is actually scheduled,
+ * the reaper thread calls thread_destroy for you. However, you still need to
+ * remove the ref to the thread.
+ *
  * @param proc The process to associate with
- * @param exec Where this thread should start executing at
  * @param stack_size The size of the stack for this thread
+ * @param topology_flags The flags for how the CPU should run
  *
  * @return A pointer to the newly created thread
  */
-struct thread* thread_create(struct proc* proc, void* exec, size_t stack_size);
+struct thread* thread_create(struct proc* proc, size_t stack_size, int topology_flags);
+
+/**
+ * @brief Prepare a kernel thread for execution
+ *
+ * @param thread The thread to prepare
+ * @param exec Where to start execution from
+ */
+void thread_prep_exec_kernel(struct thread* thread, void* exec);
+
+/**
+ * @brief Prepare a user thread for execution
+ *
+ * @param thread The thread to prepare
+ * @param exec Where to start execution from, must be a user pointer
+ */
+void thread_prep_exec_user(struct thread* thread, void __user* exec);
 
 /**
  * @brief Destroy a thread

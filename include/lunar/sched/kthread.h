@@ -11,58 +11,54 @@ static inline struct thread* current_thread(void) {
 }
 
 /**
- * @brief Get the thread structure from a thread ID
- *
- * The thread is returned with a ref, make sure to call thread_unref
- * after you're done.
- *
- * @param id The ID of the thread
- * @return The pointer to the thread
- */
-struct thread* kthread_thread(tid_t id);
-
-/**
  * @brief Create a kernel thread
  *
- * @param sched_flags Scheduler flags
+ * The kthread will have one ref for its internal reference. This ref can be dropped by calling
+ * kthread_detach(). However, after this is done, nothing should be done with the thread.
+ *
+ * @param topology_flags How the topology is decided
  * @param func The start routine
  * @param arg The argument to pass to the function
  * @param fmt Format string for name
  * @param ... Variable arguments for name
  *
- * @return -errno on failure, otherwise the thread ID is returned
- * @retval -ENOMEM No memory
+ * @return A pointer to the thread. The thread has 2 refs
  */
 __attribute__((format(printf, 4, 5)))
-tid_t kthread_create(int sched_flags, int (*func)(void*), void* arg, const char* fmt, ...);
+struct thread* kthread_create(int topology_flags, int (*func)(void*), void* arg, const char* fmt, ...);
+
+/**
+ * @brief Run a kernel thread
+ *
+ * @param thread The thread to run
+ * @param prio The priority to run the thread at
+ *
+ * @retval -EINVAL Not a kthread
+ * @retval 0 Successful
+ */
+int kthread_run(struct thread* thread, int prio);
+
+/**
+ * @brief Destroy a kernel thread
+ *
+ * Do NOT call this function if the thread is scheduled.
+ *
+ * @param thread The thread to destroy
+ */
+void kthread_destroy(struct thread* thread);
 
 /**
  * @brief Detach a kernel thread
  *
- * Allows a thread to have its resources cleaned up after execution.
+ * Drops the internal kthread reference to thread. This function
+ * should only be called if the thread is scheduled (with kthread_run())
  *
  * @param thread The thread to detach
- *
- * @reval -ESRCH Thread not found
- * @retval 0 Successful
  */
-int kthread_detach(tid_t id);
+void kthread_detach(struct thread* thread);
 
 /**
  * @brief Exit a kernel thread
  * @param code The exit code, here for convention only. Discarded.
  */
 _Noreturn void kthread_exit(int code);
-
-/**
- * @brief Wait for a thread to finish execution
- *
- * If the thread has not finished executing, the current thread yields until
- * the thread exits. Doesn't decrease the refcount.
- *
- * @param id The thread ID
- *
- * @retval -ESRCH Thread not found
- * @retval 0 Successful
- */
-int kthread_wait_for_completion(tid_t id);

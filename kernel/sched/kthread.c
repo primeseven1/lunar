@@ -15,98 +15,109 @@
 #include "internal.h"
 
 struct kthread {
-	char name[40];
-	struct thread* thread;
+	char name[24];
+	int (*func)(void*);
+	void* arg;
+	bool scheduled;
 };
 
 static struct proc* kproc;
 static struct hashtable* kthread_table;
+static MUTEX_DEFINE(kthread_table_lock);
 
-struct thread* kthread_thread(tid_t id) {
-	struct kthread kthread;
-	int err = hashtable_search(kthread_table, &id, sizeof(id), &kthread);
-	if (err)
-		return NULL;
-	thread_ref(kthread.thread);
-	return kthread.thread;
-}
-
-tid_t kthread_create(int sched_flags, int (*func)(void*), void* arg, const char* fmt, ...) {
-	struct thread* thread = thread_create(kproc, asm_kthread_start, KSTACK_SIZE);
+struct thread* kthread_create(int topology_flags, int (*func)(void*), void* arg, const char* fmt, ...) {
+	struct thread* thread = thread_create(kproc, PAGE_SIZE * 4, topology_flags);
 	if (!thread)
-		return -ENOMEM;
+		return NULL;
 
-	thread->target_cpu = sched_decide_cpu(sched_flags);
-	int err = sched_thread_attach(&thread->target_cpu->runqueue, thread, SCHED_PRIO_DEFAULT);
-	if (err)
-		goto err_attach;
-
-	thread_ref(thread);
-	thread->ctx.general.rdi = (uintptr_t)func;
-	thread->ctx.general.rsi = (uintptr_t)arg;
-
-	/* Now set up the kthread structure */
-	struct kthread kthread_struct;
-	kthread_struct.thread = thread;
+	struct kthread kt = { .func = func, .arg = arg, .scheduled = false };
 	va_list va;
 	va_start(va, fmt);
-	int count = vsnprintf(kthread_struct.name, sizeof(kthread_struct.name), fmt, va);
-	if (unlikely(count < 0)) {
-		printk(PRINTK_WARN "sched: vsnprintf format failed on kthread name!\n");
-		strlcpy(kthread_struct.name, "kthread", sizeof(kthread_struct.name));
-	} else if ((size_t)count >= sizeof(kthread_struct.name)) {
-		printk(PRINTK_WARN "sched: kthread name too long!\n");
-	}
+	if (vsnprintf(kt.name, sizeof(kt.name), fmt, va) < 0)
+		__builtin_strncpy(kt.name, "kthread", sizeof(kt.name));
 	va_end(va);
 
-	/* Make sure there is no collision (very unlikely) */
-	bug(hashtable_search(kthread_table, &thread->id, sizeof(thread->id), &kthread_struct) == 0);
-	err = hashtable_insert(kthread_table, &thread->id, sizeof(thread->id), &kthread_struct);
+	mutex_lock(&kthread_table_lock);
+
+	int err = hashtable_insert(kthread_table, &thread, sizeof(struct thread*), &kt);
+	if (err) {
+		thread_unref(thread); /* Remove the ref that thread_create() gives */
+		bug(thread_destroy(thread) != 0);
+		thread = NULL;
+	}
+
+	mutex_unlock(&kthread_table_lock);
+	return thread;
+}
+
+int kthread_run(struct thread* thread, int prio) {
+	mutex_lock(&kthread_table_lock);
+
+	struct kthread kt;
+	int err = hashtable_search(kthread_table, &thread, sizeof(struct thread*), &kt);
+	if (err) {
+		if (likely(err == -ENOENT))
+			err = -EINVAL;
+		goto out_unlock;
+	}
+
+	thread_prep_exec_kernel(thread, asm_kthread_start);
+	struct runqueue* rq = &thread->topology.target->runqueue;
+	err = sched_thread_attach(rq, thread, prio);
 	if (err)
-		goto err_hashtable;
+		goto out_unlock;
 
-	err = sched_enqueue(&thread->target_cpu->runqueue, thread);
-	if (unlikely(err))
-		goto err;
+	thread->ctx.general.rdi = (uintptr_t)kt.func;
+	thread->ctx.general.rsi = (uintptr_t)kt.arg;
+	err = sched_enqueue(rq, thread);
+	if (err) {
+		sched_thread_detach(rq, thread);
+		goto out_unlock;
+	}
 
-	return thread->id;
-err:
-	hashtable_remove(kthread_table, &thread->id, sizeof(thread->id));
-err_hashtable:
-	sched_thread_detach(&thread->target_cpu->runqueue, thread);
-err_attach:
-	thread_destroy(thread);
+	kt.scheduled = true;
+	bug(hashtable_insert(kthread_table, &thread, sizeof(struct thread*), &kt) != 0);
+out_unlock:
+	mutex_unlock(&kthread_table_lock);
 	return err;
 }
 
-int kthread_detach(tid_t id) {
-	struct kthread kthread_struct;
-	int err = hashtable_search(kthread_table, &id, sizeof(id), &kthread_struct);
-	if (err == -ENOENT)
-		return -ESRCH;
-	else if (unlikely(err))
-		return err;
+void kthread_destroy(struct thread* thread) {
+	mutex_lock(&kthread_table_lock);
 
-	bug(hashtable_remove(kthread_table, &id, sizeof(id)) != 0);
-	struct thread* thread = kthread_struct.thread;
-	thread_unref(thread);
+	struct kthread kt;
+	int err = hashtable_search(kthread_table, &thread, sizeof(struct thread*), &kt);
+	if (err) {
+		dump_stack();
+		if (err == -ENOENT)
+			printk(PRINTK_ERR "sched: bug: kthread_destroy() called on either a detached thread or not a kthread");
+		else
+			printk(PRINTK_CRIT "sched: Unhandled error %i\n", err);
+	} else {
+		bug(kt.scheduled == true);
+		bug(hashtable_remove(kthread_table, &thread, sizeof(struct thread*)) != 0);
+		thread_unref(thread);
+		bug(thread_destroy(thread) != 0);
+	}
 
-	return 0;
+	mutex_unlock(&kthread_table_lock);
 }
 
-int kthread_wait_for_completion(tid_t id) {
-	struct kthread kthread_struct;
-	int err = hashtable_search(kthread_table, &id, sizeof(id), &kthread_struct);
-	if (err == -ENOENT)
-		return -ESRCH;
-	else if (unlikely(err))
-		return err;
+void kthread_detach(struct thread* thread) {
+	mutex_lock(&kthread_table_lock);
 
-	struct thread* thread = kthread_struct.thread;
-	while (atomic_load(&thread->state) != THREAD_ZOMBIE)
-		schedule();
+	struct kthread kt;
+	int err = hashtable_search(kthread_table, &thread, sizeof(struct thread*), &kt);
+	if (err) {
+		dump_stack();
+		printk(PRINTK_ERR "sched: bug: Failed to detach kthread with id %d: %d\n", thread->id, err);
+	} else {
+		bug(kt.scheduled == false);
+		bug(hashtable_remove(kthread_table, &thread, sizeof(struct thread*)) != 0);
+		thread_unref(thread);
+	}
 
-	return 0;
+	mutex_unlock(&kthread_table_lock);
 }
 
 _Noreturn void kthread_exit(int exit) {
@@ -119,15 +130,15 @@ __diag_ignore("-Wmissing-prototypes");
 
 _Noreturn void __asmlinkage __kthread_start(int (*func)(void*), void* arg) {
 	int ret = func(arg);
-	printk(PRINTK_WARN "kthread failed to call kthread_exit!\n");
-	dump_stack();
 	kthread_exit(ret);
 }
 
 __diag_pop();
 
 void kthread_init(void) {
-	sched_get_from_proctbl(0, &kproc);
+	kproc = sched_get_from_proctbl(0);
+	assert(IS_PTR_ERR(kproc) == false);
+
 	kthread_table = hashtable_create(64, sizeof(struct kthread));
 	if (unlikely(!kthread_table))
 		panic("Failed to create kthread hashtable");

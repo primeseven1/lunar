@@ -1,7 +1,8 @@
 #include <lunar/lib/list.h>
 #include <lunar/mm/heap.h>
 #include <lunar/core/cpu.h>
-#include "internal.h"
+#include <lunar/sched/scheduler.h>
+#include <lunar/sched/policy.h>
 
 #define PBRR_PRIO_COUNT 32
 #define PBRR_MIN_PRIO 0

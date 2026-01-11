@@ -1,11 +1,11 @@
 #include <lunar/core/panic.h>
+#include <lunar/core/semaphore.h>
+#include <lunar/core/cpu.h>
 #include <lunar/asm/cpuid.h>
 #include <lunar/asm/wrap.h>
 #include <lunar/lib/list.h>
 #include <lunar/sched/kthread.h>
 #include <lunar/mm/slab.h>
-#include <lunar/core/semaphore.h>
-#include <lunar/core/cpu.h>
 #include "internal.h"
 
 static struct slab_cache* atomic_work_cache = NULL;
@@ -47,6 +47,7 @@ static int __sched_workqueue_add(struct cpu* cpu, void (*fn)(void*), void* arg) 
 	struct work* work = slab_cache_alloc(atomic_work_cache);
 	if (!work)
 		return -ENOMEM;
+
 	work->fn = fn;
 	work->arg = arg;
 	list_node_init(&work->link);
@@ -79,24 +80,27 @@ void workqueue_cpu_init(void) {
 	spinlock_init(&cpu->workqueue_lock);
 	list_head_init(&cpu->workqueue);
 
-	/* global workqueue */
-	tid_t id = kthread_create(SCHED_THIS_CPU, worker_thread, NULL, 
-			"worker%u-%u", current_cpu()->sched_processor_id, 0);
-	if (id < 0)
-		panic("Failed to create worker threads");
-	kthread_detach(id);
+	u32 sched_id = cpu->sched_processor_id;
+	int tflags = TOPOLOGY_THIS_CPU | TOPOLOGY_NO_MIGRATE;
+	struct thread* global = kthread_create(tflags, worker_thread, NULL, "worker/%u:g", sched_id);
+	struct thread* percpu = kthread_create(tflags, worker_thread, cpu, "worker/%u:p", sched_id);
+	if (unlikely(!global || !percpu))
+		panic("Failed to create workqueue threads");
 
-	/* per-cpu workqueue */
-	id = kthread_create(SCHED_THIS_CPU, worker_thread, current_cpu(),
-			"worker%u-%u", current_cpu()->sched_processor_id, 1);
-	if (id < 0)
-		panic("Failed to create worker threads");
-	kthread_detach(id);
+	int g_err = kthread_run(global, SCHED_PRIO_DEFAULT);
+	int p_err = kthread_run(percpu, SCHED_PRIO_DEFAULT);
+	if (unlikely(g_err || p_err))
+		panic("Failed to run workqueue threads (global: %i, percpu: %i)", g_err, p_err);
+
+	kthread_detach(global);
+	kthread_detach(percpu);
 }
 
 void workqueue_init(void) {
-	atomic_work_cache = slab_cache_create(sizeof(struct work), _Alignof(struct work), MM_ZONE_NORMAL | MM_ATOMIC, NULL, NULL);
+	atomic_work_cache = slab_cache_create(sizeof(struct work), _Alignof(struct work),
+			MM_ZONE_NORMAL | MM_ATOMIC, NULL, NULL);
 	if (unlikely(!atomic_work_cache))
 		panic("Failed to create atomic workqueue cache");
+
 	workqueue_cpu_init();
 }

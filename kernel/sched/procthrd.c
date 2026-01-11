@@ -12,89 +12,127 @@
 #include "internal.h"
 
 #define THREAD_STACK_GUARD_SIZE PAGE_SIZE
-#define RFLAGS_DEFAULT 0x202
 
 static struct slab_cache* proc_cache;
 static struct slab_cache* thread_cache;
 
-struct thread* thread_create(struct proc* proc, void* exec, size_t stack_size) {
+static int stacks_create(struct thread* thread, size_t rstack_size) {
+	if (thread->proc->pid == KERNEL_PID) {
+		thread->utk_stack = NULL;
+		thread->ustack = NULL;
+		thread->kstack = vmap_stack(rstack_size, true);
+		return IS_PTR_ERR(thread->kstack) ? PTR_ERR(thread->kstack) : 0;
+	}
+
+	thread->kstack = NULL;
+	thread->ustack = uvmap_stack(rstack_size, true, thread->proc->mm_struct);
+	if (IS_PTR_ERR(thread->ustack))
+		return PTR_ERR((__force void*)thread->ustack);
+	const size_t utk_size = PAGE_SIZE * 4;
+	thread->utk_stack = vmap_stack(utk_size, true);
+	thread->utk_stack_size = utk_size;
+	if (IS_PTR_ERR(thread->utk_stack)) {
+		bug(uvunmap_stack(thread->ustack, rstack_size, true, thread->proc->mm_struct) != 0);
+		return PTR_ERR(thread->utk_stack);
+	}
+
+	return 0;
+}
+
+static void stacks_destroy(struct thread* thread) {
+	if (thread->proc->pid == KERNEL_PID) {
+		bug(vunmap_stack(thread->kstack, thread->stack_size, true) != 0);
+		return;
+	}
+
+	bug(uvunmap_stack(thread->ustack, thread->stack_size, true, thread->proc->mm_struct) != 0);
+	bug(vunmap_stack(thread->utk_stack, thread->utk_stack_size, true) != 0);
+}
+
+struct thread* thread_create(struct proc* proc, size_t stack_size, int topology_flags) {
 	struct thread* thread = slab_cache_alloc(thread_cache);
 	if (!thread)
 		return NULL;
-
-	thread->utk_stack_top = NULL;
-	thread->id = tid_alloc(proc);
-	if (unlikely(thread->id == -1))
-		goto err_id;
-
-	thread->target_cpu = NULL;
-	thread->cpu_mask = ULONG_MAX;
-	thread->attached = false;
 	thread->proc = proc;
-	thread->ring = proc->pid == KERNEL_PID ? THREAD_RING_KERNEL : THREAD_RING_USER;
+
+	/* Start out with all allocations before setting any more values in the thread struct */
+	int topology_err = -ERRNO_MAX;
+	void* ext_ctx = NULL;
+	tid_t tid = tid_alloc(proc);
+	if (thread->id == -1)
+		goto err;
+	/* Handles thread->topology */
+	topology_err = topology_thread_init(thread, topology_flags);
+	if (topology_err)
+		goto err;
+	ext_ctx = ext_ctx_alloc();
+	if (!ext_ctx)
+		goto err;
+	/* Sets thread->kstack, thread->ustack, and thread->utk_stack */
+	if (stacks_create(thread, stack_size) != 0)
+		goto err;
+
+	thread->id = tid;
+	thread->attached = false;
+	thread->in_usercopy = false;
 	thread->prio = 0;
-	thread->wakeup_time = 0;
 	atomic_store_explicit(&thread->state, THREAD_NEW, ATOMIC_RELAXED);
 	thread->wakeup_time = 0;
 	atomic_store_explicit(&thread->wakeup_err, 0, ATOMIC_RELAXED);
-	atomic_store_explicit(&thread->sleep_interruptable, 0, ATOMIC_RELAXED);
-	thread->should_exit = false;
+	atomic_store_explicit(&thread->sleep_interruptable, false, ATOMIC_RELAXED);
+	atomic_store_explicit(&thread->should_exit, false, ATOMIC_RELAXED);
 	thread->preempt_count = 0;
-
-	stack_size = ROUND_UP(stack_size, PAGE_SIZE);
-	const size_t stack_total = stack_size + THREAD_STACK_GUARD_SIZE;
-	thread->stack = vmap(NULL, stack_total, MMU_READ | MMU_WRITE, VMM_ALLOC, NULL);
-	if (IS_PTR_ERR(thread->stack))
-		goto err_stack;
-	bug(vprotect(thread->stack, THREAD_STACK_GUARD_SIZE, MMU_NONE, 0, NULL) != 0); /* guard page */
-	thread->stack_size = stack_size;
-
-	memset(&thread->ctx.general, 0, sizeof(thread->ctx.general));
-	thread->ctx.thread_local = NULL;
-	thread->ctx.extended = ext_ctx_alloc();
-	if (!thread->ctx.extended)
-		goto err_ctx;
-	thread->ctx.general.rflags = RFLAGS_DEFAULT;
-	thread->ctx.general.rsp = (u8*)thread->stack + stack_total;
-	thread->ctx.general.rip = exec;
-	if (thread->ring == THREAD_RING_KERNEL) {
-		thread->ctx.general.cs = SEGMENT_KERNEL_CODE;
-		thread->ctx.general.ss = SEGMENT_KERNEL_DATA;
-	} else {
-		const size_t utk_stack_total = KSTACK_SIZE + THREAD_STACK_GUARD_SIZE;
-		u8* const utk_stack = vmap(NULL, utk_stack_total, MMU_READ | MMU_WRITE, VMM_ALLOC, NULL);
-		if (unlikely(IS_PTR_ERR(utk_stack)))
-			goto err_utk_stack;
-		bug(vprotect(utk_stack, THREAD_STACK_GUARD_SIZE, MMU_NONE, 0, NULL) != 0);
-		thread->utk_stack_top = utk_stack + utk_stack_total;
-		thread->ctx.general.cs = SEGMENT_USER_CODE;
-		thread->ctx.general.ss = SEGMENT_USER_DATA;
-	}
-	
+	__builtin_memset(&thread->ctx.general, 0, sizeof(thread->ctx.general));
+	thread->ctx.fsbase = NULL;
+	thread->ctx.gsbase = NULL;
+	thread->ctx.extended = ext_ctx;
 	list_node_init(&thread->proc_link);
 	list_node_init(&thread->sleep_link);
 	list_node_init(&thread->zombie_link);
 	list_node_init(&thread->block_link);
-
 	thread->policy_priv = NULL;
-	atomic_store_explicit(&thread->refcount, 0, ATOMIC_RELAXED);
+	atomic_store_explicit(&thread->refcnt, 1, ATOMIC_RELAXED);
+
 	return thread;
-err_utk_stack:
-	ext_ctx_free(thread->ctx.extended);
-err_ctx:
-	bug(vunmap(thread->stack, stack_total, 0, NULL) != 0);
-err_stack:
-	tid_free(proc, thread->id);
-err_id:
+err:
+	if (tid != -1)
+		tid_free(proc, tid);
+	if (topology_err == 0)
+		topology_thread_destroy(thread);
+	if (ext_ctx)
+		ext_ctx_free(ext_ctx);
+	slab_cache_free(thread_cache, thread);
 	return NULL;
 }
 
+void thread_prep_exec_kernel(struct thread* thread, void* exec) {
+	thread->ctx.general.rip = (uintptr_t)exec;
+	thread->ctx.general.rflags = THREAD_RFLAGS_DEFAULT;
+	thread->ctx.general.rsp = (uintptr_t)thread->kstack;
+	thread->ctx.general.cs = SEGMENT_KERNEL_CODE;
+	thread->ctx.general.ds = SEGMENT_KERNEL_DATA;
+	thread->ctx.general.es = SEGMENT_KERNEL_DATA;
+	thread->ctx.general.ss = SEGMENT_KERNEL_DATA;
+	topology_pick_cpu(thread);
+}
+
+void thread_prep_exec_user(struct thread* thread, void __user* exec) {
+	thread->ctx.general.rip = (uintptr_t)exec;
+	thread->ctx.general.rflags = THREAD_RFLAGS_DEFAULT;
+	thread->ctx.general.rsp = (uintptr_t)thread->ustack;
+	thread->ctx.general.cs = SEGMENT_USER_CODE;
+	thread->ctx.general.ds = SEGMENT_USER_DATA;
+	thread->ctx.general.es = SEGMENT_USER_DATA;
+	thread->ctx.general.ss = SEGMENT_USER_DATA;
+	topology_pick_cpu(thread);
+}
+
 int thread_destroy(struct thread* thread) {
-	if (atomic_load(&thread->refcount) != 0)
+	if (atomic_load(&thread->refcnt) != 0)
 		return -EBUSY;
 
-	const size_t stack_total = thread->stack_size + THREAD_STACK_GUARD_SIZE;
-	bug(vunmap(thread->stack, stack_total, 0, NULL) != 0);
+	stacks_destroy(thread);
+	topology_thread_destroy(thread);
 	tid_free(thread->proc, thread->id);
 	ext_ctx_free(thread->ctx.extended);
 
@@ -155,7 +193,7 @@ int thread_add_to_proc(struct thread* thread) {
 
 	atomic_add_fetch(&proc->thread_count, 1);
 	list_add(&proc->threads, &thread->proc_link);
-
+	thread_ref(thread);
 err:
 	spinlock_unlock_irq_restore(&proc->thread_lock, &irq);
 	return err;
@@ -174,6 +212,7 @@ int thread_remove_from_proc(struct thread* thread) {
 
 	list_remove(&thread->proc_link);
 	atomic_sub_fetch(&proc->thread_count, 1);
+	thread_unref(thread);
 err:
 	spinlock_unlock_irq_restore(&proc->thread_lock, &irq);
 	return err;
