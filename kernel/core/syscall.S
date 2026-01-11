@@ -20,8 +20,8 @@ asm_syscall_entry:
 
 	movq %rax, %cr2 /* syscall number, if a page fault happens here we're fucked anyway */
 	movq %gs:8, %rax /* current_cpu()->current_thread */
-	movq (%rax), %rax /* current_thread()->utk_stack_top */
-	xchg %rsp, %rax /* swap to utk_stack_top */
+	movq (%rax), %rax /* current_thread()->utk_stack */
+	xchg %rsp, %rax /* swap to utk_stack */
 
 	/* now just save context */
 	pushq %rax /* user RSP */

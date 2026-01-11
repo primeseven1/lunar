@@ -33,22 +33,22 @@ enum interrupt_vectors {
 };
 
 struct context {
-	unsigned long ds, es;
-	void* cr2;
-	long rax, rbx, rcx, rdx, rsi, rdi;
-	void* rbp;
-	long r8, r9, r10, r11, r12, r13, r14, r15;
-	unsigned long vector, err_code;
-	void* rip;
-	unsigned long cs, rflags;
-	void* rsp;
-	unsigned long ss;
+	u64 ds, es;
+	u64 cr2;
+	u64 rax, rbx, rcx, rdx, rsi, rdi;
+	u64 rbp;
+	u64 r8, r9, r10, r11, r12, r13, r14, r15;
+	u64 vector, err_code;
+	u64 rip;
+	u64 cs, rflags;
+	u64 rsp;
+	u64 ss;
 } __attribute__((packed));
 
 struct isr;
 
 struct irq {
-	struct cpu* cpu; /* CPU this IRQ will run on, used by interrupt controller driver */
+	struct cpu* cpu; /* CPU this IRQ will run on */
 	int number; /* IRQ the device uses */
 	bool allow_entry; /* Allow entry into the ISR function */
 	atomic(unsigned long) inflight; /* How many handlers are running */

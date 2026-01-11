@@ -1,3 +1,4 @@
+#include "lunar/sched/scheduler.h"
 #include <lunar/core/softirq.h>
 #include <lunar/sched/preempt.h>
 #include <lunar/core/printk.h>
@@ -74,9 +75,13 @@ static int softirq_daemon(void* arg) {
 }
 
 void softirq_cpu_init(void) {
-	tid_t softirqd = kthread_create(SCHED_THIS_CPU, softirq_daemon, NULL,
-			"softirqd-%u", current_cpu()->sched_processor_id);
-	if (unlikely(softirqd < 0))
-		panic("Failed to create softirq daemon for CPU %u", current_cpu()->sched_processor_id);
+	u32 sched_id = current_cpu()->sched_processor_id;
+	struct thread* softirqd = kthread_create(TOPOLOGY_THIS_CPU | TOPOLOGY_NO_MIGRATE,
+			softirq_daemon, NULL, "softirqd/%u", sched_id);
+	if (unlikely(!softirqd))
+		panic("Failed to create softirq daemon for CPU %u", sched_id);
+	int err = kthread_run(softirqd, SCHED_PRIO_DEFAULT);
+	if (err)
+		panic("Failed to run softirq daemon for CPU %u", sched_id);
 	kthread_detach(softirqd);
 }

@@ -2,7 +2,8 @@
 
 #include <lunar/asm/msr.h>
 #include <lunar/asm/segment.h>
-#include <lunar/sched/scheduler.h>
+#include <lunar/sched/procthrd.h>
+#include <lunar/sched/policy.h>
 #include <lunar/lib/list.h>
 #include <lunar/lib/ringbuffer.h>
 #include <lunar/core/timekeeper.h>

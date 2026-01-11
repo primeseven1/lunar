@@ -94,10 +94,15 @@ int printk_late_init(void) {
 	int err = ringbuffer_init(&printk_rb, 131072);
 	if (err)
 		return err;
-	tid_t id = kthread_create(SCHED_THIS_CPU, printk_kthread, NULL, "printk");
-	if (id < 0)
+
+	struct thread* kt = kthread_create(TOPOLOGY_THIS_CPU, printk_kthread, NULL, "printk");
+	if (!kt)
 		return -ESRCH;
-	kthread_detach(id);
+	err = kthread_run(kt, SCHED_PRIO_DEFAULT);
+	if (err)
+		return err;
+	kthread_detach(kt);
+
 	return 0;
 }
 
