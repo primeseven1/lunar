@@ -73,7 +73,7 @@ struct thread* thread_create(struct proc* proc, size_t stack_size, int topology_
 		goto err;
 
 	thread->id = tid;
-	thread->attached = false;
+	atomic_store_explicit(&thread->attached, false, ATOMIC_RELAXED);
 	thread->in_usercopy = false;
 	thread->prio = 0;
 	atomic_store_explicit(&thread->state, THREAD_NEW, ATOMIC_RELAXED);
@@ -90,7 +90,7 @@ struct thread* thread_create(struct proc* proc, size_t stack_size, int topology_
 	list_node_init(&thread->sleep_link);
 	list_node_init(&thread->zombie_link);
 	list_node_init(&thread->block_link);
-	thread->policy_priv = NULL;
+	atomic_store_explicit(&thread->policy_priv, NULL, ATOMIC_RELAXED);
 	atomic_store_explicit(&thread->refcnt, 1, ATOMIC_RELAXED);
 
 	return thread;

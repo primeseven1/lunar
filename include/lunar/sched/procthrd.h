@@ -35,7 +35,7 @@ struct thread {
 	size_t utk_stack_size; /* Size of the stack including the guard page */
 	tid_t id; /* Thread ID */
 	struct topology topology; /* What CPU's this thread can run on */
-	bool attached; /* Attached to the policy? */
+	atomic(bool) attached; /* Attached to the policy? */
 	struct proc* proc; /* The process struct this thread is linked to */
 	bool in_usercopy; /* Is the thread reading from or writing to a user pointer? */
 	int prio; /* Priority of the current thread */
@@ -57,7 +57,7 @@ struct thread {
 	struct list_node sleep_link; /* Link so the scheduler can wake up threads */
 	struct list_node block_link; /* Link for things like mutexes/semaphores */
 	struct list_node zombie_link; /* For reaper thread */
-	void* policy_priv; /* For the scheduling algorithm */
+	atomic(void*) policy_priv; /* For the scheduling algorithm */
 	atomic(unsigned long) refcnt;
 };
 

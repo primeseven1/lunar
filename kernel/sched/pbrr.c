@@ -48,7 +48,7 @@ static int scale_prio(int posix_prio) {
 static void pbrr_thread_attach(struct runqueue* rq, struct thread* thread, int posix_prio) {
 	(void)rq;
 	int prio = scale_prio(posix_prio);
-	struct rr_thread* rrt = thread->policy_priv;
+	struct rr_thread* rrt = atomic_load(&thread->policy_priv);
 	rrt->prio = prio;
 	rrt->thread = thread;
 	rrt->slice_left = DEFAULT_SLICE_TICKS;
@@ -68,7 +68,7 @@ static int pbrr_init(struct runqueue* rq) {
 }
 
 static int pbrr_enqueue(struct runqueue* rq, struct thread* thread) {
-	struct rr_thread* rrt = thread->policy_priv;
+	struct rr_thread* rrt = atomic_load(&thread->policy_priv);
 	if (list_node_linked(&rrt->link))
 		return -EALREADY;
 
@@ -80,7 +80,7 @@ static int pbrr_enqueue(struct runqueue* rq, struct thread* thread) {
 }
 
 static int pbrr_dequeue(struct runqueue* rq, struct thread* thread) {
-	struct rr_thread* rrt = thread->policy_priv;
+	struct rr_thread* rrt = atomic_load(&thread->policy_priv);
 	if (!list_node_linked(&rrt->link))
 		return -ENOENT;
 
@@ -130,7 +130,7 @@ static struct thread* pbrr_pick_next(struct runqueue* rq) {
 	struct rr_runqueue* rrq = rq->policy_priv;
 
 	struct thread* current = rq->current;
-	struct rr_thread* crt = current->policy_priv;
+	struct rr_thread* crt = atomic_load(&current->policy_priv);
 	int state = atomic_load(&current->state);
 	bool runnable = (state == THREAD_RUNNING || state == THREAD_READY);
 
@@ -168,7 +168,7 @@ static int pbrr_change_prio(struct runqueue* rq, struct thread* thread, int posi
 	int prio = scale_prio(posix_prio);
 
 	struct rr_runqueue* rrq = rq->policy_priv;
-	struct rr_thread* rrt = thread->policy_priv;
+	struct rr_thread* rrt = atomic_load(&thread->policy_priv);
 
 	if (rrt->prio == prio)
 		return 0;
@@ -188,7 +188,7 @@ static int pbrr_change_prio(struct runqueue* rq, struct thread* thread, int posi
 }
 
 static bool pbrr_on_tick(struct runqueue* rq, struct thread* current) {
-	struct rr_thread* rr_current = current->policy_priv;
+	struct rr_thread* rr_current = atomic_load(&current->policy_priv);
 	if (current != rq->idle) {
 		if (rr_current->slice_left == 0)
 			return true;
@@ -201,7 +201,7 @@ static bool pbrr_on_tick(struct runqueue* rq, struct thread* current) {
 
 static void pbrr_on_yield(struct runqueue* rq, struct thread* current) {
 	(void)rq; /* pbrr_pick_next already adds to the end of the queue */
-	struct rr_thread* rr_current = current->policy_priv;
+	struct rr_thread* rr_current = atomic_load(&current->policy_priv);
 	rr_current->slice_left = DEFAULT_SLICE_TICKS;
 }
 

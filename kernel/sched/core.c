@@ -10,11 +10,12 @@
 #include <lunar/sched/scheduler.h>
 #include <lunar/sched/preempt.h>
 #include "internal.h"
-#include "lunar/sched/topology.h"
 
 int sched_thread_attach(struct runqueue* rq, struct thread* thread, int prio) {
-	if (thread->attached)
-		return 0;
+	if (prio < SCHED_PRIO_MIN)
+		prio = SCHED_PRIO_MIN;
+	if (prio > SCHED_PRIO_MAX)
+		prio = SCHED_PRIO_MAX;
 
 	size_t sz = rq->policy->thread_priv_size;
 	void* priv = NULL;
@@ -24,30 +25,32 @@ int sched_thread_attach(struct runqueue* rq, struct thread* thread, int prio) {
 			return -ENOMEM;
 	}
 
-	atomic_store(&thread->state, THREAD_READY);
-	bug(thread_add_to_proc(thread) != 0);
-
-	thread->policy_priv = priv;
-	if (prio < SCHED_PRIO_MIN)
-		prio = SCHED_PRIO_MIN;
-	if (prio > SCHED_PRIO_MAX)
-		prio = SCHED_PRIO_MAX;
+	int err = 0;
 
 	irqflags_t irq;
 	spinlock_lock_irq_save(&rq->lock, &irq);
 
-	thread_ref(thread);
-	atomic_add_fetch(&rq->thread_count, 1);
-	if (rq->policy->ops->thread_attach)
-		rq->policy->ops->thread_attach(rq, thread, prio);
+	if (atomic_exchange(&thread->attached, true) == false) {
+		thread_ref(thread);
+		atomic_store(&thread->state, THREAD_READY);
+		bug(thread_add_to_proc(thread) != 0);
+		atomic_store(&thread->policy_priv, priv);
+		atomic_add_fetch(&rq->thread_count, 1);
+		if (rq->policy->ops->thread_attach)
+			rq->policy->ops->thread_attach(rq, thread, prio);
+	} else {
+		err = -EALREADY;
+	}
 
 	spinlock_unlock_irq_restore(&rq->lock, &irq);
-	thread->attached = true;
-
-	return 0;
+	if (err)
+		kfree(priv);
+	return err;
 }
 
 void sched_thread_detach(struct runqueue* rq, struct thread* thread) {
+	void* priv = NULL;
+
 	irqflags_t irq;
 	spinlock_lock_irq_save(&rq->lock, &irq);
 
@@ -55,17 +58,13 @@ void sched_thread_detach(struct runqueue* rq, struct thread* thread) {
 	if (rq->policy->ops->thread_detach)
 		rq->policy->ops->thread_detach(rq, thread);
 
+	bug(thread_remove_from_proc(thread) != 0);
+	bug(atomic_exchange(&thread->attached, false) == false);
+	priv = atomic_exchange(&thread->policy_priv, NULL);
+
 	spinlock_unlock_irq_restore(&rq->lock, &irq);
 
-	bug(thread_remove_from_proc(thread) != 0);
-	size_t sz = rq->policy->thread_priv_size;
-	thread->attached = false;
-	if (sz == 0)
-		return;
-	if (thread->policy_priv) {
-		kfree(thread->policy_priv);
-		thread->policy_priv = NULL;
-	}
+	kfree(priv);
 	thread_unref(thread);
 }
 
@@ -73,7 +72,7 @@ int sched_enqueue(struct runqueue* rq, struct thread* thread) {
 	irqflags_t irq;
 	spinlock_lock_irq_save(&rq->lock, &irq);
 
-	bug(thread->attached == false);
+	bug(atomic_load(&thread->attached) == false);
 	int ret = rq->policy->ops->enqueue(rq, thread);
 	if (ret == 0 && thread->prio > rq->current->prio)
 		sched_send_resched(thread->topology.target);
@@ -86,7 +85,7 @@ int sched_dequeue(struct runqueue* rq, struct thread* thread) {
 	irqflags_t irq;
 	spinlock_lock_irq_save(&rq->lock, &irq);
 
-	bug(thread->attached == false);
+	bug(atomic_load(&thread->attached) == false);
 	int ret = rq->policy->ops->dequeue(rq, thread);
 
 	spinlock_unlock_irq_restore(&rq->lock, &irq);
