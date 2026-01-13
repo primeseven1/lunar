@@ -11,11 +11,13 @@
 #include <lunar/sched/preempt.h>
 #include "internal.h"
 
-int sched_thread_attach(struct runqueue* rq, struct thread* thread, int prio) {
+int sched_thread_attach(struct thread* thread, int prio) {
 	if (prio < SCHED_PRIO_MIN)
 		prio = SCHED_PRIO_MIN;
 	if (prio > SCHED_PRIO_MAX)
 		prio = SCHED_PRIO_MAX;
+
+	struct runqueue* rq = &thread->topology.target->runqueue;
 
 	size_t sz = rq->policy->thread_priv_size;
 	void* priv = NULL;
@@ -48,7 +50,8 @@ int sched_thread_attach(struct runqueue* rq, struct thread* thread, int prio) {
 	return err;
 }
 
-void sched_thread_detach(struct runqueue* rq, struct thread* thread) {
+void sched_thread_detach(struct thread* thread) {
+	struct runqueue* rq = &thread->topology.target->runqueue;
 	void* priv = NULL;
 
 	irqflags_t irq;
@@ -68,7 +71,9 @@ void sched_thread_detach(struct runqueue* rq, struct thread* thread) {
 	thread_unref(thread);
 }
 
-int sched_enqueue(struct runqueue* rq, struct thread* thread) {
+int sched_enqueue(struct thread* thread) {
+	struct runqueue* rq = &thread->topology.target->runqueue;
+
 	irqflags_t irq;
 	spinlock_lock_irq_save(&rq->lock, &irq);
 
@@ -81,7 +86,9 @@ int sched_enqueue(struct runqueue* rq, struct thread* thread) {
 	return ret;
 }
 
-int sched_dequeue(struct runqueue* rq, struct thread* thread) {
+int sched_dequeue(struct thread* thread) {
+	struct runqueue* rq = &thread->topology.target->runqueue;
+
 	irqflags_t irq;
 	spinlock_lock_irq_save(&rq->lock, &irq);
 
@@ -92,11 +99,13 @@ int sched_dequeue(struct runqueue* rq, struct thread* thread) {
 	return ret;
 }
 
-struct thread* sched_pick_next(struct runqueue* rq) {
-	irqflags_t irq;
-	spinlock_lock_irq_save(&rq->lock, &irq);
+static struct thread* sched_pick_next(void) {
+	struct runqueue* rq = &current_cpu()->runqueue;
+
+	spinlock_lock(&rq->lock);
 	struct thread* ret = rq->policy->ops->pick_next(rq);
-	spinlock_unlock_irq_restore(&rq->lock, &irq);
+	spinlock_unlock(&rq->lock);
+
 	return ret;
 }
 
@@ -199,7 +208,7 @@ struct thread* atomic_schedule(void) {
 	}
 
 	/* If there is no thread to run, see if the current thread is still runnable. If not, pick idle */
-	struct thread* next = sched_pick_next(rq);
+	struct thread* next = sched_pick_next();
 	if (!next) {
 		if (atomic_load(&prev->state) == THREAD_RUNNING)
 			next = prev;
@@ -344,7 +353,7 @@ static void idle_thread(void) {
 		cpu_halt();
 }
 
-static struct thread* create_bootstrap_thread(struct runqueue* rq, void* exec, int state, int prio) {
+static struct thread* create_bootstrap_thread(void* exec, int state, int prio) {
 	struct proc* kproc = sched_get_from_proctbl(0);
 	bug(kproc == NULL);
 
@@ -353,7 +362,7 @@ static struct thread* create_bootstrap_thread(struct runqueue* rq, void* exec, i
 		panic("Failed to create a bootstrap thread\n");
 
 	thread_prep_exec_kernel(thread, exec);
-	sched_thread_attach(rq, thread, prio);
+	sched_thread_attach(thread, prio);
 	atomic_store(&thread->state, state);
 
 	return thread;
@@ -365,12 +374,12 @@ static void sched_bootstrap_processor(void) {
 	spinlock_init(&rq->zombie_lock);
 	semaphore_init(&rq->reaper_sem, 0);
 
-	struct thread* thread = create_bootstrap_thread(rq, NULL, THREAD_RUNNING, SCHED_PRIO_DEFAULT);
+	struct thread* thread = create_bootstrap_thread(NULL, THREAD_RUNNING, SCHED_PRIO_DEFAULT);
 	rq->current = thread;
 	current_cpu()->current_thread = rq->current;
 	thread_unref(thread);
 
-	thread = create_bootstrap_thread(rq, idle_thread, THREAD_READY, SCHED_PRIO_MIN);
+	thread = create_bootstrap_thread(idle_thread, THREAD_READY, SCHED_PRIO_MIN);
 	rq->idle = thread;
 
 	list_head_init(&rq->sleepers);

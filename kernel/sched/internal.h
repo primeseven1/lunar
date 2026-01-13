@@ -28,6 +28,8 @@ void sched_send_resched(struct cpu* target);
 /**
  * @brief Attach a thread to the runqueue
  *
+ * This function adds the thread to the target CPU's runqueue.
+ *
  * Not safe to call from an atomic context. This function also adds the thread to the associated process.
  * Adds two refs (from attaching to the runqueue, and to the proc).
  *
@@ -37,7 +39,7 @@ void sched_send_resched(struct cpu* target);
  *
  * @return -errno on failure
  */
-int sched_thread_attach(struct runqueue* rq, struct thread* thread, int prio);
+int sched_thread_attach(struct thread* thread, int prio);
 
 /**
  * @brief Detach a thread from a runqueue
@@ -48,42 +50,28 @@ int sched_thread_attach(struct runqueue* rq, struct thread* thread, int prio);
  * @param rq The runqueue to detach from
  * @param thread The thread to detach
  */
-void sched_thread_detach(struct runqueue* rq, struct thread* thread);
+void sched_thread_detach(struct thread* thread);
 
 /**
- * @brief Insert a thread into a runqueue
+ * @brief Insert a thread into the runqueue
  *
+ * This function puts the thread into the target cpu's runqueue.
  * Safe to call from an atomic context.
  *
- * @param rq The runqueue to insert the thread into
- * @param thread The thread to insert
- *
+ * @param thread The thread to put into the queue
  * @return -errno on failure
  */
-int sched_enqueue(struct runqueue* rq, struct thread* thread);
+int sched_enqueue(struct thread* thread);
 
 /**
- * @brief Remove a thread from a runqueue
+ * @brief Remove a thread from the runqueue
  *
  * Safe to call from an atomic context.
  *
- * @param rq The runqueue to remove the thread from
  * @param thread The thread to remove
- *
  * @return -errno on failure
  */
-int sched_dequeue(struct runqueue* rq, struct thread* thread);
-
-/**
- * @brief Pick the next thread to run
- *
- * Adds the current thread into the runqueue (unless the thread is no longer runnable).
- * Not safe to call from a normal context.
- *
- * @param rq The runqueue to pick the thread from
- * @return The next thread that should be ran.
- */
-struct thread* sched_pick_next(struct runqueue* rq);
+int sched_dequeue(struct thread* thread);
 
 /**
  * @brief Called by the timer ISR

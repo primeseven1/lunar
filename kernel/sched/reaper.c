@@ -5,8 +5,8 @@
 #include <lunar/core/printk.h>
 #include "internal.h"
 
-static inline void reap_thread(struct runqueue* rq, struct thread* thread) {
-	sched_thread_detach(rq, thread);
+static inline void reap_thread(struct thread* thread) {
+	sched_thread_detach(thread);
 	bug(thread_destroy(thread) != 0);
 }
 
@@ -38,7 +38,7 @@ static int reaper_thread(void* arg) {
 
 		spinlock_unlock_irq_restore(&rq->zombie_lock, &irq);
 		if (victim)
-			reap_thread(rq, victim);
+			reap_thread(victim);
 		else
 			schedule();
 	}

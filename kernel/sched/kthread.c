@@ -62,16 +62,15 @@ int kthread_run(struct thread* thread, int prio) {
 	}
 
 	thread_prep_exec_kernel(thread, asm_kthread_start);
-	struct runqueue* rq = &thread->topology.target->runqueue;
-	err = sched_thread_attach(rq, thread, prio);
+	err = sched_thread_attach(thread, prio);
 	if (err)
 		goto out_unlock;
 
 	thread->ctx.general.rdi = (uintptr_t)kt.func;
 	thread->ctx.general.rsi = (uintptr_t)kt.arg;
-	err = sched_enqueue(rq, thread);
+	err = sched_enqueue(thread);
 	if (err) {
-		sched_thread_detach(rq, thread);
+		sched_thread_detach(thread);
 		goto out_unlock;
 	}
 
