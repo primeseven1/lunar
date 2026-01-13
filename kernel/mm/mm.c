@@ -5,6 +5,7 @@
 #include <lunar/mm/slab.h>
 #include <lunar/mm/buddy.h>
 #include <lunar/mm/hhdm.h>
+#include <lunar/lib/string.h>
 #include "internal.h"
 
 static struct slab_cache* mm_cache = NULL;
@@ -33,6 +34,7 @@ struct mm* mm_create_user(void) {
 		return NULL;
 	}
 	
+	memset(pagetable, 0, PAGE_SIZE);
 	__mm_init(mm, pagetable, USER_SPACE_USABLE_START, USER_SPACE_END);
 	return mm;
 }
