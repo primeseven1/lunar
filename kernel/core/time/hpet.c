@@ -71,7 +71,7 @@ static int init(struct timekeeper_source** out) {
 	}
 
 	uacpi_table table;
-	uacpi_status status = uacpi_table_find_by_signature("HPET", &table);
+	uacpi_status status = uacpi_table_find_by_signature(ACPI_HPET_SIGNATURE, &table);
 	if (status != UACPI_STATUS_OK) {
 		if (status == UACPI_STATUS_MAPPING_FAILED || status == UACPI_STATUS_OUT_OF_MEMORY)
 			return -ENOMEM;

@@ -14,7 +14,6 @@
 #include <uacpi/acpi.h>
 
 #include "internal.h"
-#include "lunar/core/interrupt.h"
 
 enum apic_base_flags {
 	APIC_BASE_BSP = (1 << 8),
@@ -100,6 +99,7 @@ enum lapic_regs {
 	LAPIC_REG_LVT_LINT0 = 0x350,
 	LAPIC_REG_LVT_LINT1 = 0x360,
 	LAPIC_REG_LVT_ERROR = 0x370,
+	LAPIC_X2_REG_ICR = 0x300,
 	LAPIC_REG_ICR_LOW = 0x300,
 	LAPIC_REG_ICR_HIGH = 0x310,
 	LAPIC_REG_TIMER_INITIAL = 0x380,
@@ -318,7 +318,7 @@ enum apic_ipitargets {
 	APIC_IPI_CPU_OTHERS = 3
 };
 
-static void lapic_send_ipi(u32 cpu, u8 vector, u8 delivm, u8 trigger, u8 shorthand) {
+static void lapic_x1_send_ipi(u32 cpu, u8 vector, u8 delivm, u8 trigger, u8 shorthand) {
 	while (lapic_read(LAPIC_REG_ICR_LOW) & LAPIC_ICR_DELIV_STATUS)
 		cpu_relax();
 
@@ -344,7 +344,7 @@ static int apic_send_ipi(const struct cpu* cpu, const struct isr* isr, int flags
 	if (delivm != APIC_DM_NMI && vector == -1)
 		return -EINVAL;
 
-	lapic_send_ipi(id, vector, delivm, APIC_TRIGGER_EDGE, APIC_IPI_CPU_TARGET);
+	lapic_x1_send_ipi(id, vector, delivm, APIC_TRIGGER_EDGE, APIC_IPI_CPU_TARGET);
 	return 0;
 }
 
@@ -371,7 +371,7 @@ static int apic_ap_init(void) {
 
 static uacpi_status madt_init(void) {
 	uacpi_table table;
-	int err = uacpi_table_find_by_signature("APIC", &table);
+	uacpi_status err = uacpi_table_find_by_signature(ACPI_MADT_SIGNATURE, &table);
 	if (err != UACPI_STATUS_OK)
 		return err;
 
@@ -416,32 +416,18 @@ err:
 		}
 		kfree(ioapics);
 	}
+
+	uacpi_table_unref(&table);
 	madt = NULL;
-	return err;
+
+	if (err == UACPI_STATUS_OUT_OF_MEMORY || err == UACPI_STATUS_MAPPING_FAILED)
+		return -ENOMEM;
+	return -ENOTSUP;
 }
 
-static int apic_bsp_init(void) {
-	uacpi_status err = madt_init();
-	switch (err) {
-	case UACPI_STATUS_MAPPING_FAILED:
-	case UACPI_STATUS_OUT_OF_MEMORY:
-		return -ENOMEM;
-	case UACPI_STATUS_OK:
-		break;
-	case UACPI_STATUS_NOT_FOUND:
-	default:
-		return -ENOTSUP;
-	}
-
+static void ioapic_mask_all(void) {
 	i8259_disable();
 
-	/* Get the physical memory address of the LAPIC and map it to virtual memory */
-	physaddr_t lapic_physical = ROUND_DOWN(rdmsr(MSR_APIC_BASE), PAGE_SIZE);
-	lapic_address = iomap(lapic_physical, PAGE_SIZE, MMU_READ | MMU_WRITE);
-	if (unlikely(!lapic_address))
-		return -ENOMEM;
-
-	/* Mask all interrupts on the IOAPICs */
 	ioapic_count = get_entry_count(ACPI_MADT_ENTRY_TYPE_IOAPIC);
 	for (unsigned long i = 0; i < ioapic_count; i++) {
 		struct ioapic_desc* ioapic = &ioapics[i];
@@ -457,12 +443,25 @@ static int apic_bsp_init(void) {
 		for (u32 j = ioapic->base; j < ioapic->top; j++)
 			ioapic_redtbl_write(ioapic->address, j - ioapic->base, &re);
 	}
+}
 
+static int apic_x1_bsp_init(void) {
+	int err = madt_init();
+	if (err)
+		return err;
+
+	/* Get the physical memory address of the LAPIC and map it to virtual memory */
+	physaddr_t lapic_physical = ROUND_DOWN(rdmsr(MSR_APIC_BASE), PAGE_SIZE);
+	lapic_address = iomap(lapic_physical, PAGE_SIZE, MMU_READ | MMU_WRITE);
+	if (unlikely(!lapic_address))
+		return -ENOMEM;
+
+	ioapic_mask_all();
 	return apic_ap_init();
 }
 
 static const struct intctl_ops x1_ops = {
-	.init_bsp = apic_bsp_init,
+	.init_bsp = apic_x1_bsp_init,
 	.init_ap = apic_ap_init,
 	.install = apic_install,
 	.uninstall = apic_uninstall,
