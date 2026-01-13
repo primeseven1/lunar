@@ -369,7 +369,7 @@ static int apic_ap_init(void) {
 	return 0;
 }
 
-static uacpi_status madt_init(void) {
+static int madt_init(void) {
 	uacpi_table table;
 	uacpi_status err = uacpi_table_find_by_signature(ACPI_MADT_SIGNATURE, &table);
 	if (err != UACPI_STATUS_OK)
