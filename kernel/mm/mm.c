@@ -16,7 +16,7 @@ void mm_cache_init(void) {
 		panic("mm cache init failed");
 }
 
-void __mm_init(struct mm* mm, pte_t* pagetable, void* start, void* end) {
+void __mm_init(struct mm* mm, pte_t* pagetable, uintptr_t start, uintptr_t end) {
 	mm->pagetable = pagetable;
 	mm->mmap_start = start;
 	mm->mmap_end = end;

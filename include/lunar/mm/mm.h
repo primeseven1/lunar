@@ -5,18 +5,18 @@
 #include <lunar/mm/vmm.h>
 #include <lunar/core/mutex.h>
 
-#define USER_SPACE_START NULL
-#define USER_SPACE_USABLE_START ((void*)0x1000)
-#define USER_SPACE_END ((void*)0x7FFFFFFFFFFF)
-#define KERNEL_SPACE_START ((void*)0xFFFF800000000000)
-#define KERNEL_SPACE_END ((void*)0xFFFFFFFFFFFFFFFF)
-#define KERNEL_SPACE_N2G_START ((void*)0xFFFFFFFF80000000)
+#define USER_SPACE_START 0
+#define USER_SPACE_USABLE_START 0x1000
+#define USER_SPACE_END 0x7FFFFFFFFFFF
+#define KERNEL_SPACE_START 0xFFFF800000000000
+#define KERNEL_SPACE_END 0xFFFFFFFFFFFFFFFF
+#define KERNEL_SPACE_N2G_START 0xFFFFFFFF80000000
 
 struct mm {
 	pte_t* pagetable;
 	struct list_head vma_list;
 	mutex_t vma_lock;
-	void* mmap_start, *mmap_end;
+	uintptr_t mmap_start, mmap_end;
 };
 
 typedef enum {
@@ -47,7 +47,7 @@ void mm_switch(struct mm* new);
  * @param start The start of the address space
  * @param end The end of the address space
  */
-void __mm_init(struct mm* mm, pte_t* pagetable, void* start, void* end);
+void __mm_init(struct mm* mm, pte_t* pagetable, uintptr_t start, uintptr_t end);
 
 /**
  * @brief Create a mm struct for a user process

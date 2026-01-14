@@ -29,7 +29,8 @@ enum vmm_flags {
 	VMM_NOREPLACE = (1 << 3),
 	VMM_IOMEM = (1 << 4),
 	VMM_HUGEPAGE_2M = (1 << 5),
-	VMM_USER = (1 << 6)
+	VMM_USER = (1 << 6),
+	VMM_STACK = (1 << 7)
 };
 
 typedef unsigned long pte_t;

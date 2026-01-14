@@ -15,33 +15,33 @@ enum mmu_err_flags {
 };
 
 static void exec_page_fault(const struct context* ctx) {
-	const void* fault = (void*)ctx->cr2;
+	uintptr_t fault = ctx->cr2;
 	int err = ctx->err_code;
 
 	struct vma* vma = vma_find(current_thread()->proc->mm_struct, fault);
 	if (!vma) {
-		printk(PRINTK_CRIT "traps: No VMA found at %p\n", fault);
+		printk(PRINTK_CRIT "traps: No VMA found at %#.16lx\n", fault);
 	} else {
 		if (vma->flags & MMU_READ)
-			printk(PRINTK_CRIT "traps: %p is readable\n", fault);
+			printk(PRINTK_CRIT "traps: %#.16lx is readable\n", fault);
 		if (vma->flags & MMU_WRITE)
-			printk(PRINTK_CRIT "traps: %p is writable\n", fault);
+			printk(PRINTK_CRIT "traps: %#.16lx is writable\n", fault);
 		if (vma->flags & MMU_EXEC)
-			printk(PRINTK_CRIT "traps: %p is executable\n", fault);
+			printk(PRINTK_CRIT "traps: %#.16lx is executable\n", fault);
 	}
 
 	if (!(err & MMU_ERR_PRESENT))
-		printk(PRINTK_CRIT "traps: %p page was not present\n", fault);
+		printk(PRINTK_CRIT "traps: %#.16lx page was not present\n", fault);
 	else if (err & MMU_ERR_WRITE_ACCESS)
-		printk(PRINTK_CRIT "traps: %p page fault was caused by a write\n", fault);
+		printk(PRINTK_CRIT "traps: %#.16lx page fault was caused by a write\n", fault);
 	else if (err & MMU_ERR_EXEC)
-		printk(PRINTK_CRIT "traps: %p page fault was caused by an instruction fetch\n", fault);
+		printk(PRINTK_CRIT "traps: %#.16lx page fault was caused by an instruction fetch\n", fault);
 
 	if (err & MMU_ERR_USER)
-		printk(PRINTK_CRIT "traps: %p page fault happened at CPL3\n", fault);
+		printk(PRINTK_CRIT "traps: %#.16lx page fault happened at CPL3\n", fault);
 
 	if (unlikely(err & MMU_ERR_RSVD_SET_PTE))
-		printk(PRINTK_CRIT "traps: %p page had an invalid bit set in PTE\n", fault);
+		printk(PRINTK_CRIT "traps: %#.16lx page had an invalid bit set in PTE\n", fault);
 
 	dump_registers(ctx);
 	panic("Page fault");

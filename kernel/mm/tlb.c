@@ -8,7 +8,7 @@
 #include <lunar/init/status.h>
 #include "internal.h"
 
-static atomic(void*) shootdown_address;
+static atomic(uintptr_t) shootdown_address;
 static atomic(size_t) shootdown_size;
 static atomic(u64) shootdown_remaining = atomic_init(0);
 static SPINLOCK_DEFINE(shootdown_lock);
@@ -22,7 +22,7 @@ static void shootdown_ipi(struct isr* isr, struct context* ctx) {
 	atomic_sub_fetch(&shootdown_remaining, 1);
 }
 
-static void do_shootdown(const struct smp_cpus* cpus, void* address, size_t size) {
+static void do_shootdown(const struct smp_cpus* cpus, uintptr_t address, size_t size) {
 	spinlock_lock_preempt_disable(&shootdown_lock);
 
 	atomic_store(&shootdown_address, address);
@@ -39,7 +39,7 @@ static void do_shootdown(const struct smp_cpus* cpus, void* address, size_t size
 	spinlock_unlock_preempt_enable(&shootdown_lock);
 }
 
-void tlb_invalidate(void* address, size_t size) {
+void tlb_invalidate(uintptr_t address, size_t size) {
 	const struct smp_cpus* cpus = smp_cpus_get();
 
 	if (likely(init_status_get() >= INIT_STATUS_SCHED)) {

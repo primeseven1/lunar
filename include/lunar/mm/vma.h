@@ -24,7 +24,7 @@ struct vma {
  *
  * @return The address of the VMA struct, NULL if not found
  */
-struct vma* vma_find(struct mm* mm, const void* address);
+struct vma* vma_find(struct mm* mm, uintptr_t address);
 
 /**
  * @brief Add a virtual memory area to the VMA list
@@ -44,7 +44,7 @@ struct vma* vma_find(struct mm* mm, const void* address);
  * @retval -EEXIST VMA already exists AND no fixed/replace mapping
  * @retval -ENOMEM Ran out of virtual memory space
  */
-int vma_map(struct mm* mm, void* hint, size_t size, mmuflags_t prot, int flags, void** ret);
+int vma_map(struct mm* mm, uintptr_t hint, size_t size, mmuflags_t prot, int flags, uintptr_t* ret);
 
 /**
  * @brief Change the protection flags for a VMA
@@ -61,7 +61,7 @@ int vma_map(struct mm* mm, void* hint, size_t size, mmuflags_t prot, int flags, 
  * @retval -ERANGE Integer overflow when adding or rounding
  * @retval -ENOENT VMA not found
  */
-int vma_protect(struct mm* mm, void* address, size_t size, mmuflags_t prot);
+int vma_protect(struct mm* mm, uintptr_t address, size_t size, mmuflags_t prot);
 
 /**
  * @brief Remove a VMA from the list
@@ -77,4 +77,4 @@ int vma_protect(struct mm* mm, void* address, size_t size, mmuflags_t prot);
  * @retval -ERANGE Integer overflow when adding or rounding
  * @retval -ENOENT VMA not found
  */
-int vma_unmap(struct mm* mm, void* addr, size_t size);
+int vma_unmap(struct mm* mm, uintptr_t addr, size_t size);

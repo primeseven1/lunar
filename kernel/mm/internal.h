@@ -22,23 +22,23 @@ enum pt_flags {
 	PT_NX = (1ul << 63)
 };
 
-static inline void tlb_flush_single(void* virtual) {
+static inline void tlb_flush_single(uintptr_t virtual) {
 	__asm__ volatile("invlpg (%0)" : : "r"(virtual) : "memory");
 }
 
-static inline void tlb_flush_range(void* virtual, size_t size) {
+static inline void tlb_flush_range(uintptr_t virtual, size_t size) {
 	unsigned long count = (size + PAGE_SIZE - 1) >> PAGE_SHIFT;
 	if (count >= 128) {
 		ctl3_write(ctl3_read()); /* Global pages disabled, this is fine */
 	} else {
 		for (unsigned long i = 0; i < count; i++)
-			tlb_flush_single((u8*)virtual + (PAGE_SIZE * i));
+			tlb_flush_single(virtual + (PAGE_SIZE * i));
 	}
 }
 
 unsigned long pagetable_mmu_to_pt(mmuflags_t mmu_flags);
 
-void tlb_invalidate(void* address, size_t size);
+void tlb_invalidate(uintptr_t address, size_t size);
 
 /**
  * @brief Map an entry into a page table
@@ -58,7 +58,7 @@ void tlb_invalidate(void* address, size_t size);
  *
  * @return -errno on failure
  */
-int pagetable_map(pte_t* pagetable, void* virtual, physaddr_t physical, unsigned long pt_flags);
+int pagetable_map(pte_t* pagetable, uintptr_t virtual, physaddr_t physical, unsigned long pt_flags);
 
 /**
  * @brief Update an entry in a page table
@@ -78,7 +78,7 @@ int pagetable_map(pte_t* pagetable, void* virtual, physaddr_t physical, unsigned
  *
  * @return -errno on failure
  */
-int pagetable_update(pte_t* pagetable, void* virtual, physaddr_t physical, unsigned long pt_flags);
+int pagetable_update(pte_t* pagetable, uintptr_t virtual, physaddr_t physical, unsigned long pt_flags);
 
 /**
  * @brief Unmap an entry in a page table
@@ -89,7 +89,7 @@ int pagetable_update(pte_t* pagetable, void* virtual, physaddr_t physical, unsig
  * @param pagetable The page table to use
  * @param virtual The virtual address to unmap, must be page aligned
  */
-int pagetable_unmap(pte_t* pagetable, void* virtual);
+int pagetable_unmap(pte_t* pagetable, uintptr_t virtual);
 
 /**
  * @brief Get the physical address of a mapping in a page table
@@ -101,21 +101,21 @@ int pagetable_unmap(pte_t* pagetable, void* virtual);
  *
  * @return The physical address of the mapping
  */
-physaddr_t pagetable_get_physical(pte_t* pagetable, const void* virtual);
+physaddr_t pagetable_get_physical(pte_t* pagetable, uintptr_t virtual);
 
 /**
  * @brief Get the base address of a top level page table index
  * @param index The index
  * @return The base address
  */
-void* pagetable_get_base_address_from_top_index(unsigned int index);
+uintptr_t pagetable_get_base_address_from_top_index(unsigned int index);
 
 void pagetable_init(void);
 void mm_cache_init(void);
 void pagetable_kmm_init(struct mm* mm_struct);
 
 struct prevpage {
-	void* start;
+	uintptr_t start;
 	physaddr_t physical;
 	size_t len; /* multiple of page_size */
 	size_t page_size;
@@ -136,7 +136,7 @@ struct prevpage {
  *
  * @return NULL if there are no pages to save, or you get a singly linked list 
  */
-struct prevpage* prevpage_save(struct mm* mm_struct, u8* virtual, size_t size);
+struct prevpage* prevpage_save(struct mm* mm_struct, uintptr_t virtual, size_t size);
 
 /**
  * @brief Restore the previous state on a failure

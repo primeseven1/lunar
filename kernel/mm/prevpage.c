@@ -12,13 +12,13 @@ static void prevpage_free_all(struct prevpage* head) {
 	}
 }
 
-struct prevpage* prevpage_save(struct mm* mm_struct, u8* virtual, size_t size) {
+struct prevpage* prevpage_save(struct mm* mm_struct, uintptr_t virtual, size_t size) {
 	struct prevpage* prev_pages = NULL;
 	size_t max_add = (size_t)(UINTPTR_MAX - (uintptr_t)virtual);
 	if (size > max_add)
 		size = max_add;
-	u8* end = virtual + size;
 
+	uintptr_t end = virtual + size;
 	while (virtual < end) {
 		struct vma* vma = vma_find(mm_struct, virtual);
 		if (!vma) {
@@ -26,8 +26,8 @@ struct prevpage* prevpage_save(struct mm* mm_struct, u8* virtual, size_t size) {
 			continue;
 		}
 
-		u8* vma_end = (u8*)vma->top;
-		u8* range_end = (u8*)vma_end < end ? vma_end : end;
+		uintptr_t vma_end = vma->top;
+		uintptr_t range_end = vma_end < end ? vma_end : end;
 
 		while (virtual < range_end) {
 			bool vma_huge = !!(vma->flags & VMM_HUGEPAGE_2M);
@@ -46,7 +46,7 @@ struct prevpage* prevpage_save(struct mm* mm_struct, u8* virtual, size_t size) {
 
 			/* Extend while contiguous if present */
 			bool base_present = phys != 0;
-			for (u8* current = virtual + node_ps; current + node_ps <= range_end; current += node_ps) {
+			for (uintptr_t current = virtual + node_ps; current + node_ps <= range_end; current += node_ps) {
 				physaddr_t nphys = pagetable_get_physical(mm_struct->pagetable, current);
 				bool current_present = (nphys != 0);
 				if (current_present != base_present)
@@ -54,7 +54,7 @@ struct prevpage* prevpage_save(struct mm* mm_struct, u8* virtual, size_t size) {
 
 				/* Require physical contiguity */
 				if (base_present) {
-					physaddr_t expect = p->physical + (current - (u8*)p->start);
+					physaddr_t expect = p->physical + (current - p->start);
 					if (nphys != expect)
 						break;
 				}
@@ -74,7 +74,7 @@ struct prevpage* prevpage_save(struct mm* mm_struct, u8* virtual, size_t size) {
 
 void prevpage_fail(struct mm* mm_struct, struct prevpage* head) {
 	for (struct prevpage* p = head; p; p = p->next) {
-		void* unused;
+		uintptr_t unused;
 		int flags = p->vmm_flags | VMM_FIXED | VMM_NOREPLACE;
 		bug(vma_map(mm_struct, p->start, p->len, p->mmu_flags, flags, &unused) != 0);
 
@@ -90,7 +90,7 @@ void prevpage_fail(struct mm* mm_struct, struct prevpage* head) {
 			} else {
 				pagetable_unmap(mm_struct->pagetable, p->start);
 			}
-			p->start = (u8*)p->start + p->page_size;
+			p->start = p->start + p->page_size;
 		}
 	}
 

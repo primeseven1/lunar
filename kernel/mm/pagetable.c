@@ -24,15 +24,15 @@ static inline pte_t* table_virtual(pte_t entry) {
 	return hhdm_virtual((physaddr_t)entry);
 }
 
-static inline bool is_virtual_canonical(const void* virtual) {
-	return ((uintptr_t)virtual >> 47 == 0 || (uintptr_t)virtual >> 47 == 0x1FFFF);
+static inline bool is_virtual_canonical(uintptr_t virtual) {
+	return ((virtual >> 47 == 0) || (virtual >> 47 == 0x1FFFF));
 }
 
-static inline void pagetable_get_indexes(const void* virtual, unsigned int* indexes) {
-	indexes[0] = (uintptr_t)virtual >> 39 & 0x01FF;
-	indexes[1] = (uintptr_t)virtual >> 30 & 0x01FF;
-	indexes[2] = (uintptr_t)virtual >> 21 & 0x01FF;
-	indexes[3] = (uintptr_t)virtual >> 12 & 0x01FF;
+static inline void pagetable_get_indexes(uintptr_t virtual, unsigned int* indexes) {
+	indexes[0] = virtual >> 39 & 0x01FF;
+	indexes[1] = virtual >> 30 & 0x01FF;
+	indexes[2] = virtual >> 21 & 0x01FF;
+	indexes[3] = virtual >> 12 & 0x01FF;
 }
 
 unsigned long pagetable_mmu_to_pt(mmuflags_t mmu_flags) {
@@ -58,7 +58,7 @@ unsigned long pagetable_mmu_to_pt(mmuflags_t mmu_flags) {
 	return pt_flags;
 }
 
-static int walk_pagetable(pte_t* pagetable, const void* virtual, bool create, size_t* page_size, pte_t** ret) {
+static int walk_pagetable(pte_t* pagetable, uintptr_t virtual, bool create, size_t* page_size, pte_t** ret) {
 	*ret = NULL;
 
 	unsigned int indexes[4];
@@ -133,7 +133,7 @@ static int walk_pagetable(pte_t* pagetable, const void* virtual, bool create, si
 	return 0;
 }
 
-int pagetable_map(pte_t* pagetable, void* virtual, physaddr_t physical, unsigned long pt_flags) {
+int pagetable_map(pte_t* pagetable, uintptr_t virtual, physaddr_t physical, unsigned long pt_flags) {
 	size_t page_size = pt_flags & PT_HUGEPAGE ? HUGEPAGE_2M_SIZE : PAGE_SIZE;
 	if ((uintptr_t)virtual & (page_size - 1) || physical & (page_size - 1) || 
 			!is_virtual_canonical(virtual) || !physical)
@@ -151,7 +151,7 @@ int pagetable_map(pte_t* pagetable, void* virtual, physaddr_t physical, unsigned
 	return 0;
 }
 
-int pagetable_update(pte_t* pagetable, void* virtual, physaddr_t physical, unsigned long pt_flags) {
+int pagetable_update(pte_t* pagetable, uintptr_t virtual, physaddr_t physical, unsigned long pt_flags) {
 	if (!is_virtual_canonical(virtual) || !physical)
 		return -EINVAL;
 
@@ -171,7 +171,7 @@ int pagetable_update(pte_t* pagetable, void* virtual, physaddr_t physical, unsig
 	return 0;
 }
 
-static void pagetable_cleanup(pte_t* pagetable, void* virtual) {
+static void pagetable_cleanup(pte_t* pagetable, uintptr_t virtual) {
 	unsigned int indexes[4];
 	pagetable_get_indexes(virtual, indexes);
 
@@ -200,7 +200,7 @@ static void pagetable_cleanup(pte_t* pagetable, void* virtual) {
 	}
 }
 
-int pagetable_unmap(pte_t* pagetable, void* virtual) {
+int pagetable_unmap(pte_t* pagetable, uintptr_t virtual) {
 	if (!is_virtual_canonical(virtual))
 		return -EINVAL;
 
@@ -221,7 +221,7 @@ int pagetable_unmap(pte_t* pagetable, void* virtual) {
 	return 0;
 }
 
-physaddr_t pagetable_get_physical(pte_t* pagetable, const void* virtual) {
+physaddr_t pagetable_get_physical(pte_t* pagetable, uintptr_t virtual) {
 	if (!is_virtual_canonical(virtual))
 		return 0;
 
@@ -248,12 +248,12 @@ static struct limine_paging_mode_request __limine_request paging_mode = {
 
 #define PML4_MAX_4K_PAGES 0x8000000ul
 
-void* pagetable_get_base_address_from_top_index(unsigned int index) {
+uintptr_t pagetable_get_base_address_from_top_index(unsigned int index) {
 	if (index >= 512)
-		return NULL;
+		return 0;
 	if (index >= 256)
-		return (void*)(((u64)index << 39) | 0xFFFF000000000000);
-	return (void*)((u64)index << 39);
+		return (((u64)index << 39) | 0xFFFF000000000000);
+	return ((u64)index << 39);
 }
 
 void pagetable_init(void) {
@@ -291,7 +291,7 @@ void pagetable_kmm_init(struct mm* mm_struct) {
 			continue;
 		}
 
-		void* _unused;
+		uintptr_t _unused;
 
 		/* FIXME: Fixup pages in HHDM to NOT be RWX */
 		int err = vma_map(mm_struct, pagetable_get_base_address_from_top_index(i),
