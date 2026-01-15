@@ -1,7 +1,7 @@
 #include <lunar/core/cmdline.h>
 #include <lunar/lib/convert.h>
 
-#include <acpi/acpi_init.h>
+#include <acpi/acpi.h>
 #include <uacpi/uacpi.h>
 #include <uacpi/context.h>
 #include <uacpi/tables.h>

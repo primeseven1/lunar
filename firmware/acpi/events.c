@@ -15,19 +15,20 @@ static void do_poweroff(uacpi_handle ctx) {
 	(void)ctx;
 
 	uacpi_status status = uacpi_prepare_for_sleep_state(UACPI_SLEEP_STATE_S5);
-	if (uacpi_unlikely(status != UACPI_STATUS_OK)) {
-		printk(PRINTK_CRIT "acpi: Cannot prepare for sleep state S5: %s\n", uacpi_status_to_string(status));
-		goto die;
-	}
 
 	local_irq_disable();
 	smp_send_stop();
 	printk_sched_gone();
 
+	if (uacpi_unlikely_error(status)) {
+		printk(PRINTK_CRIT "acpi: Cannot prepare for sleep state S5: %s\n", uacpi_status_to_string(status));
+		goto die;
+	}
+
 	printk(PRINTK_CRIT "acpi: powering off...\n");
 	timekeeper_stall(1000000);
 	status = uacpi_enter_sleep_state(UACPI_SLEEP_STATE_S5);
-	if (uacpi_unlikely(status != UACPI_STATUS_OK))
+	if (uacpi_unlikely_error(status))
 		printk(PRINTK_ERR "acpi: Cannot enter sleep state S5: %s\n", uacpi_status_to_string(status));
 
 die:
@@ -38,11 +39,8 @@ die:
 
 uacpi_interrupt_ret acpi_pwrbtn_event(uacpi_handle ctx) {
 	uacpi_status status = uacpi_kernel_schedule_work(UACPI_WORK_GPE_EXECUTION, do_poweroff, ctx);
-	while (status != UACPI_STATUS_OK) {
-		if (status != UACPI_STATUS_OUT_OF_MEMORY)
-			panic("poweroff event failed!\n");
-		timekeeper_stall(10);
-	}
+	if (uacpi_unlikely_error(status))
+		printk(PRINTK_CRIT "acpi: poweroff event failed!\n");
 
 	return UACPI_INTERRUPT_HANDLED;
 }
