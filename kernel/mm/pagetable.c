@@ -186,7 +186,7 @@ static void pagetable_cleanup(pte_t* pagetable, uintptr_t virtual) {
 	for (unsigned int level = 3; level > 0; level--) {
 		pte_t* table = tables[level];
 		for (unsigned int i = 0; i < 512; i++) {
-			if (table[i] & PT_PRESENT)
+			if (table[i])
 				return;
 		}
 
