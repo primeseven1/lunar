@@ -1,7 +1,6 @@
 #include <lunar/mm/buddy.h>
 #include <lunar/mm/hhdm.h>
 #include <lunar/core/panic.h>
-#include "lunar/mm/vmm.h"
 #include "internal.h"
 
 static void prevpage_free_all(struct prevpage* head) {

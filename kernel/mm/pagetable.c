@@ -10,9 +10,6 @@
 #include <lunar/mm/hhdm.h>
 #include <lunar/lib/string.h>
 #include "internal.h"
-#include "lunar/mm/mm.h"
-#include "lunar/mm/vma.h"
-#include "lunar/mm/vmm.h"
 
 #define L4_HH_START 256
 #define L4_HH_END 512

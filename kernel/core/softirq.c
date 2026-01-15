@@ -1,4 +1,3 @@
-#include "lunar/sched/scheduler.h"
 #include <lunar/core/softirq.h>
 #include <lunar/sched/preempt.h>
 #include <lunar/core/printk.h>
