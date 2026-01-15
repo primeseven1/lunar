@@ -24,7 +24,7 @@
 #include <lunar/sched/preempt.h>
 #include <lunar/lib/convert.h>
 #include <lunar/lib/string.h>
-#include <acpi/acpi_init.h>
+#include <acpi/acpi.h>
 #include "internal.h"
 
 static atomic(int) init_status = atomic_init(INIT_STATUS_NOTHING);
@@ -188,6 +188,7 @@ _Noreturn __asmlinkage void kernel_main(void) {
 	/* Make sure any changes in PTE's by the AP's are seen by the BSP */
 	ctl3_write(ctl3_read());
 
+	acpi_drivers_load();
 	vfs_init();
 	fs_drivers_load();
 
