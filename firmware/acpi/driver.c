@@ -15,7 +15,7 @@ static struct acpi_driver* find_by_hid(const uacpi_id_string* hid) {
 	list_for_each_entry(driver, &acpi_driver_list, link) {
 		const char* const* ids = driver->pnp_ids;
 		while (*ids) {
-			if (strncmp(*ids, hid->value, hid->size) == 0)
+			if (strcmp(*ids, hid->value) == 0)
 				return driver;
 			ids++;
 		}
@@ -29,7 +29,7 @@ static struct acpi_driver* find_by_cid(const uacpi_pnp_id_list* cid) {
 		const char* const* ids = driver->pnp_ids;
 		while (*ids) {
 			for (uacpi_u32 i = 0; i < cid->num_ids; i++) {
-				if (strncmp(*ids, cid->ids[i].value, cid->ids[i].size) == 0)
+				if (strcmp(*ids, cid->ids[i].value) == 0)
 					return driver;
 			}
 			ids++;
@@ -58,11 +58,8 @@ static uacpi_iteration_decision init_device(void* ctx, uacpi_namespace_node* nod
 		driver = find_by_hid(&info->hid);
 	if (!driver && (info->flags & UACPI_NS_NODE_INFO_HAS_CID))
 		driver = find_by_cid(&info->cid);
-	if (driver) {
-		int err = driver->probe(node, info);
-		if (err)
-			printk(PRINTK_WARN "acpi: Failed to load driver %s: %i\n", driver->name, err);
-	}
+	if (driver)
+		driver->probe(node, info);
 
 	uacpi_free_namespace_node_info(info);
 	return UACPI_ITERATION_DECISION_CONTINUE;

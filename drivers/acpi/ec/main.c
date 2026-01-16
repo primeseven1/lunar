@@ -21,7 +21,7 @@ struct ec_init_ctx {
 	uacpi_bool need_ctrl, need_data;
 };
 
-static void install_handlers(struct ec_device* device) {
+static uacpi_bool install_handlers(struct ec_device* device) {
 	uacpi_install_address_space_handler(device->node, UACPI_ADDRESS_SPACE_EMBEDDED_CONTROLLER, ec_handle_region, device);
 	uacpi_u64 value;
 
@@ -31,13 +31,13 @@ static void install_handlers(struct ec_device* device) {
 	status = uacpi_eval_simple_integer(device->node, "_GPE", &value);
 	if (uacpi_unlikely_error(status)) {
 		printk(PRINTK_ERR "ec: EC has no GPE\n");
-		return;
+		return UACPI_FALSE;
 	}
 	device->gpe_index = value;
 	
 	status = uacpi_install_gpe_handler(NULL, device->gpe_index, UACPI_GPE_TRIGGERING_LEVEL, ec_handle_event, device);
 	bug(status != UACPI_STATUS_OK);
-	printk("ec: Device at %lx,%lx GPE %u\n", device->data.address, device->ctrl.address, device->gpe_index);
+	return UACPI_TRUE;
 }
 
 /* Looks for the data and control IO addresses */
@@ -70,6 +70,9 @@ static uacpi_iteration_decision ec_resource_it(void* user, uacpi_resource* resou
 
 static int ec_probe(uacpi_namespace_node* node, uacpi_namespace_node_info* info) {
 	(void)info;
+	static bool found_real = false; /* Sometimes the EC is described multiple times */
+	if (found_real)
+		return 0;
 
 	struct ec_device* device = kmalloc(sizeof(*device), MM_ZONE_NORMAL);
 	if (!device)
@@ -78,33 +81,50 @@ static int ec_probe(uacpi_namespace_node* node, uacpi_namespace_node_info* info)
 	device->node = node;
 	spinlock_init(&device->lock);
 
+	const uacpi_char* device_path = uacpi_namespace_node_generate_absolute_path(node);
+
 	/* Find the EC IO port addresses */
 	uacpi_resources* resources;
 	uacpi_status status = uacpi_get_current_resources(node, &resources);
-	if (status != UACPI_STATUS_OK)
+	if (status != UACPI_STATUS_OK) {
+		printk(PRINTK_ERR "ec: Device %s has no resources\n", device_path);
 		goto err;
+	}
+
 	struct ec_init_ctx init_ctx = { .need_ctrl = true, .need_data = true };
 	status = uacpi_for_each_resource(resources, ec_resource_it, &init_ctx);
 	uacpi_free_resources(resources);
-	if (init_ctx.need_data || init_ctx.need_ctrl || status != UACPI_STATUS_OK)
+	if (init_ctx.need_data || init_ctx.need_ctrl || status != UACPI_STATUS_OK) {
+		printk(PRINTK_ERR "ec: Device %s doesn't have all ports\n", device_path);
 		goto err;
+	}
 	device->ctrl = init_ctx.ctrl;
 	device->data = init_ctx.data;
+
+	/* Make sure the ports aren't swapped, since the namespace doesn't guaruntee ordering */
 	if (!ec_verify_order(device)) {
 		struct acpi_gas tmp = device->data;
 		device->data = device->ctrl;
 		device->ctrl = tmp;
 		if (uacpi_unlikely(!ec_verify_order(device))) {
-			printk(PRINTK_ERR "ec: EC ports invalid\n");
+			printk(PRINTK_ERR "ec: Device %s ports invalid\n", device_path);
 			goto err;
 		}
 	}
 
-	install_handlers(device);
+	if (!install_handlers(device))
+		return -ENODEV;
+
+	found_real = true;
 	ec_init_events();
 	uacpi_enable_gpe(UACPI_NULL, device->gpe_index);
+
+	printk("ec: Device %s at IO %lx,%lx GPE %u\n", device_path, device->data.address, device->ctrl.address, device->gpe_index);
+	uacpi_free_absolute_path(device_path);
+
 	return 0;
 err:
+	uacpi_free_absolute_path(device_path);
 	kfree(device);
 	return -ENODEV;
 }
