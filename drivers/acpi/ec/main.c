@@ -101,6 +101,9 @@ static int ec_probe(uacpi_namespace_node* node, uacpi_namespace_node_info* info)
 	device->ctrl = init_ctx.ctrl;
 	device->data = init_ctx.data;
 
+	uacpi_u32 seq;
+	irqflags_t irq_flags = ec_lock(device, &seq);
+
 	/* Make sure the ports aren't swapped, since the namespace doesn't guaruntee ordering */
 	if (!ec_verify_order(device)) {
 		struct acpi_gas tmp = device->data;
@@ -108,9 +111,12 @@ static int ec_probe(uacpi_namespace_node* node, uacpi_namespace_node_info* info)
 		device->ctrl = tmp;
 		if (uacpi_unlikely(!ec_verify_order(device))) {
 			printk(PRINTK_ERR "ec: Device %s ports invalid\n", device_path);
+			ec_unlock(device, irq_flags, seq);
 			goto err;
 		}
 	}
+
+	ec_unlock(device, irq_flags, seq);
 
 	if (!install_handlers(device))
 		return -ENODEV;

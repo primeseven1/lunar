@@ -25,6 +25,9 @@ struct ec_device {
 	spinlock_t lock;
 };
 
+irqflags_t ec_lock(struct ec_device* device, uacpi_u32* out_seq);
+void ec_unlock(struct ec_device* device, irqflags_t irq_flags, uacpi_u32 seq);
+
 uacpi_status ec_handle_region(uacpi_region_op op, uacpi_handle op_data);
 uacpi_interrupt_ret ec_handle_event(uacpi_handle ctx, uacpi_namespace_node* node, uacpi_u16 index);
 

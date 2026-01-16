@@ -8,7 +8,7 @@ struct ec_query {
 	uacpi_u8 index;
 };
 
-static irqflags_t ec_lock(struct ec_device* device, uacpi_u32* out_seq) {
+irqflags_t ec_lock(struct ec_device* device, uacpi_u32* out_seq) {
 	if (device->needs_fw_lock)
 		uacpi_acquire_global_lock(0xFFFF, out_seq);
 	irqflags_t irq_flags;
@@ -16,7 +16,7 @@ static irqflags_t ec_lock(struct ec_device* device, uacpi_u32* out_seq) {
 	return irq_flags;
 }
 
-static inline void ec_unlock(struct ec_device* device, irqflags_t irq_flags, uacpi_u32 seq) {
+void ec_unlock(struct ec_device* device, irqflags_t irq_flags, uacpi_u32 seq) {
 	spinlock_unlock_irq_restore(&device->lock, &irq_flags);
 	if (device->needs_fw_lock)
 		uacpi_release_global_lock(seq);
