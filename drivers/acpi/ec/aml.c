@@ -17,9 +17,9 @@ static irqflags_t ec_lock(struct ec_device* device, uacpi_u32* out_seq) {
 }
 
 static inline void ec_unlock(struct ec_device* device, irqflags_t irq_flags, uacpi_u32 seq) {
+	spinlock_unlock_irq_restore(&device->lock, &irq_flags);
 	if (device->needs_fw_lock)
 		uacpi_release_global_lock(seq);
-	spinlock_unlock_irq_restore(&device->lock, &irq_flags);
 }
 
 static void handle_ec_query(uacpi_handle handle) {
