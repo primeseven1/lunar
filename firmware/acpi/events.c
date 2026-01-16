@@ -5,13 +5,14 @@
 #include <lunar/core/cpu.h>
 #include <lunar/asm/wrap.h>
 
+#include <acpi/acpi.h>
 #include <uacpi/uacpi.h>
 #include <uacpi/utilities.h>
 #include <uacpi/sleep.h>
 
 #include "events.h"
 
-static void do_poweroff(uacpi_handle ctx) {
+void acpi_poweroff(uacpi_handle ctx) {
 	(void)ctx;
 
 	uacpi_status status = uacpi_prepare_for_sleep_state(UACPI_SLEEP_STATE_S5);
@@ -38,7 +39,7 @@ die:
 }
 
 uacpi_interrupt_ret acpi_pwrbtn_event(uacpi_handle ctx) {
-	uacpi_status status = uacpi_kernel_schedule_work(UACPI_WORK_GPE_EXECUTION, do_poweroff, ctx);
+	uacpi_status status = uacpi_kernel_schedule_work(UACPI_WORK_GPE_EXECUTION, acpi_poweroff, ctx);
 	if (uacpi_unlikely_error(status))
 		printk(PRINTK_CRIT "acpi: poweroff event failed!\n");
 

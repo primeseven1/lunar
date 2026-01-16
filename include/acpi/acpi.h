@@ -16,3 +16,5 @@ struct acpi_driver {
 
 void acpi_driver_register(struct acpi_driver* driver);
 void acpi_drivers_load(void);
+
+void acpi_poweroff(uacpi_handle ctx);

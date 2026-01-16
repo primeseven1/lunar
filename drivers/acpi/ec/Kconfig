@@ -1,0 +1,5 @@
+config DRIVER_ACPI_EC
+	bool "Enable the embedded controller driver"
+	default y
+	help
+	  "Enables the ACPI embedded controller driver"

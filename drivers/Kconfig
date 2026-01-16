@@ -1,4 +1,5 @@
 menu "Device drivers"
+source "drivers/acpi/Kconfig"
 source "drivers/liminefb/Kconfig"
 source "drivers/e9hack/Kconfig"
 source "drivers/pci/Kconfig"
