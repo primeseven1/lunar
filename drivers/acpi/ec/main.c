@@ -21,23 +21,18 @@ struct ec_init_ctx {
 	uacpi_bool need_ctrl, need_data;
 };
 
-static uacpi_bool install_handlers(struct ec_device* device) {
-	uacpi_install_address_space_handler(device->node, UACPI_ADDRESS_SPACE_EMBEDDED_CONTROLLER, ec_handle_region, device);
+static inline uacpi_bool needs_fw_lock(uacpi_namespace_node* node) {
 	uacpi_u64 value;
+	uacpi_status status = uacpi_eval_simple_integer(node, "_GLK", &value);
+	return (status == UACPI_STATUS_OK) ? (uacpi_bool)value : UACPI_FALSE;
+}
 
-	uacpi_status status = uacpi_eval_simple_integer(device->node, "_GLK", &value);
-	device->needs_fw_lock = (status == UACPI_STATUS_OK && value) ? UACPI_TRUE : UACPI_FALSE;
-
-	status = uacpi_eval_simple_integer(device->node, "_GPE", &value);
-	if (uacpi_unlikely_error(status)) {
-		printk(PRINTK_ERR "ec: EC has no GPE\n");
-		return UACPI_FALSE;
-	}
-	device->gpe_index = value;
-	
-	status = uacpi_install_gpe_handler(NULL, device->gpe_index, UACPI_GPE_TRIGGERING_LEVEL, ec_handle_event, device);
-	bug(status != UACPI_STATUS_OK);
-	return UACPI_TRUE;
+static inline long get_gpe(uacpi_namespace_node* node) {
+	uacpi_u64 value;
+	uacpi_status status = uacpi_eval_simple_integer(node, "_GPE", &value);
+	if (status != UACPI_STATUS_OK)
+		return -ENODEV;
+	return value;
 }
 
 /* Looks for the data and control IO addresses */
@@ -70,7 +65,9 @@ static uacpi_iteration_decision ec_resource_it(void* user, uacpi_resource* resou
 
 static int ec_probe(uacpi_namespace_node* node, uacpi_namespace_node_info* info) {
 	(void)info;
-	static bool found_real = false; /* Sometimes the EC is described multiple times */
+
+	/* Sometimes the EC is described multiple times */
+	static bool found_real = false;
 	if (found_real)
 		return 0;
 
@@ -78,19 +75,24 @@ static int ec_probe(uacpi_namespace_node* node, uacpi_namespace_node_info* info)
 	if (!device)
 		return -ENOMEM;
 
+	const uacpi_char* device_path = uacpi_namespace_node_generate_absolute_path(node);
 	device->node = node;
 	spinlock_init(&device->lock);
+	device->needs_fw_lock = needs_fw_lock(node);
+	long gpe = get_gpe(node);
+	if (gpe < 0) {
+		printk("ec: %s has no GPE\n", device_path);
+		goto err;
+	}
+	device->gpe_index = (uacpi_u16)gpe;
 
-	const uacpi_char* device_path = uacpi_namespace_node_generate_absolute_path(node);
-
-	/* Find the EC IO port addresses */
+	/* Now get the IO addresses for the EC */
 	uacpi_resources* resources;
 	uacpi_status status = uacpi_get_current_resources(node, &resources);
 	if (status != UACPI_STATUS_OK) {
-		printk(PRINTK_ERR "ec: Device %s has no resources\n", device_path);
+		printk(PRINTK_ERR "ec: %s has no resources\n", device_path);
 		goto err;
 	}
-
 	struct ec_init_ctx init_ctx = { .need_ctrl = true, .need_data = true };
 	status = uacpi_for_each_resource(resources, ec_resource_it, &init_ctx);
 	uacpi_free_resources(resources);
@@ -101,10 +103,9 @@ static int ec_probe(uacpi_namespace_node* node, uacpi_namespace_node_info* info)
 	device->ctrl = init_ctx.ctrl;
 	device->data = init_ctx.data;
 
+	/* Now make sure the addresses aren't swapped */
 	uacpi_u32 seq;
 	irqflags_t irq_flags = ec_lock(device, &seq);
-
-	/* Make sure the ports aren't swapped, since the namespace doesn't guaruntee ordering */
 	if (!ec_verify_order(device)) {
 		struct acpi_gas tmp = device->data;
 		device->data = device->ctrl;
@@ -115,17 +116,16 @@ static int ec_probe(uacpi_namespace_node* node, uacpi_namespace_node_info* info)
 			goto err;
 		}
 	}
-
 	ec_unlock(device, irq_flags, seq);
 
-	if (!install_handlers(device))
-		return -ENODEV;
-
+	/* Now enable the device */
+	if (!ec_install_handlers(device))
+		goto err;
 	found_real = true;
-	ec_init_events();
-	uacpi_enable_gpe(UACPI_NULL, device->gpe_index);
-
-	printk("ec: Device %s at IO %lx,%lx GPE %u\n", device_path, device->data.address, device->ctrl.address, device->gpe_index);
+	ec_install_events();
+	bug(uacpi_enable_gpe(UACPI_NULL, device->gpe_index) != UACPI_STATUS_OK);
+	printk("ec: Device %s at IO %lx,%lx _GPE: %u _GLK: %u\n", device_path, device->data.address, 
+			device->ctrl.address, device->gpe_index, device->needs_fw_lock);
 	uacpi_free_absolute_path(device_path);
 
 	return 0;

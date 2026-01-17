@@ -1,4 +1,5 @@
 #include <lunar/core/panic.h>
+#include <uacpi/event.h>
 #include "ec.h"
 
 static inline uacpi_u8 raw_read(struct acpi_gas* gas) {
@@ -11,6 +12,7 @@ static inline void raw_write(struct acpi_gas* gas, uacpi_u8 value) {
 	bug(uacpi_gas_write(gas, value) != UACPI_STATUS_OK);
 }
 
+/* TODO: Add timeouts */
 static inline void raw_wait(struct acpi_gas* gas, uacpi_u8 bit, uacpi_u8 value) {
 	u8 reg;
 	do {
