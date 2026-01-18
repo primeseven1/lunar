@@ -169,7 +169,7 @@ static int apic_eoi(int irq) {
 
 /* Sets an IRQ entry in the redirection table, the IOAPIC is expected to be locked */
 static int ioapic_set_irq(u8 irq, u8 vector, u8 processor, bool masked) {
-	u8 polarity = 1;
+	u8 polarity = 0;
 	u8 trigger = 0;
 
 	const u8 type = ACPI_MADT_ENTRY_TYPE_INTERRUPT_SOURCE_OVERRIDE;
@@ -179,8 +179,15 @@ static int ioapic_set_irq(u8 irq, u8 vector, u8 processor, bool masked) {
 		if (override->source != irq)
 			continue;
 
-		polarity = override->flags & 2 ? 1 : 0;
-		trigger = override->flags & 8 ? 1 : 0;
+		u8 pol = override->flags & 0x03;
+		u8 trg = (override->flags >> 2) & 0x03;
+		if (pol == 0)
+			pol = 1;
+		if (trg == 0)
+			trg = 1;
+		polarity = (pol == 3);
+		trigger = (trg == 3);
+
 		irq = override->gsi;
 		break;
 	}
