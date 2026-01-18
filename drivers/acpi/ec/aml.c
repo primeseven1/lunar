@@ -68,9 +68,7 @@ static uacpi_interrupt_ret ec_handle_event_irq(uacpi_handle ctx, uacpi_namespace
 	return (status == UACPI_STATUS_OK) ? UACPI_INTERRUPT_HANDLED : UACPI_INTERRUPT_NOT_HANDLED | UACPI_GPE_REENABLE;
 }
 
-uacpi_bool ec_install_handlers(struct ec_device* device) {
-	uacpi_install_address_space_handler(device->node, UACPI_ADDRESS_SPACE_EMBEDDED_CONTROLLER, ec_aml_handle_region, device);
-	uacpi_status status = uacpi_install_gpe_handler(NULL, device->gpe_index, UACPI_GPE_TRIGGERING_LEVEL, ec_handle_event_irq, device);
-	bug(status != UACPI_STATUS_OK);
-	return UACPI_TRUE;
+void ec_install_handlers(struct ec_device* device) {
+	bug(uacpi_install_address_space_handler(device->node, UACPI_ADDRESS_SPACE_EMBEDDED_CONTROLLER, ec_aml_handle_region, device) != UACPI_STATUS_OK);
+	bug(uacpi_install_gpe_handler(NULL, device->gpe_index, UACPI_GPE_TRIGGERING_LEVEL, ec_handle_event_irq, device) != UACPI_STATUS_OK);
 }

@@ -8,6 +8,7 @@
 #include <uacpi/event.h>
 #include <uacpi/opregion.h>
 #include <uacpi/resources.h>
+#include <uacpi/tables.h>
 
 #include "ec.h"
 
@@ -21,7 +22,7 @@ struct ec_init_ctx {
 	uacpi_bool need_ctrl, need_data;
 };
 
-static inline uacpi_bool needs_fw_lock(uacpi_namespace_node* node) {
+static inline uacpi_bool needs_global_lock(uacpi_namespace_node* node) {
 	uacpi_u64 value;
 	uacpi_status status = uacpi_eval_simple_integer(node, "_GLK", &value);
 	return (status == UACPI_STATUS_OK) ? (uacpi_bool)value : UACPI_FALSE;
@@ -63,7 +64,13 @@ static uacpi_iteration_decision ec_resource_it(void* user, uacpi_resource* resou
 	return !ctx->need_ctrl ? UACPI_ITERATION_DECISION_BREAK : UACPI_ITERATION_DECISION_CONTINUE;
 }
 
-static int ec_probe(uacpi_namespace_node* node, uacpi_namespace_node_info* info) {
+static void ec_enable(struct ec_device* device) {
+	ec_install_handlers(device);
+	ec_install_events();
+	bug(uacpi_enable_gpe(UACPI_NULL, device->gpe_index) != UACPI_STATUS_OK);
+}
+
+static int ec_init_from_namespace(uacpi_namespace_node* node, uacpi_namespace_node_info* info) {
 	(void)info;
 
 	/* Sometimes the EC is described multiple times */
@@ -75,14 +82,16 @@ static int ec_probe(uacpi_namespace_node* node, uacpi_namespace_node_info* info)
 	if (!device)
 		return -ENOMEM;
 
+	int err = -ENODEV;
 	const uacpi_char* device_path = uacpi_namespace_node_generate_absolute_path(node);
+
 	device->node = node;
 	spinlock_init(&device->lock);
-	device->needs_fw_lock = needs_fw_lock(node);
+	device->global_lock = needs_global_lock(node);
 	long gpe = get_gpe(node);
 	if (gpe < 0) {
 		printk("ec: %s has no GPE\n", device_path);
-		goto err;
+		goto out;
 	}
 	device->gpe_index = (uacpi_u16)gpe;
 
@@ -91,14 +100,14 @@ static int ec_probe(uacpi_namespace_node* node, uacpi_namespace_node_info* info)
 	uacpi_status status = uacpi_get_current_resources(node, &resources);
 	if (status != UACPI_STATUS_OK) {
 		printk(PRINTK_ERR "ec: %s has no resources\n", device_path);
-		goto err;
+		goto out;
 	}
 	struct ec_init_ctx init_ctx = { .need_ctrl = true, .need_data = true };
 	status = uacpi_for_each_resource(resources, ec_resource_it, &init_ctx);
 	uacpi_free_resources(resources);
 	if (init_ctx.need_data || init_ctx.need_ctrl || status != UACPI_STATUS_OK) {
-		printk(PRINTK_ERR "ec: Device %s doesn't have all ports\n", device_path);
-		goto err;
+		printk(PRINTK_ERR "ec: %s doesn't have all ports\n", device_path);
+		goto out;
 	}
 	device->ctrl = init_ctx.ctrl;
 	device->data = init_ctx.data;
@@ -111,37 +120,73 @@ static int ec_probe(uacpi_namespace_node* node, uacpi_namespace_node_info* info)
 		device->data = device->ctrl;
 		device->ctrl = tmp;
 		if (uacpi_unlikely(!ec_verify_order(device))) {
-			printk(PRINTK_ERR "ec: Device %s ports invalid\n", device_path);
+			printk(PRINTK_ERR "ec: %s ports invalid\n", device_path);
 			ec_unlock(device, irq_flags, seq);
-			goto err;
+			goto out;
 		}
 	}
 	ec_unlock(device, irq_flags, seq);
 
-	/* Now enable the device */
-	if (!ec_install_handlers(device))
-		goto err;
-	found_real = true;
-	ec_install_events();
-	bug(uacpi_enable_gpe(UACPI_NULL, device->gpe_index) != UACPI_STATUS_OK);
-	printk("ec: Device %s at IO %lx,%lx _GPE: %u _GLK: %u\n", device_path, device->data.address, 
-			device->ctrl.address, device->gpe_index, device->needs_fw_lock);
+	ec_enable(device);
+	printk("ec: Device %s at IO %lx,%lx GPE: %u, from namespace\n", 
+			device_path, device->data.address, device->ctrl.address, device->gpe_index);
+	err = 0;
+out:
 	uacpi_free_absolute_path(device_path);
-
-	return 0;
-err:
-	uacpi_free_absolute_path(device_path);
-	kfree(device);
-	return -ENODEV;
+	if (err)
+		kfree(device);
+	return err;
 }
 
 struct acpi_driver ec_driver = {
 	.name = "ec",
 	.pnp_ids = pnp_ids,
-	.probe = ec_probe
+	.probe = ec_init_from_namespace
 };
 
+static int ec_init_from_ecdt(const struct acpi_ecdt* ecdt) {
+	struct ec_device* device = kmalloc(sizeof(*device), MM_ZONE_NORMAL);
+	if (!device)
+		return -ENOMEM;
+
+	uacpi_namespace_node* ec_node;
+	uacpi_status status = uacpi_namespace_node_find(UACPI_NULL, ecdt->ec_id, &ec_node);
+	if (status != UACPI_STATUS_OK)
+		return -ENODEV;
+
+	spinlock_init(&device->lock);
+	device->node = ec_node;
+	device->ctrl = ecdt->ec_control;
+	device->data = ecdt->ec_data;
+	device->global_lock = needs_global_lock(ec_node);
+
+	int err = -ENODEV;
+	const uacpi_char* device_path = uacpi_namespace_node_generate_absolute_path(ec_node);
+
+	long gpe = get_gpe(ec_node);
+	if (gpe < 0) {
+		printk(PRINTK_ERR "ec: %s has no GPE\n", device_path);
+		goto out;
+	}
+	device->gpe_index = gpe;
+
+	ec_enable(device);
+	printk("ec: Device %s at IO %lx,%lx GPE: %u, from ECDT\n", 
+			device_path, device->data.address, device->ctrl.address, device->gpe_index);
+	err = 0;
+out:
+	uacpi_free_absolute_path(device_path);
+	if (err)
+		kfree(device);
+	return err;
+}
+
 static int ec_module_init(void) {
+	uacpi_table tbl;
+	if (uacpi_table_find_by_signature(ACPI_ECDT_SIGNATURE, &tbl) == UACPI_STATUS_OK)
+		return ec_init_from_ecdt(tbl.ptr);
+
+	/* If there is no ECDT, then the namespace must be used */
 	acpi_driver_register(&ec_driver);
 	return 0;
 }
