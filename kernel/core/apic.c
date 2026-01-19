@@ -167,10 +167,20 @@ static int apic_eoi(int irq) {
 	return 0;
 }
 
+enum apic_triggers {
+	APIC_TRIGGER_EDGE,
+	APIC_TRIGGER_LEVEL
+};
+
+enum apic_polarities {
+	APIC_POLARITY_ACTIVE_HIGH,
+	APIC_POLARITY_ACTIVE_LOW
+};
+
 /* Sets an IRQ entry in the redirection table, the IOAPIC is expected to be locked */
 static int ioapic_set_irq(u8 irq, u8 vector, u8 processor, bool masked) {
-	u8 polarity = 0;
-	u8 trigger = 0;
+	u8 polarity = APIC_POLARITY_ACTIVE_HIGH;
+	u8 trigger = APIC_TRIGGER_EDGE;
 
 	const u8 type = ACPI_MADT_ENTRY_TYPE_INTERRUPT_SOURCE_OVERRIDE;
 	unsigned long count = get_entry_count(type);
@@ -179,14 +189,8 @@ static int ioapic_set_irq(u8 irq, u8 vector, u8 processor, bool masked) {
 		if (override->source != irq)
 			continue;
 
-		u8 pol = override->flags & 0x03;
-		u8 trg = (override->flags >> 2) & 0x03;
-		if (pol == 0)
-			pol = 1;
-		if (trg == 0)
-			trg = 1;
-		polarity = (pol == 3);
-		trigger = (trg == 3);
+		polarity = ((override->flags & 0b11) == 0b11) ? APIC_POLARITY_ACTIVE_LOW : APIC_POLARITY_ACTIVE_HIGH;
+		trigger = (((override->flags >> 2) & 0b11) == 0b11) ? APIC_TRIGGER_LEVEL : APIC_TRIGGER_EDGE;
 
 		irq = override->gsi;
 		break;
@@ -311,11 +315,6 @@ enum apic_delivery_modes {
 enum apic_dest_modes {
 	APIC_DEST_PHYSICAL,
 	APIC_DEST_LOGICAL
-};
-
-enum apic_triggers {
-	APIC_TRIGGER_EDGE,
-	APIC_TRIGGER_LEVEL
 };
 
 enum apic_ipitargets {

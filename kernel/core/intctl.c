@@ -9,7 +9,7 @@ static struct intctl* intctl = NULL;
 struct irq* intctl_install_irq(int irq, const struct isr* isr, struct cpu* cpu) {
 	struct irq* irq_struct = kmalloc(sizeof(*irq_struct), MM_ZONE_NORMAL);
 	if (!irq_struct)
-		return NULL;
+		return ERR_PTR(-ENOMEM);
 
 	irq_struct->number = irq;
 	irq_struct->cpu = cpu;
