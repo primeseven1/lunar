@@ -68,6 +68,7 @@ static uacpi_iteration_decision init_device(void* ctx, uacpi_namespace_node* nod
 void acpi_drivers_load(void) {
 	/* Load any known ACPI drivers here, we don't care if it fails or not */
 	module_load("acpi_ec");
+	module_load("acpi_i8042");
 
 	uacpi_status status = uacpi_namespace_for_each_child(uacpi_namespace_root(), init_device,
 			UACPI_NULL, UACPI_OBJECT_DEVICE_BIT, UACPI_MAX_DEPTH_ANY, UACPI_NULL);
