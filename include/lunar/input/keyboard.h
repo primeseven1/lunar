@@ -1,0 +1,141 @@
+#pragma once
+
+#include <lunar/lib/ringbuffer.h>
+
+enum kb_packet_flags {
+	KB_PACKET_FLAG_RELEASED = (1 << 0),
+	KB_PACKET_FLAG_LEFTCTRL = (1 << 1),
+	KB_PACKET_FLAG_CAPSLOCK = (1 << 2),
+	KB_PACKET_FLAG_LEFTALT = (1 << 3),
+	KB_PACKET_FLAG_RIGHTALT = (1 << 4),
+	KB_PACKET_FLAG_LEFTSHIFT = (1 << 5),
+	KB_PACKET_FLAG_RIGHTSHIFT = (1 << 6),
+	KB_PACKET_FLAG_RIGHTCTRL = (1 << 7)
+};
+
+enum keyboard_keycodes {
+	KEYCODE_RESERVED,
+	KEYCODE_ESCAPE,
+	KEYCODE_1,
+	KEYCODE_2,
+	KEYCODE_3,
+	KEYCODE_4,
+	KEYCODE_5,
+	KEYCODE_6,
+	KEYCODE_7,
+	KEYCODE_8,
+	KEYCODE_9,
+	KEYCODE_0,
+	KEYCODE_MINUS,
+	KEYCODE_EQUAL,
+	KEYCODE_BACKSPACE,
+	KEYCODE_TAB,
+	KEYCODE_Q,
+	KEYCODE_W,
+	KEYCODE_E,
+	KEYCODE_R,
+	KEYCODE_T,
+	KEYCODE_Y,
+	KEYCODE_U,
+	KEYCODE_I,
+	KEYCODE_O,
+	KEYCODE_P,
+	KEYCODE_LEFTBRACE,
+	KEYCODE_RIGHTBRACE,
+	KEYCODE_ENTER,
+	KEYCODE_LEFTCTRL,
+	KEYCODE_A,
+	KEYCODE_S,
+	KEYCODE_D,
+	KEYCODE_F,
+	KEYCODE_G,
+	KEYCODE_H,
+	KEYCODE_J,
+	KEYCODE_K,
+	KEYCODE_L,
+	KEYCODE_SEMICOLON,
+	KEYCODE_APOSTROPHE,
+	KEYCODE_GRAVE,
+	KEYCODE_LEFTSHIFT,
+	KEYCODE_BACKSLASH,
+	KEYCODE_Z,
+	KEYCODE_X,
+	KEYCODE_C,
+	KEYCODE_V,
+	KEYCODE_B,
+	KEYCODE_N,
+	KEYCODE_M,
+	KEYCODE_COMMA,
+	KEYCODE_DOT,
+	KEYCODE_SLASH,
+	KEYCODE_RIGHTSHIFT,
+	KEYCODE_KEYPADASTERISK,
+	KEYCODE_LEFTALT,
+	KEYCODE_SPACE,
+	KEYCODE_CAPSLOCK,
+	KEYCODE_F1,
+	KEYCODE_F2,
+	KEYCODE_F3,
+	KEYCODE_F4,
+	KEYCODE_F5,
+	KEYCODE_F6,
+	KEYCODE_F7,
+	KEYCODE_F8,
+	KEYCODE_F9,
+	KEYCODE_F10,
+	KEYCODE_NUMLOCK,
+	KEYCODE_SCROLLLOCK,
+	KEYCODE_KEYPAD7,
+	KEYCODE_KEYPAD8,
+	KEYCODE_KEYPAD9,
+	KEYCODE_KEYPADMINUS,
+	KEYCODE_KEYPAD4,
+	KEYCODE_KEYPAD5,
+	KEYCODE_KEYPAD6,
+	KEYCODE_KEYPADPLUS,
+	KEYCODE_KEYPAD1,
+	KEYCODE_KEYPAD2,
+	KEYCODE_KEYPAD3,
+	KEYCODE_KEYPAD0,
+	KEYCODE_KEYPADDOT,
+	KEYCODE_F11,
+	KEYCODE_F12,
+	KEYCODE_KEYPADENTER,
+	KEYCODE_RIGHTCTRL,
+	KEYCODE_KEYPADSLASH,
+	KEYCODE_SYSREQ,
+	KEYCODE_RIGHTALT,
+	KEYCODE_LINEFEED,
+	KEYCODE_HOME,
+	KEYCODE_UP,
+	KEYCODE_PAGEUP,
+	KEYCODE_LEFT,
+	KEYCODE_RIGHT,
+	KEYCODE_END,
+	KEYCODE_DOWN,
+	KEYCODE_PAGEDOWN,
+	KEYCODE_INSERT,
+	KEYCODE_DELETE,
+};
+
+struct kb_packet {
+	char ascii;
+	char __pad[7];
+	unsigned int keycode;
+	int flags;
+} __attribute__((packed));
+static_assert((sizeof(struct kb_packet) & (sizeof(struct kb_packet) - 1)) == 0, "");
+
+struct keyboard {
+	struct ringbuffer rb;
+	spinlock_t rb_lock;
+	struct semaphore semaphore;
+	int flags;
+	struct list_node link;
+};
+
+struct keyboard* keyboard_create(void);
+void keyboard_destroy(struct keyboard* keyboard);
+void keyboard_send_packet(struct keyboard* keyboard, struct kb_packet* packet);
+int keyboard_wait(struct keyboard* keyboard, struct kb_packet* out_packet);
+void keyboard_reader_thread_init(void);
