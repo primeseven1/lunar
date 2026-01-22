@@ -17,6 +17,7 @@
 #include <lunar/core/intctl.h>
 #include <lunar/core/interrupt.h>
 #include <lunar/core/timekeeper.h>
+#include <lunar/input/keyboard.h>
 #include <lunar/mm/buddy.h>
 #include <lunar/mm/heap.h>
 #include <lunar/sched/scheduler.h>
@@ -202,6 +203,7 @@ _Noreturn __asmlinkage void kernel_main(void) {
 		panic("Failed to mount root file system");
 
 	initrd_init();
+	keyboard_reader_thread_init(); /* Will get removed in the future */
 
 	printk(PRINTK_CRIT "init: kernel_main thread ended!\n");
 	sched_thread_exit();
