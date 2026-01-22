@@ -1,3 +1,4 @@
 menu "ACPI drivers"
 source "drivers/acpi/ec/Kconfig"
+source "drivers/acpi/i8042/Kconfig"
 endmenu

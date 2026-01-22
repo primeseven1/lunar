@@ -1,0 +1,5 @@
+config DRIVER_ACPI_I8042
+	bool "Enable the i8042 driver"
+	default y
+	help
+	  "Enables the i8042 driver (PS/2)"
