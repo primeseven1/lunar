@@ -8,7 +8,7 @@
 #include <uacpi/utilities.h>
 #include <uacpi/event.h>
 
-#include "events.h"
+#include "internal.h"
 
 uacpi_status acpi_finish_init(void) {
 	uacpi_status status = uacpi_namespace_load();
@@ -22,7 +22,7 @@ uacpi_status acpi_finish_init(void) {
 	if (uacpi_unlikely(status != UACPI_STATUS_OK))
 		return status;
 
-	uacpi_install_fixed_event_handler(UACPI_FIXED_EVENT_POWER_BUTTON, acpi_pwrbtn_event, UACPI_NULL);
+	uacpi_install_fixed_event_handler(UACPI_FIXED_EVENT_POWER_BUTTON, acpi_pwrbtn_fixed_event, UACPI_NULL);
 	uacpi_finalize_gpe_initialization();
 	return UACPI_STATUS_OK;
 }
