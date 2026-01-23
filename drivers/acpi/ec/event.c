@@ -11,8 +11,8 @@ static uacpi_status pwrbtn_notify(uacpi_handle ctx, uacpi_namespace_node* node, 
 	(void)ctx;
 	(void)node;
 
-	if (value == 0x80) /* Button pressed */
-		uacpi_kernel_schedule_work(UACPI_WORK_GPE_EXECUTION, acpi_poweroff, NULL);
+	if (value == 0x80)
+		acpi_poweroff();
 	else
 		printk(PRINTK_WARN "ec: Ignoring unkown value %lx from power button device %s\n", value, PWRBTN_PNP_ID);
 
