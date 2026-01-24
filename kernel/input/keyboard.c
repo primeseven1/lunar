@@ -3,8 +3,9 @@
 #include <lunar/sched/scheduler.h>
 #include <lunar/sched/kthread.h>
 #include <lunar/mm/heap.h>
+#include "internal.h"
 
-#define KEYBOARD_BUFFER_SIZE (128 * sizeof(struct kb_packet))
+#define KEYBOARD_BUFFER_SIZE (256 * sizeof(struct kb_packet))
 static LIST_HEAD_DEFINE(keyboard_list);
 
 struct keyboard* keyboard_create(void) {
@@ -96,10 +97,13 @@ void keyboard_send_packet(struct keyboard* keyboard, struct kb_packet* packet) {
 		table = ascii_table_upper;
 	packet->ascii = table[packet->keycode];
 
-	spinlock_lock(&keyboard->rb_lock);
+	irqflags_t irq;
+	spinlock_lock_irq_save(&keyboard->rb_lock, &irq);
+
 	if (ringbuffer_write(&keyboard->rb, packet, sizeof(*packet)) != 0)
 		semaphore_signal(&keyboard->semaphore);
-	spinlock_unlock(&keyboard->rb_lock);
+
+	spinlock_unlock_irq_restore(&keyboard->rb_lock, &irq);
 }
 
 int keyboard_wait(struct keyboard* keyboard, struct kb_packet* out_packet) {
@@ -107,10 +111,11 @@ int keyboard_wait(struct keyboard* keyboard, struct kb_packet* out_packet) {
 	if (err)
 		return err;
 
-	spinlock_lock(&keyboard->rb_lock);
+	irqflags_t irq;
+	spinlock_lock_irq_save(&keyboard->rb_lock, &irq);
 	size_t count = ringbuffer_read(&keyboard->rb, out_packet, sizeof(*out_packet));
+	spinlock_unlock_irq_restore(&keyboard->rb_lock, &irq);
 	bug(count != sizeof(*out_packet));
-	spinlock_unlock(&keyboard->rb_lock);
 
 	return 0;
 }
@@ -119,13 +124,24 @@ int keyboard_wait(struct keyboard* keyboard, struct kb_packet* out_packet) {
 
 static int reader(void* arg) {
 	struct keyboard* kb = arg;
+	bool sysrq = false;
+
 	while (1) {
 		struct kb_packet packet;
 		int rc = keyboard_wait(kb, &packet);
 		if (rc || is_modifier(packet.keycode) || packet.keycode == KEYCODE_RESERVED)
 			continue;
-		if (!(packet.flags & KB_PACKET_FLAG_RELEASED))
-			term_write(&packet.ascii, 1);
+
+		bool pressed = !(packet.flags & KB_PACKET_FLAG_RELEASED);
+		int sysrq_modifiers = KB_PACKET_FLAG_LEFTCTRL | KB_PACKET_FLAG_RIGHTCTRL;
+		if (packet.flags & sysrq_modifiers && packet.keycode == KEYCODE_SYSREQ) {
+			sysrq = pressed;
+		} else if (pressed) {
+			if (sysrq)
+				do_sysrq(packet.keycode);
+			else
+				term_write(&packet.ascii, 1);
+		}
 	}
 
 	return 0;
