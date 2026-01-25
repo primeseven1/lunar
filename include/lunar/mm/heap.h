@@ -60,7 +60,7 @@ void* krealloc(void* old, size_t new_size, mm_t mm_flags);
 /**
  * @brief Allocate a block of memory with its own VMA
  *
- * Unlike kmalloc, this memory is not garunteed to be contiguous
+ * Unlike kmalloc, this memory is not garunteed to be contiguous.
  *
  * @param size The size of the allocation
  * @return A pointer to the memory
@@ -68,11 +68,8 @@ void* krealloc(void* old, size_t new_size, mm_t mm_flags);
 void* vmalloc(size_t size);
 
 /**
- * @brief Free a block of memory
- *
- * Passing NULL is a no-op
- *
- * @param ptr The pointer to the block
+ * @brief Free a block of memory allocated with vmalloc().
+ * @param ptr The pointer to the block, if this is NULL, this function is a no-op
  */
 void vfree(void* ptr);
 

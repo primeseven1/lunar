@@ -2,6 +2,7 @@
 #include <lunar/core/printk.h>
 #include <lunar/core/panic.h>
 #include <lunar/core/cpu.h>
+#include <lunar/core/trace.h>
 #include <lunar/init/status.h>
 #include <lunar/sched/kthread.h>
 #include <lunar/mm/heap.h>
@@ -140,17 +141,19 @@ static bool cache_set_init(struct slab_cache** caches, size_t count, mm_t mm_ext
 struct vmalloc_info {
 	size_t size;
 };
-
 static struct hashtable* vmalloc_hashtable;
 
 void* vmalloc(size_t size) {
-	void* virtual = vmap(NULL, size, MMU_READ | MMU_WRITE, VMM_ALLOC, NULL);
+	size = ROUND_UP(size, PAGE_SIZE);
+
+	u8* virtual = vmap(NULL, size + PAGE_SIZE, MMU_READ | MMU_WRITE, VMM_ALLOC, NULL);
 	if (IS_PTR_ERR(virtual))
 		return NULL;
+	bug(vprotect(virtual + size, PAGE_SIZE, MMU_NONE, 0, NULL) != 0);
 
 	struct vmalloc_info ai = { .size = size };
 	if (hashtable_insert(vmalloc_hashtable, &virtual, sizeof(void*), &ai)) {
-		bug(vunmap(virtual, size, 0, NULL) != 0);
+		bug(vunmap(virtual, size + PAGE_SIZE, 0, NULL) != 0);
 		return NULL;
 	}
 
@@ -162,10 +165,11 @@ void vfree(void* ptr) {
 		return;
 	struct vmalloc_info ai;
 	if (hashtable_search(vmalloc_hashtable, &ptr, sizeof(void*), &ai)) {
+		dump_stack();
 		printk(PRINTK_ERR "Invalid pointer passed to vfree: %p\n", ptr);
 		return;
 	}
-	bug(vunmap(ptr, ai.size, 0, NULL) != 0);
+	bug(vunmap(ptr, ai.size + PAGE_SIZE, 0, NULL) != 0);
 }
 
 void heap_init(void) {
