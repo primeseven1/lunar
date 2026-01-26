@@ -130,6 +130,14 @@ out:
 	return ret;
 }
 
+void hashtable_for_each_node_remove(struct hashtable* table, struct hashtable_node* node) {
+	kfree(node->key);
+	kfree(node->value);
+	list_remove(&node->link);
+	kfree(node);
+	table->size--;
+}
+
 int hashtable_remove(struct hashtable* table, const void* key, size_t key_size) {
 	u64 hash = fnv1a64_hash(key, key_size);
 	int ret = 0;
@@ -145,13 +153,7 @@ int hashtable_remove(struct hashtable* table, const void* key, size_t key_size) 
 		if (key_size != node->key_size)
 			continue;
 		if (memcmp(node->key, key, key_size) == 0) {
-			kfree(node->key);
-			kfree(node->value);
-
-			list_remove(&node->link);
-			kfree(node);
-			table->size--;
-
+			hashtable_for_each_node_remove(table, node);
 			goto out;
 		}
 	}
@@ -176,4 +178,22 @@ void hashtable_destroy(struct hashtable* table) {
 
 	kfree(table->buckets);
 	kfree(table);
+}
+
+void hashtable_for_each_entry_safe(struct hashtable* table,
+		foreach_iteration_desicion_t (*visit)(struct hashtable*, struct hashtable_node*, void*), void* ctx) {
+	mutex_lock(&table->lock);
+
+	for (unsigned int b = 0; b < table->bucket_count; b++) {
+		struct hashtable_node* n, *tmp;
+		list_for_each_entry_safe(n, tmp, &table->buckets[b], link) {
+			foreach_iteration_desicion_t desicion = visit(table, n, ctx);
+			if (desicion == FOREACH_ITERATION_DESICION_BREAK) {
+				mutex_unlock(&table->lock);
+				return;
+			}
+		}
+	}
+
+	mutex_unlock(&table->lock);
 }

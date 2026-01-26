@@ -2,6 +2,7 @@
 
 #include <lunar/types.h>
 #include <lunar/core/mutex.h>
+#include <lunar/lib/foreach.h>
 
 struct hashtable_node {
 	void* key;
@@ -16,12 +17,6 @@ struct hashtable {
 	size_t size;
 	size_t value_size;
 	mutex_t lock;
-};
-
-struct hashtable_iter {
-	struct hashtable* table;
-	struct hashtable_node* node;
-	size_t bucket;
 };
 
 /**
@@ -67,6 +62,17 @@ int hashtable_insert(struct hashtable* table, const void* key, size_t key_size, 
 int hashtable_search(struct hashtable* table, const void* key, size_t key_size, void* value);
 
 /**
+ * @brief Remove a node from a hashtable
+ *
+ * This function is meant to be used in for-each loops, as the hashtable is locked
+ * during a for each loop. After calling this function, the node is invalid.
+ *
+ * @param table The table to remove from
+ * @param node The node to remove
+ */
+void hashtable_for_each_node_remove(struct hashtable* table, struct hashtable_node* node);
+
+/**
  * @brief Remove a value from a hashtable
  *
  * @param table The table to remove the value from
@@ -86,3 +92,29 @@ int hashtable_remove(struct hashtable* table, const void* key, size_t key_size);
  * @param table The table to destroy
  */
 void hashtable_destroy(struct hashtable* table);
+
+/**
+ * @brief Loop through the entries in a hashtable
+ *
+ * You can safely use hashtable_for_each_node_remove() on the node
+ *
+ * @param table The table to iterate through
+ * @param visit The callback for visiting a node
+ * @param ctx User provided
+ */
+void hashtable_for_each_entry_safe(struct hashtable* table,
+		foreach_iteration_desicion_t (*visit)(struct hashtable*, struct hashtable_node*, void*), void* ctx);
+
+/**
+ * @brief Loop through the entries in a hashtable
+ *
+ * If hashtable_for_each_node_remove() is used on the node, it will be considered a bug.
+ *
+ * @param table The table to iterate through
+ * @param visit The callback for visiting a node
+ * @param ctx User provided
+ */
+static inline void hashtable_for_each_entry(struct hashtable* table,
+		foreach_iteration_desicion_t (*visit)(struct hashtable*, struct hashtable_node*, void*), void* ctx) {
+	hashtable_for_each_entry_safe(table, visit, ctx);
+}
