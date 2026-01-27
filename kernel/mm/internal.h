@@ -170,7 +170,7 @@ void out_of_memory(void);
 #define __ASM_EXTABLE(fault, fixup) \
 	".section .extable, \"a\"\n" \
 	".balign 8\n\t" \
-	".quad " #fault ", " #fixup "\n" \
+	".quad (" #fault ")-.,(" #fixup ")-.\n\t" \
 	".previous\n"
 #define __read_user(ptr, instr, val) \
 	({ \
