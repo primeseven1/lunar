@@ -370,7 +370,7 @@ out_unlock:
 }
 
 void vfs_init(void) {
-	fs_table = hashtable_create(16, sizeof(struct filesystem_type));
+	fs_table = hashtable_create(16, sizeof(struct filesystem_type*));
 	if (unlikely(!fs_table))
 		panic("Failed to create file system table");
 }
