@@ -138,7 +138,7 @@ out:
 	return err;
 }
 
-struct acpi_driver ec_driver = {
+static struct acpi_driver ec_driver = {
 	.name = "ec",
 	.pnp_ids = pnp_ids,
 	.probe = ec_init_from_namespace
