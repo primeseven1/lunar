@@ -2,6 +2,12 @@ mainmenu "Lunar 0.01 Configuration"
 
 menu "Build options"
 
+config LLVM
+	bool "Use LLVM"
+	default n
+	help
+	  "Use clang/lld instead of gcc/ld"
+
 config DEBUG
 	bool "Add debug symbols"
 	default n
