@@ -48,13 +48,10 @@ void i8042_port_command(int port, u8 command) {
 }
 
 int i8042_data_read_timeout(time_t ms, u8* out_value) {
-	struct timespec ts = timekeeper_time(TIMEKEEPER_FROMBOOT);
-	time_t initial = timespec_to_ns(&ts);
+	time_t initial = timespec_ms(timekeeper_time(TIMEKEEPER_FROMBOOT));
 
-	ms *= 1000000;
 	while (__i8042_outbuffer_empty()) {
-		ts = timekeeper_time(TIMEKEEPER_FROMBOOT);
-		time_t now = timespec_to_ns(&ts);
+		time_t now = timespec_ms(timekeeper_time(TIMEKEEPER_FROMBOOT));
 		if ((now - initial) >= ms)
 			return -ETIMEDOUT;
 	}
