@@ -131,6 +131,23 @@ static void fs_drivers_load(void) {
 		kfree(modname);
 }
 
+static inline void print_version(void) {
+	const char* compiler;
+	int major, minor, patchlevel;
+#ifdef CONFIG_LLVM
+	compiler = "clang";
+	major = __clang_major__;
+	minor = __clang_minor__;
+	patchlevel = __clang_patchlevel__;
+#else
+	compiler = "gcc";
+	major = __GNUC__;
+	minor = __GNUC_MINOR__;
+	patchlevel = __GNUC_PATCHLEVEL__;
+#endif
+	printk("Lunar 0.01 (%s version %d.%d.%d)\n", compiler, major, minor, patchlevel);
+}
+
 _Noreturn __asmlinkage void kernel_main(void) {
 	int base_revision = limine_base_revision();
 	if (base_revision != LIMINE_BASE_REVISION) {
@@ -206,5 +223,6 @@ _Noreturn __asmlinkage void kernel_main(void) {
 	keyboard_reader_thread_init(); /* Will get removed in the future */
 
 	printk(PRINTK_CRIT "init: kernel_main thread ended!\n");
+	print_version();
 	sched_thread_exit();
 }
