@@ -21,11 +21,19 @@ static inline bool local_irq_enabled(irqflags_t flags) {
 }
 
 /**
+ * @brief Save the IRQ state without disabling
+ * @return The current IRQ state
+ */
+static inline irqflags_t local_irq_save_no_disable(void) {
+	return read_cpu_flags();
+}
+
+/**
  * @brief Save and disable local IRQ's
  * @return The previous IRQ state
  */
 static inline irqflags_t local_irq_save(void) {
-	irqflags_t flags = read_cpu_flags();
+	irqflags_t flags = local_irq_save_no_disable();
 	local_irq_disable();
 	return flags;
 }

@@ -237,7 +237,9 @@ void __asmlinkage do_interrupt(struct context* ctx) {
 	if (isr->irq) {
 		can_enter = irq_enter(isr->irq);
 	} else if (likely(!weird_interrupt)) {
-		if (!local_irq_enabled(ctx->rflags))
+		bool exception = (ctx->vector < INTERRUPT_EXCEPTION_COUNT);
+		bool sched = (init_status_get() >= INIT_STATUS_SCHED);
+		if (!local_irq_enabled(ctx->rflags) || (exception && sched && current_thread()->preempt_count))
 			panic("Trap occurred in atomic context");
 		local_irq_enable();
 	}
