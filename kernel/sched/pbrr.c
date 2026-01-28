@@ -105,12 +105,6 @@ static int highest_ready_prio_budget(struct rr_runqueue* rrq) {
 	return -1;
 }
 
-static inline int highest_ready_prio(unsigned long bm) {
-	if (!bm)
-		return -1;
-	return (int)((sizeof(unsigned long) * 8) - 1 - __builtin_clzl(bm));
-}
-
 static struct rr_thread* pop_head_and_maybe_clear(struct rr_runqueue* rrq, int prio) {
 	struct list_head* head = &rrq->queues[prio];
 	if (list_empty(head))
