@@ -236,7 +236,7 @@ struct thread* atomic_schedule(void) {
 }
 
 int schedule(void) {
-	bug(in_interrupt() == true);
+	bug(in_atomic() == true);
 	irqflags_t irq = local_irq_save();
 
 	struct thread* prev = current_cpu()->runqueue.current;

@@ -40,3 +40,7 @@ static inline bool in_hardirq(void) {
 static inline bool in_interrupt(void) {
 	return in_hardirq() || in_softirq();
 }
+
+static inline bool in_atomic(void) {
+	return in_interrupt() || current_thread()->preempt_count != 0 || !local_irq_enabled(local_irq_save_no_disable());
+}
