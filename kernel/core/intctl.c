@@ -79,6 +79,8 @@ extern struct intctl _ld_kernel_intctl_end[];
 static inline struct intctl* get_ctl(void) {
 	struct intctl* ret = NULL;
 	for (struct intctl* ctl = _ld_kernel_intctl_start; ctl < _ld_kernel_intctl_end; ctl++) {
+		if (ctl->rating == 0)
+			continue;
 		if (!ret || ctl->rating > ret->rating)
 			ret = ctl;
 	}
