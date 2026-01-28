@@ -49,12 +49,9 @@ void smp_send_stop(void) {
 		if (likely(smp_cpus->cpus[i] != current_cpu()))
 			intctl_send_ipi(smp_cpus->cpus[i], stop_isr, 0);
 	}
-
-	struct timespec ts = timekeeper_time(TIMEKEEPER_FROMBOOT);
-	time_t timeout_ns = timespec_to_ns(&ts) + 1000000000; /* 1 second timeout */
+	time_t timeout_ns = timespec_ns(timekeeper_time(TIMEKEEPER_FROMBOOT)) + 1000000000; /* 1 second timeout */
 	while (atomic_load(&stop_cpus_left)) {
-		ts = timekeeper_time(TIMEKEEPER_FROMBOOT);
-		if (timespec_to_ns(&ts) >= timeout_ns)
+		if (timespec_ns(timekeeper_time(TIMEKEEPER_FROMBOOT)) >= timeout_ns)
 			break;
 	}
 
