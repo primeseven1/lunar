@@ -2,7 +2,7 @@
 
 #include <lunar/types.h>
 #include <lunar/mm/vma.h>
-#include <lunar/mm/vmm.h>
+#include <lunar/mm/page.h>
 #include <lunar/core/mutex.h>
 
 #define USER_SPACE_START 0

@@ -2,8 +2,8 @@
 
 #include <lunar/asm/errno.h>
 #include <lunar/core/spinlock.h>
-#include <lunar/mm/vmm.h>
 #include <lunar/lib/list.h>
+#include <lunar/mm/page.h>
 
 struct mm;
 

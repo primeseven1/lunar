@@ -2,135 +2,144 @@
 
 #include <lunar/compiler.h>
 #include <lunar/core/spinlock.h>
+#include <lunar/mm/mm.h>
 
 #define KSTACK_SIZE 0x4000
 
-#define PAGE_SIZE 0x1000ul
-#define HUGEPAGE_2M_SIZE 0x200000ul
-#define PAGE_SHIFT 12
-#define HUGEPAGE_2M_SHIFT 21
-
 struct mm;
 
-typedef enum {
-	MMU_NONE = 0,
-	MMU_READ = (1 << 0),
-	MMU_WRITE = (1 << 1),
-	MMU_USER = (1 << 2),
-	MMU_WRITETHROUGH = (1 << 3),
-	MMU_CACHE_DISABLE = (1 << 4),
-	MMU_EXEC = (1 << 5)
-} mmuflags_t;
-
 enum vmm_flags {
-	VMM_ALLOC = (1 << 0),
-	VMM_PHYSICAL = (1 << 1),
-	VMM_FIXED = (1 << 2),
-	VMM_NOREPLACE = (1 << 3),
-	VMM_IOMEM = (1 << 4),
-	VMM_HUGEPAGE_2M = (1 << 5),
-	VMM_USER = (1 << 6),
-	VMM_STACK = (1 << 7)
+	VMM_ALLOC = (1 << 0), /* Allocate physical memory for the mapping */
+	VMM_PHYSICAL = (1 << 1), /* Map directly to a physical address */
+	VMM_FIXED = (1 << 2), /* Place the mapping exactly at the hint, regardless of what's already there */
+	VMM_NOREPLACE = (1 << 3), /* Prevents a fixed mapping from replacing anything, use with VMM_FIXED */
+	VMM_IOMEM = (1 << 4), /* Do not use directly, use iomap()/iounmap() */
+	VMM_HUGEPAGE_2M = (1 << 5), /* Mapping should use 2MiB pages */
+	VMM_USER = (1 << 6) /* Do not use directly, use usermap()/userprotect()/userunmap() */
 };
 
-typedef unsigned long pte_t;
+struct vmm_usermap_info {
+	struct mm* mm_struct;
+};
 
 /**
- * @brief Map some memory to the kernel address space
+ * @brief Map memory into kernel space
  *
- * If VMM_ALLOC is used, this function will allocate non-contiguous physical pages
- * to map the memory. The argument optional will be ignored.
- *
- * If VMM_PHYSICAL is used, this function will map the virtual address to a physical address,
- * optional must not be NULL, otherwise this function will return -EINVAL. The optional argument
- * will be assumed to be pointing to a type of physaddr_t. The physical address must be
- * aligned, or this function will fail.
- *
- * If VMM_IOMEM is used, then VMM_PHYSICAL is implied. Do not use this flag directly, use iomap/iounmap.
- *
- * If VMM_FIXED is used, it places the mapping at that exact address, replacing any other mappings
- * at that addresss, unless the VMM_NOREPLACE flag is used.
- *
- * If VMM_USER is used, the mapping will be placed in user space.
- * If in a kthread context, -EINVAL is returned UNLESS the optional argument is provided.
- * The optional argument type is of struct mm* in this case. Using this flag in combination with VMM_PHYSICAL
- * or VMM_IOMEM is invalid and will return -EINVAL. Do not use this flag directly. Instead use uvmap/uvprotect/uvunmap
- *
- * If VMM_HUGEPAGE_2M is used, the mapping will use 2MiB hugepages instead of 4K pages.
- *
- * @param hint Hint for where to place the mapping. Does not need to be 
+ * @param hint A hint on where to place the mapping
  * @param size The size of the mapping
- * @param mmu_flags The MMU flags to use for the pages
- * @param flags The vmm flags to use
- * @param optional Optional argument depending on the flags
+ * @param mmu_flags Page protection flags
+ * @param flags VMM specific flags
+ * @param optional Extra argument based on flags
  *
- * @return -errno on failure as a pointer, otherwise the address to the mapping is returned
- * @retval -EINVAL Bad hint (in some cases), invalid size, mmu flags, flags, or in some cases optional being NULL
- * @retval -ENOMEM Ran out of memory
- * @retval -EEXIST Mapping exists
+ * @retval -EINVAL Invalid flags, invalid hint, size is zero, or optional is NULL but required
+ * @retval -ENOMEM Out of memory
+ * @retval -EEXIST Mapping already exists AND flags have VMM_FIXED | VMM_NOREPLACE
+ * @retval -ERANGE hint + size overflows
+ * @return The pointer to the memory
  */
 void* vmap(void* hint, size_t size, mmuflags_t mmu_flags, int flags, void* optional);
 
 /**
- * @brief Change the MMU flags for a virtual address
+ * @brief Change the protection flags for a mapping in kernel space
  *
- * @param virtual The virtual address to change, must be aligned
- * @param size The size of the mapping you want to change
- * @param mmu_flags The new MMU flags to use
- * @param flags 0 and VMM_USER are the only valid flags
- * @param optional Type is a struct mm* if flags has VMM_USER set
+ * @param virtual The page(s)
+ * @param size The size of the mapping
+ * @param mmu_flags The new protection flags
+ * @param flags Unimplemented
+ * @param optional Unimplemented
  *
- * @return -errno on failure
+ * @retval -EINVAL Virtual address isn't aligned or size is zero
+ * @retval -ENOENT Mapping does not exist
+ * @retval -ERANGE virtual + size overflows
+ * @retval 0 Successful
  */
 int vprotect(void* virtual, size_t size, mmuflags_t mmu_flags, int flags, void* optional);
 
 /**
- * @brief Unmap a block allocated with vmap
+ * @brief Unmap kernel memory
  *
- * @param virtual The virtual address, must be aligned
- * @param size The original size of the mapping
- * @param flags 0 and VMM_USER are the only valid flags.
- * @param optional Type is a struct mm* if flags has VMM_USER set
+ * @param virtual The virtual address
+ * @param size The size of the mapping
+ * @param flags Unimplemented
+ * @param optional Unimplemented
  *
- * @return -errno on failure
+ * @retval -EINVAL Virtual address isn't aligned or size is zero
+ * @retval -ENOENT Mapping does not exist
+ * @retval -ERANGE virtual + size overflow
+ * @retval 0 Successful
  */
 int vunmap(void* virtual, size_t size, int flags, void* optional);
 
 /**
- * @brief Map pages as IO memory
+ * @brief Map I/O memory into kernel space
  *
- * If the caching mode isn't writethrough, the cache is disabled on the page
+ * @param physical The physical address
+ * @param size The size of the mapping
+ * @param mmu_flags Protection flags
  *
- * @param physical The address of the IO memory
- * @param size The size of the mapping, the page offset is automatically added
- * @param mmu_flags The MMU flags to use
- *
- * @return The pointer to the memory, the page offset is automatically added. Returns NULL on failure
+ * @return The pointer to the memory, NULL on failure
  */
 void __iomem* iomap(physaddr_t physical, size_t size, mmuflags_t mmu_flags);
 
 /**
- * @brief Unmap memory from IO space
+ * @brief Unmap I/O memory
  *
- * @param virtual The virtual address, the page offset is automatically subtracted
- * @param size The size of the mapping, the page offset is automatically added
+ * @param virtual The virtual address to unmap
+ * @param size The size of the mapping
  *
- * @return -errno on failure
+ * @retval -EINVAL The size is zero
+ * @retval -ENOENT Virtual address not mapped
+ * @retval 0 Successful
  */
 int iounmap(void __iomem* virtual, size_t size);
 
-static inline void __user* uvmap(void __user* hint, size_t size,
-		mmuflags_t mmu_flags, int flags, struct mm* mm) {
-	return (__force void __user*)vmap((void __force*)hint, size, mmu_flags, flags | VMM_USER, mm);
-}
+/**
+ * @brief Map memory into user space
+ *
+ * @param hint A hint on where to place the mapping
+ * @param size The size of the mapping
+ * @param mmu_flags Page protection flags
+ * @param flags VMM specific flags
+ * @param usermap_info Information on how to map the memory in user space
+ *
+ * @retval -EINVAL Invalid flags, invalid hint, size is zero, or optional is NULL but required
+ * @retval -ENOMEM Out of memory
+ * @retval -EEXIST Mapping already exists AND flags have VMM_FIXED | VMM_NOREPLACE
+ * @retval -ERANGE hint + size overflows
+ * @return The pointer to the memory
+ */
+void __user* usermap(void __user* hint, size_t size, mmuflags_t mmu_flags, int flags, struct vmm_usermap_info* usermap_info);
 
-static inline int uvprotect(void __user* virtual, size_t size, mmuflags_t mmu_flags, int flags, struct mm* mm) {
-	return vprotect((void __force*)virtual, size, mmu_flags, flags | VMM_USER, mm);
-}
+/**
+ * @brief Change the protection flags for a mapping in user space
+ *
+ * @param virtual The page(s)
+ * @param size The size of the mapping
+ * @param mmu_flags The new protection flags
+ * @param flags Unimplemented
+ * @param usermap_info Information on how to map the memory in user space
+ *
+ * @retval -EINVAL Virtual address isn't aligned or size is zero
+ * @retval -ENOENT Mapping does not exist
+ * @retval -ERANGE virtual + size overflows
+ * @retval 0 Successful
+ */
+int userprotect(void __user* virtual, size_t size, mmuflags_t mmu_flags, int flags, struct vmm_usermap_info* usermap_info);
 
-static inline int uvunmap(void __user* virtual, size_t size, int flags, struct mm* mm) {
-	return vunmap((void __force*)virtual, size, flags | VMM_USER, mm);
-}
+/**
+ * @brief Unmap user memory
+ *
+ * @param virtual The virtual address
+ * @param size The size of the mapping
+ * @param flags Unimplemented
+ * @param usermap_info Information on how to unmap the memory in user space
+ *
+ * @retval -EINVAL Virtual address isn't aligned or size is zero
+ * @retval -ENOENT Mapping does not exist
+ * @retval -ERANGE virtual + size overflow
+ * @retval 0 Successful
+ */
+int userunmap(void __user* virtual, size_t size, int flags, struct vmm_usermap_info* usermap_info);
 
 void* vmap_stack(size_t size, bool return_top);
 int vunmap_stack(void* stack, size_t size, bool is_top);

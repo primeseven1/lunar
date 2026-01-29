@@ -1,5 +1,6 @@
 #pragma once
 
+#include <lunar/mm/page.h>
 #include <lunar/mm/mm.h>
 
 #define MAX_ORDER 11

@@ -8,6 +8,7 @@
 #include <lunar/mm/heap.h>
 #include <lunar/mm/hhdm.h>
 #include <lunar/mm/buddy.h>
+#include <lunar/mm/vmm.h>
 #include <lunar/mm/slab.h>
 #include <lunar/lib/string.h>
 #include <lunar/lib/hashtable.h>
