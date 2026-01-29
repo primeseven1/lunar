@@ -20,6 +20,7 @@
 #include <lunar/input/keyboard.h>
 #include <lunar/mm/buddy.h>
 #include <lunar/mm/heap.h>
+#include <lunar/mm/vmm.h>
 #include <lunar/sched/scheduler.h>
 #include <lunar/sched/kthread.h>
 #include <lunar/sched/preempt.h>
