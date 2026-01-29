@@ -7,6 +7,7 @@
 #include <lunar/core/trace.h>
 #include <lunar/core/mutex.h>
 #include <lunar/lib/string.h>
+#include <lunar/mm/vmm.h>
 #include <lunar/mm/slab.h>
 #include <lunar/mm/heap.h>
 #include "internal.h"
