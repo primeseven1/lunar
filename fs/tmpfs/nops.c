@@ -1,3 +1,4 @@
+#include <lunar/compiler.h>
 #include <lunar/lib/string.h>
 #include "internal.h"
 
