@@ -3,6 +3,7 @@
 #include <lunar/core/io.h>
 #include <lunar/core/panic.h>
 #include <lunar/lib/string.h>
+#include <lunar/mm/vmm.h>
 
 #include <uacpi/uacpi.h>
 #include <uacpi/acpi.h>
