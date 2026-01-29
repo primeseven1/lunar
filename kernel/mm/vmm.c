@@ -130,7 +130,7 @@ static int __vmap(uintptr_t hint, size_t size, mmuflags_t mmu_flags, int flags, 
 
 	struct mm* mm_struct = &kernel_mm_struct;
 	if (flags & VMM_USER) {
-		mm_struct = optional ? optional : current_cpu()->mm_struct;
+		mm_struct = optional ? ((struct vmm_usermap_info*)optional)->mm_struct : current_cpu()->mm_struct;
 		if (mm_struct == &kernel_mm_struct)
 			return -EINVAL;
 	}
@@ -198,7 +198,7 @@ static int __vprotect(uintptr_t virtual, size_t size, mmuflags_t mmu_flags, int 
 
 	struct mm* mm_struct = &kernel_mm_struct;
 	if (flags & VMM_USER) {
-		mm_struct = optional ? optional : current_cpu()->mm_struct;
+		mm_struct = optional ? ((struct vmm_usermap_info*)optional)->mm_struct : current_cpu()->mm_struct;
 		if (mm_struct == &kernel_mm_struct)
 			return -EINVAL;
 	}
@@ -263,7 +263,7 @@ static int __vunmap(uintptr_t virtual, size_t size, int flags, void* optional) {
 
 	struct mm* mm_struct = &kernel_mm_struct;
 	if (flags & VMM_USER) {
-		mm_struct = optional ? optional : current_cpu()->mm_struct;
+		mm_struct = optional ? ((struct vmm_usermap_info*)optional)->mm_struct : current_cpu()->mm_struct;
 		if (mm_struct == &kernel_mm_struct)
 			return -EINVAL;
 	}
