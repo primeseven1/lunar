@@ -55,8 +55,8 @@ static void exec_gp_fault(const struct context* ctx) {
 #define X86_MAX_INSTR_SIZE 15
 
 struct extable_entry {
-	u64 fault_rip, fixup_rip;
-};
+	i32 fault_rip_relative, fixup_rip_relative;
+} __attribute__((packed));
 
 extern const struct extable_entry _ld_kernel_extable_start[];
 extern const struct extable_entry _ld_kernel_extable_end[];
@@ -65,9 +65,12 @@ static int try_do_fixup(struct context* ctx) {
 	size_t count = _ld_kernel_extable_end - _ld_kernel_extable_start;
 	for (size_t i = 0; i < count; i++) {
 		const struct extable_entry* entry = &_ld_kernel_extable_start[i];
-		if ((uintptr_t)ctx->rip >= entry->fault_rip &&
-				(uintptr_t)ctx->rip < entry->fault_rip + X86_MAX_INSTR_SIZE) {
-			ctx->rip = entry->fixup_rip;
+
+		uintptr_t fault = (uintptr_t)entry + offsetof(struct extable_entry, fault_rip_relative) + entry->fault_rip_relative;
+		uintptr_t fixup = (uintptr_t)entry + offsetof(struct extable_entry, fixup_rip_relative) + entry->fixup_rip_relative;
+
+		if (ctx->rip >= fault && ctx->rip < fault + X86_MAX_INSTR_SIZE) {
+			ctx->rip = fixup;
 			return 0;
 		}
 	}
