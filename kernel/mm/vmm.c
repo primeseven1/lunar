@@ -135,53 +135,55 @@ static int __vmap(uintptr_t hint, size_t size, mmuflags_t mmu_flags, int flags, 
 			return -EINVAL;
 	}
 
+	int err;
 	mutex_lock(&mm_struct->vma_lock);
 
-	/* If a fixed/replace mapping, the previous state must be saved first */
-	struct prevpage* prev_pages = NULL;
-	if (flags & VMM_FIXED && !(flags & VMM_NOREPLACE))
-		prev_pages = prevpage_save(mm_struct, (uintptr_t)hint, size);
-
-	/* Now create a VMA */
+	/* If a fixed/replace mapping, create a snapshot of the current state to restore */
+	struct page_snapshot* prev_pages = NULL;
+	if (flags & VMM_FIXED && !(flags & VMM_NOREPLACE)) {
+		prev_pages = snapshot_pages(mm_struct, (uintptr_t)hint, size);
+		if (unlikely(IS_PTR_ERR(prev_pages))) {
+			err = PTR_ERR(prev_pages);
+			goto err_novma;
+		}
+	}
 	uintptr_t virtual;
-	int err = vma_map(mm_struct, hint, size, mmu_flags, flags, &virtual);
-	if (err)
-		goto err;
+	err = vma_map(mm_struct, hint, size, mmu_flags, flags, &virtual);
+	if (err) {
+		snapshot_cleanup(prev_pages, false);
+		goto err_novma;
+	}
 
 	/* Actually map the memory in the page table */
 	if (flags & VMM_PHYSICAL) {
 		err = -EINVAL;
 		if (!optional)
-			goto err;
+			goto err_withvma;
 		physaddr_t physical = *(physaddr_t*)optional;
 		if (physical & (page_size - 1))
-			goto err;
-		err = __vmap_physical(mm_struct->pagetable, (uintptr_t)virtual, physical, pt_flags, page_size, page_count, flags);
+			goto err_withvma;
+		err = __vmap_physical(mm_struct->pagetable, virtual, physical, pt_flags, page_size, page_count, flags);
 		if (err)
-			goto err;
+			goto err_withvma;
 	} else if (flags & VMM_ALLOC) {
-		err = __vmap_alloc(mm_struct->pagetable, (uintptr_t)virtual, pt_flags, page_size, page_count, flags);
+		err = __vmap_alloc(mm_struct->pagetable, virtual, pt_flags, page_size, page_count, flags);
 		if (err)
-			goto err;
+			goto err_withvma;
 	}
 
 	/* Successful, so now just free previous pages if a fixed/replace, and invalidate TLB's */
-	if (prev_pages)
-		prevpage_success(prev_pages, PREVPAGE_FREE_PREVIOUS);
-	tlb_invalidate((uintptr_t)virtual, size);
+	snapshot_cleanup(prev_pages, true);
+	tlb_invalidate(virtual, size);
 	mutex_unlock(&mm_struct->vma_lock);
 
 	*out = virtual;
 	return 0;
-err:
-	/* Unmap a VMA if there is one, and invalidate TLB's since prevpage_fail updates mappings */
-	if (virtual)
-		vma_unmap(mm_struct, (uintptr_t)virtual, size);
-	if (prev_pages)
-		prevpage_fail(mm_struct, prev_pages);
-	tlb_invalidate((uintptr_t)virtual, size);
+err_withvma:
+	bug(vma_unmap(mm_struct, virtual, size) != 0);
+	snapshot_restore_pages(mm_struct, prev_pages);
+	tlb_invalidate(virtual, size);
+err_novma:
 	mutex_unlock(&mm_struct->vma_lock);
-
 	return err;
 }
 
@@ -203,14 +205,20 @@ static int __vprotect(uintptr_t virtual, size_t size, mmuflags_t mmu_flags, int 
 			return -EINVAL;
 	}
 
-	int err = 0;
 	size_t tlb_flush_round = PAGE_SIZE;
+	const uintptr_t start = virtual;
+	uintptr_t end;
+	if (__builtin_add_overflow(virtual, size, &end))
+		return -EINVAL;
 
+	int err;
 	mutex_lock(&mm_struct->vma_lock);
 
-	struct prevpage* prevpages = prevpage_save(mm_struct, virtual, size);
-	const uintptr_t start = virtual;
-	const uintptr_t end = virtual + size;
+	struct page_snapshot* prevpages = snapshot_pages(mm_struct, virtual, size);
+	if (IS_PTR_ERR(prevpages)) {
+		err = PTR_ERR(prevpages);
+		goto out;
+	}
 
 	while (virtual < end) {
 		struct vma* vma = vma_find(mm_struct, virtual);
@@ -226,7 +234,7 @@ static int __vprotect(uintptr_t virtual, size_t size, mmuflags_t mmu_flags, int 
 			tlb_flush_round = HUGEPAGE_2M_SIZE;
 
 			/* This can only happen if the very first page being remapped is a hugepage */
-			if (unlikely((uintptr_t)virtual & (page_size - 1))) {
+			if (unlikely(virtual & (page_size - 1))) {
 				err = -EINVAL;
 				goto out;
 			}
@@ -243,11 +251,14 @@ static int __vprotect(uintptr_t virtual, size_t size, mmuflags_t mmu_flags, int 
 		pt_flags &= ~PT_HUGEPAGE;
 		virtual += page_size;
 	}
+
 out:
-	if (err && prevpages)
-		prevpage_fail(mm_struct, prevpages);
-	else
-		prevpage_success(prevpages, 0);
+	if (err == 0)
+		snapshot_cleanup(prevpages, false);
+	else if (!IS_PTR_ERR(prevpages))
+		snapshot_restore_pages(mm_struct, prevpages);
+
+	/* Invalidate on both error and no error just in case */
 	tlb_invalidate(start, ROUND_UP(size, tlb_flush_round));
 	mutex_unlock(&mm_struct->vma_lock);
 	return err;
@@ -269,19 +280,25 @@ static int __vunmap(uintptr_t virtual, size_t size, int flags, void* optional) {
 	}
 
 	size_t tlb_invalidate_round = PAGE_SIZE;
-	int err;
+	const uintptr_t start = virtual;
+	uintptr_t end;
+	if (__builtin_add_overflow(virtual, size, &end))
+		return -EINVAL;
 
+	int err;
 	mutex_lock(&mm_struct->vma_lock);
 
-	struct prevpage* prevpages = prevpage_save(mm_struct, virtual, size);
+	struct page_snapshot* prevpages = snapshot_pages(mm_struct, virtual, size);
+	if (IS_PTR_ERR(prevpages)) {
+		err = PTR_ERR(prevpages);
+		goto out;
+	}
 
-	const uintptr_t start = virtual;
-	const uintptr_t end = virtual + size;
 	while (virtual < end) {
-		struct vma* vma = vma_find(mm_struct, (uintptr_t)virtual);
+		struct vma* vma = vma_find(mm_struct, virtual);
 		if (!vma) {
 			err = -ENOENT;
-			goto err;
+			goto out;
 		}
 
 		size_t page_size = PAGE_SIZE;
@@ -292,32 +309,31 @@ static int __vunmap(uintptr_t virtual, size_t size, int flags, void* optional) {
 			/* Like in vprotect, this can only happen if the very first page is a hugepage */
 			if (unlikely(virtual & (page_size - 1))) {
 				err = -EINVAL;
-				goto err;
+				goto out;
 			}
 		}
 
 		/* Now remove the VMA and mapping in the page table */
 		err = vma_unmap(mm_struct, virtual, page_size);
 		if (err)
-			goto err;
+			goto out;
 		err = pagetable_unmap(mm_struct->pagetable, virtual);
 		if (unlikely(err)) {
 			printk(PRINTK_CRIT "mm: Failed to unmap page, err: %i\n", err);
-			goto err;
+			goto out;
 		}
 
 		virtual += page_size;
 	}
 
-err:
-	tlb_invalidate(start, ROUND_UP(size, tlb_invalidate_round));
-	if (err && prevpages) {
-		prevpage_fail(mm_struct, prevpages); /* Updates mappings, so another flush is needed */
-		tlb_invalidate(start, ROUND_UP(size, tlb_invalidate_round));
-	} else {
-		prevpage_success(prevpages, PREVPAGE_FREE_PREVIOUS);
-	}
+out:
+	if (err == 0)
+		snapshot_cleanup(prevpages, true);
+	else if (!IS_PTR_ERR(prevpages))
+		snapshot_restore_pages(mm_struct, prevpages);
 
+	/* Invalidate on both error and no error just in case */
+	tlb_invalidate(start, ROUND_UP(size, tlb_invalidate_round));
 	mutex_unlock(&mm_struct->vma_lock);
 	return err;
 }

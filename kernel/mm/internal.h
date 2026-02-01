@@ -114,51 +114,42 @@ void pagetable_init(void);
 void mm_cache_init(void);
 void pagetable_kmm_init(struct mm* mm_struct);
 
-struct prevpage {
+struct page_snapshot {
 	uintptr_t start;
 	physaddr_t physical;
 	size_t len; /* multiple of page_size */
 	size_t page_size;
 	mmuflags_t mmu_flags;
 	int vmm_flags;
-	struct prevpage* next;
+	struct page_snapshot* next;
 };
 
 /**
- * @brief Save any info about any pages typically before overwriting them
+ * @brief Save the state of pages
  *
- * This function will not fail to save pages, as the MM_NOFAIL flag is used to allocate them.
- * Pointers returned are in HHDM.
- *
- * @param mm_struct The mm struct to use
- * @param virtual The virtual address of the pages
+ * @param mm_struct The context
+ * @param virtual The virtual address to start saving at
  * @param size The size of the region
  *
- * @return NULL if there are no pages to save, or you get a singly linked list 
+ * @return The pointer to the saved pages, or -errno on failure
  */
-struct prevpage* prevpage_save(struct mm* mm_struct, uintptr_t virtual, size_t size);
+struct page_snapshot* snapshot_pages(struct mm* mm_struct, uintptr_t virtual, size_t size);
 
 /**
- * @brief Restore the previous state on a failure
+ * @brief Restore the state of pages
  *
- * @param mm_struct The mm struct to use
- * @param head The previous pages
+ * @param mm_struct The contex t
+ * @param snapshots The page snapshots
  */
-void prevpage_fail(struct mm* mm_struct, struct prevpage* head);
-
-enum prevpage_flags {
-	PREVPAGE_FREE_PREVIOUS = (1 << 0)
-};
+void snapshot_restore_pages(struct mm* mm_struct, struct page_snapshot* snapshots);
 
 /**
- * @brief Cleaup after saving pages
+ * @brief Clean up snapshots
  *
- * When the PREVPAGE_FREE_PREVIOUS flag is used, it frees the physical pages that were previously saved
- *
- * @param head The previous pages
- * @param flags Flags for what should be cleaned up
+ * @param snapshots The snapshots to clean up
+ * @param free Whether or not to free the physical pages at the virtual address (only when mapped with VMM_ALLOC)
  */
-void prevpage_success(struct prevpage* head, int flags);
+void snapshot_cleanup(struct page_snapshot* snapshots, bool free);
 
 /**
  * @brief Called when out of memory

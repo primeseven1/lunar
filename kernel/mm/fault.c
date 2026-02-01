@@ -22,11 +22,11 @@ static void exec_page_fault(const struct context* ctx) {
 	if (!vma) {
 		printk(PRINTK_CRIT "traps: No VMA found at %#.16lx\n", fault);
 	} else {
-		if (vma->flags & MMU_READ)
+		if (vma->prot & MMU_READ)
 			printk(PRINTK_CRIT "traps: %#.16lx is readable\n", fault);
-		if (vma->flags & MMU_WRITE)
+		if (vma->prot & MMU_WRITE)
 			printk(PRINTK_CRIT "traps: %#.16lx is writable\n", fault);
-		if (vma->flags & MMU_EXEC)
+		if (vma->prot & MMU_EXEC)
 			printk(PRINTK_CRIT "traps: %#.16lx is executable\n", fault);
 	}
 
