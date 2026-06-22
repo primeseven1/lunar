@@ -1,0 +1,51 @@
+#include <lunar/slab.h>
+#include <lunar/panic.h>
+#include <lunar/sched_types.h>
+#include <lunar/percpu.h>
+#include "internal.h"
+
+static struct slab_cache* thread_cache = NULL;
+
+struct thread* sched_thread_alloc(int flags) {
+	struct thread* ret = slab_cache_alloc(thread_cache);
+	if (!ret)
+		return NULL;
+
+	sched_thread_topology_init(ret, flags);
+	atomic_store(&ret->topology.cpu, sched_topology_pick_cpu(ret));
+
+	atomic_store(&ret->proc, NULL);
+	list_node_init(&ret->proc_link);
+
+	int err = arch_thread_context_init(ret);
+	if (err)
+		return NULL;
+	ret->context.stack_base = NULL;
+	ret->context.stack_size = 0;
+
+	atomic_store(&ret->state.state, THREAD_NEW);
+	atomic_store(&ret->state.flags, 0);
+	atomic_store(&ret->state.wakeup_errno, 0);
+	atomic_store(&ret->state.sleep_gen, 0);
+	list_node_init(&ret->state.block_link);
+
+	atomic_store(&ret->prio, 0);
+	ret->preempt_count = 0;
+	list_node_init(&ret->proc_link);
+	atomic_store(&ret->refcnt, 1);
+	atomic_store(&ret->policy_priv, NULL);
+
+	return ret;
+}
+
+void sched_thread_destroy(struct thread* thread) {
+	bug(atomic_load(&thread->refcnt) != 0);
+	arch_thread_context_destroy(thread);
+	slab_cache_free(thread_cache, thread);
+}
+
+void sched_thread_cache_init(void) {
+	thread_cache = slab_cache_create(sizeof(struct thread), alignof(struct thread), MM_ZONE_NORMAL, NULL, NULL);
+	if (unlikely(!thread_cache))
+		out_of_memory();
+}

@@ -1,0 +1,13 @@
+/include/generated/
+
+__pycache__/
+/tools/testing/
+/tools/menuconfig/
+
+*.o
+*.d
+
+/.config
+/.config.old
+
+/lunar

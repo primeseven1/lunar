@@ -1,0 +1,15 @@
+menu "x86_64 options"
+
+config ARCH_X86_64_E9HACK
+	bool "Enable debug port 0xe9"
+	default n
+	help
+	  "Allow a virtual machine to write logs to the host"
+
+config ARCH_X86_64_X2APIC
+	bool "Enable X2APIC"
+	default n
+	help
+	  "Use x2apic"
+
+endmenu

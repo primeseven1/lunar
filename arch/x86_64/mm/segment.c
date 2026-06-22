@@ -1,0 +1,55 @@
+#include <lunar/percpu.h>
+#include <lunar/string.h>
+#include <lunar/vmm.h>
+#include <lunar/init.h>
+#include <x86_64/asm/segment.h>
+#include <x86_64/idt.h>
+
+static const struct arch_x86_64_segment_descriptor base[5] = {
+	{ .limit_low = 0x0000, .base_low = 0, .base_middle = 0, .access = 0x00, .flags = 0x00, .base_high = 0 },
+	{ .limit_low = 0xFFFF, .base_low = 0, .base_middle = 0, .access = 0x9B, .flags = 0xAF, .base_high = 0 },
+	{ .limit_low = 0xFFFF, .base_low = 0, .base_middle = 0, .access = 0x93, .flags = 0xCF, .base_high = 0 },
+	{ .limit_low = 0xFFFF, .base_low = 0, .base_middle = 0, .access = 0xFB, .flags = 0xAF, .base_high = 0 },
+	{ .limit_low = 0xFFFF, .base_low = 0, .base_middle = 0, .access = 0xF3, .flags = 0xCF, .base_high = 0 },
+};
+
+void arch_x86_64_gdt_init(void) {
+	struct cpu* const cpu = current_cpu();
+
+	struct arch_x86_64_tss* const tss = &cpu->arch_specific.tss;
+	memset(tss, 0, sizeof(*tss));
+	tss->iomap_base = sizeof(*tss);
+	struct arch_x86_64_gdt* const gdt = &cpu->arch_specific.gdt;
+	memcpy(gdt->base, base, sizeof(gdt->base));
+
+	const uintptr_t ptr = (uintptr_t)tss;
+	cpu->arch_specific.gdt.tss = (struct arch_x86_64_tss_descriptor){
+		.desc = (struct arch_x86_64_segment_descriptor){
+			.limit_low = (sizeof(struct arch_x86_64_tss) - 1) & U16_MAX,
+			.base_low = ptr & U16_MAX, .base_middle = (ptr >> 16) & U8_MAX, .access = 0x89,
+			.flags = 0, .base_high = (ptr >> 24) & U8_MAX
+		},
+		.base_high = ((u64)ptr >> 32) & U32_MAX, ._unused = 0
+	};
+
+	arch_x86_64_gdt_reload(gdt, sizeof(*gdt)); /* No, not sizeof(*gdt) - 1 */
+}
+
+static void ist_init(void) {
+	struct cpu* const cpu = current_cpu();
+	struct arch_x86_64_tss* const tss = &cpu->arch_specific.tss;
+	const size_t stack_size = (PAGE_SIZE * 4) + PAGE_SIZE;
+	for (int i = 0; i < ARCH_X86_64_IDT_IST_COUNT; i++) {
+		u8* stack = vmap(NULL, stack_size, PGPROT_READ | PGPROT_WRITE, VMM_ALLOC, NULL);
+		if (IS_PTR_ERR(stack))
+			out_of_memory();
+		int err = vprotect(stack, PAGE_SIZE, PGPROT_NONE, 0, NULL);
+		if (err)
+			panic("Failed to create IST guard page: %i", err);
+		tss->ist[i] = stack + stack_size;
+	}
+}
+
+INIT_TASK_DECLARE(vmm_init_task, vmm_ap_init_task);
+INIT_TASK_DEFINE(arch_x86_64_ist_init_task, INIT_TASK_SCOPE_BSP, ist_init, &vmm_init_task);
+INIT_TASK_DEFINE(arch_x86_64_ist_ap_init_task, INIT_TASK_SCOPE_AP, ist_init, &vmm_ap_init_task);
