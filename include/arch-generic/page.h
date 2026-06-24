@@ -45,6 +45,18 @@ typedef enum {
 void arch_pagetable_init(void);
 
 /**
+ * @brief Create a new page table
+ * @return The address of the new page table. Must have the kernel mapped.
+ */
+pte_t* arch_pagetable_new(void);
+
+/**
+ * @brief Free a page table
+ * @param table The table to free
+ */
+void arch_pagetable_free(pte_t* table);
+
+/**
  * @brief Map a page into a page table
  *
  * @param pagetable The page table to use

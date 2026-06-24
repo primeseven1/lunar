@@ -4,6 +4,7 @@
 #include <lunar/string.h>
 #include <lunar/limine.h>
 #include <lunar/init.h>
+#include <lunar/proc.h>
 
 #include <arch/page.h>
 #include <x86_64/asm/ctl.h>
@@ -11,6 +12,19 @@
 
 #define PUD_SHIFT 30
 #define PUD_SIZE (1ul << PUD_SHIFT)
+
+pte_t* arch_pagetable_new(void) {
+	pte_t* ret = hhdm_virtual(alloc_page(MM_ZONE_NORMAL));
+	if (ret) {
+		memcpy(ret, current_proc()->mm_struct->pagetable, PAGE_SIZE);
+		memset(ret, 0, PAGE_SIZE / 2); /* Zero user page tables */
+	}
+	return ret;
+}
+
+void arch_pagetable_free(pte_t* table) {
+	free_page(hhdm_physical(table));
+}
 
 enum pt_flags {
 	PT_PRESENT = (1 << 0),
