@@ -152,9 +152,14 @@ struct vnode {
 #define VOP_GETDENTS(v, buf, count, off, rc) (v)->ops->getdents(v, buf, count, off, rc)
 #define VOP_LOCK(v) ((v)->ops->lock ? (v)->ops->lock(v) : (mutex_acquire(&(v)->mtx), 0))
 #define VOP_UNLOCK(v) ((v)->ops->unlock ? (v)->ops->unlock(v) : (mutex_release(&(v)->mtx), 0))
-#define VOP_HOLD(v) atomic_add_fetch_explicit(&(v)->refcnt, 1, ATOMIC_RELAXED)
+#define VOP_HOLD(v) \
+	do { \
+		static_assert(__builtin_types_compatible_p(typeof(v), struct vnode*), "__builtin_types_compatible_p(v, struct vnode*)"); \
+		atomic_add_fetch_explicit(&(v)->refcnt, 1, ATOMIC_RELAXED); \
+	} while (0)
 #define VOP_RELEASE(v) \
 	do { \
+		static_assert(__builtin_types_compatible_p(typeof(v), struct vnode*), "__builtin_types_compatible_p(v, struct vnode*)"); \
 		if (atomic_sub_fetch_explicit(&(v)->refcnt, 1, ATOMIC_ACQ_REL) == 0) \
 			(v)->ops->inactive(v); \
 	} while (0)
