@@ -1,10 +1,10 @@
+#include <lunar/proc.h>
 #include <lunar/kthread.h>
-#include "internal.h"
 
 static int reaper(void* arg) {
 	struct runqueue* rq = arg;
 	while (1) {
-		int err = semaphore_wait(&rq->reaper_sem, 0);
+		const int err = semaphore_wait(&rq->reaper_sem, 0);
 		if (unlikely(err))
 			continue;
 
@@ -13,7 +13,8 @@ static int reaper(void* arg) {
 
 		if (!list_empty(&rq->zombie_list)) {
 			zombie = list_first_entry(&rq->zombie_list, struct thread, state.block_link);
-			if (zombie && atomic_load(&zombie->refcnt) != SCHED_THREAD_ATTACHED_REFCNT) {
+			const unsigned long attached_refcnt = PROC_THREAD_ATTACHED_REFCOUNT + rq->policy->ops->attached_refcount(rq, zombie);
+			if (zombie && atomic_load(&zombie->refcnt) != attached_refcnt) {
 				list_remove(&zombie->state.block_link);
 				list_add_tail(&rq->zombie_list, &zombie->state.block_link);
 				semaphore_signal(&rq->reaper_sem);

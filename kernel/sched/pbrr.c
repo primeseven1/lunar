@@ -49,6 +49,7 @@ static int pbrr_thread_attach(struct runqueue* rq, struct thread* thread, int po
 	if (!rrt)
 		return -ENOMEM;
 
+	THREAD_HOLD(thread);
 	rrt->prio = prio;
 	rrt->thread = thread;
 	rrt->slice_left = DEFAULT_SLICE_TICKS;
@@ -59,7 +60,9 @@ static int pbrr_thread_attach(struct runqueue* rq, struct thread* thread, int po
 
 static void pbrr_thread_detach(struct runqueue* rq, struct thread* thread) {
 	(void)rq;
-	kfree(atomic_load(&thread->policy_priv));
+	struct rr_thread* rr = atomic_load(&thread->policy_priv);
+	kfree(rr);
+	THREAD_RELEASE(thread);
 }
 
 static int pbrr_init(struct runqueue* rq) {
@@ -207,6 +210,12 @@ static void pbrr_on_yield(struct runqueue* rq, struct thread* current) {
 	rr_current->slice_left = DEFAULT_SLICE_TICKS;
 }
 
+static unsigned long pbrr_attached_refcount(struct runqueue* rq, struct thread* thread) {
+	(void)rq;
+	(void)thread;
+	return 1;
+}
+
 static const struct sched_policy_ops pbrr_ops = {
 	.init = pbrr_init,
 	.thread_attach = pbrr_thread_attach,
@@ -216,7 +225,8 @@ static const struct sched_policy_ops pbrr_ops = {
 	.pick_next = pbrr_pick_next,
 	.change_prio = pbrr_change_prio,
 	.on_tick = pbrr_on_tick,
-	.on_yield = pbrr_on_yield
+	.on_yield = pbrr_on_yield,
+	.attached_refcount = pbrr_attached_refcount
 };
 
 static struct sched_policy __sched_policy pbrr = {
@@ -251,7 +261,8 @@ static const struct sched_policy_ops rr_ops = {
 	.pick_next = pbrr_pick_next,
 	.change_prio = rr_change_prio,
 	.on_tick = pbrr_on_tick,
-	.on_yield = pbrr_on_yield
+	.on_yield = pbrr_on_yield,
+	.attached_refcount = pbrr_attached_refcount
 };
 
 static struct sched_policy __sched_policy rr = {

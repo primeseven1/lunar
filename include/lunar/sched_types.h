@@ -59,28 +59,16 @@ struct thread {
 	atomic(void*) policy_priv;
 };
 
-struct proc {
-	pid_t pid;
-	struct cred* cred;
-	struct mm* mm_struct;
-	struct list_head thread_list;
-	atomic(unsigned int) thread_count;
-	spinlock_t lock;
-	struct {
-		struct vnode* cwd, *root;
-		mutex_t mtx;
-	} fs;
-};
-
-static inline void thread_ref(struct thread* thread) {
-	atomic_fetch_add(&thread->refcnt, 1);
-}
-
-static inline void thread_unref(struct thread* thread) {
-	bug(atomic_fetch_sub(&thread->refcnt, 1) == 0);
-}
+#define THREAD_HOLD(t) \
+	do { \
+		static_assert(__builtin_types_compatible_p(typeof(t), struct thread*), "__builtin_types_compatible_p(typeof(p), struct thread*)"); \
+		atomic_fetch_add(&(t)->refcnt, 1); \
+	} while (0)
+#define THREAD_RELEASE(t) \
+	do { \
+		static_assert(__builtin_types_compatible_p(typeof(t), struct thread*), "__builtin_types_compatible_p(typeof(p), struct thread*)"); \
+		atomic_fetch_sub(&(t)->refcnt, 1); \
+	} while (0)
 
 struct thread* sched_thread_alloc(int flags);
 void sched_thread_destroy(struct thread* thread);
-struct proc* sched_proc_alloc(void);
-void sched_proc_destroy(struct proc* proc);

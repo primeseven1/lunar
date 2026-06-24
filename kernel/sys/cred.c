@@ -1,5 +1,5 @@
 #include <lunar/cred.h>
-#include <lunar/sched.h>
+#include <lunar/proc.h>
 
 static struct cred kernel_cred = {
 	.uid = 0, .euid = 0, .suid = 0,
@@ -9,5 +9,5 @@ static struct cred kernel_cred = {
 struct cred* current_cred(void) {
 	struct thread* thread = current_thread();
 	struct proc* proc = likely(thread) ? atomic_load(&thread->proc) : NULL;
-	return likely(proc) ? proc->cred : &kernel_cred;
+	return likely(proc) ? &proc->cred : &kernel_cred;
 }

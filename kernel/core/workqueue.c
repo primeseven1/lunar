@@ -69,7 +69,7 @@ struct workqueue* workqueue_create(int flags, const char* fmt, ...) {
 		return NULL;
 	}
 
-	thread_ref(wq->thread);
+	THREAD_HOLD(wq->thread);
 	list_head_init(&wq->queue);
 	semaphore_init(&wq->sem, 0);
 	completion_init(&wq->synchronizer);
@@ -77,7 +77,7 @@ struct workqueue* workqueue_create(int flags, const char* fmt, ...) {
 
 	int err = kthread_run(wq->thread, SCHED_PRIO_DEFAULT);
 	if (err) {
-		thread_unref(wq->thread);
+		THREAD_RELEASE(wq->thread);
 		kthread_destroy(wq->thread);
 		kfree(wq);
 		return NULL;

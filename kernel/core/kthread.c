@@ -1,4 +1,5 @@
 #include <lunar/kthread.h>
+#include <lunar/proc.h>
 #include <lunar/format.h>
 #include <lunar/mutex.h>
 #include <lunar/init.h>
@@ -19,7 +20,7 @@ struct kthread {
 	bool scheduled;
 };
 
-static struct proc* kproc;
+static struct proc* kernel_proc;
 static struct hashtable* kthread_table;
 static MUTEX_DEFINE(kthread_table_lock);
 
@@ -61,7 +62,7 @@ struct thread* kthread_create(int flags, int (*func)(void*), void* arg, const ch
 
 	int err = hashtable_insert(kthread_table, &thread, sizeof(struct thread*), &kt);
 	if (err) {
-		thread_unref(thread); /* Remove the ref that sched_thread_alloc() gives */
+		THREAD_RELEASE(thread); /* Remove the ref that sched_thread_alloc() gives */
 		sched_thread_destroy(thread);
 		thread = NULL;
 	}
@@ -83,7 +84,7 @@ int kthread_run(struct thread* thread, int prio) {
 	if (kt.scheduled)
 		goto out_unlock;
 
-	err = sched_thread_attach(thread, kproc, prio);
+	err = sched_thread_attach(thread, kernel_proc, prio);
 	if (err)
 		goto out_unlock;
 	arch_thread_prepare_execution(thread, arch_asm_kthread_start, kt.stack, true);
@@ -113,7 +114,7 @@ void kthread_destroy(struct thread* thread) {
 		bug(kt.scheduled == true);
 		bug(vunmap(kt.stack_base, kt.vunmap_stack_size, 0, NULL) != 0);
 		bug(hashtable_remove(kthread_table, &thread, sizeof(struct thread*)) != 0);
-		thread_unref(thread);
+		THREAD_RELEASE(thread);
 		sched_thread_destroy(thread);
 	}
 
@@ -131,7 +132,7 @@ void kthread_detach(struct thread* thread) {
 	} else {
 		bug(kt.scheduled == false);
 		bug(hashtable_remove(kthread_table, &thread, sizeof(struct thread*)) != 0);
-		thread_unref(thread);
+		THREAD_RELEASE(thread);
 	}
 
 	mutex_release(&kthread_table_lock);
@@ -153,7 +154,7 @@ _Noreturn void __asmlinkage kthread_start(int (*func)(void*), void* arg) {
 __diag_pop();
 
 static void kthread_init(void) {
-	bug(sched_get_from_proctbl(0, &kproc) != 0);
+	bug(proc_get(0, &kernel_proc) != 0);
 	kthread_table = hashtable_create(64, sizeof(struct kthread));
 	if (unlikely(!kthread_table))
 		panic("Failed to create kthread hashtable");

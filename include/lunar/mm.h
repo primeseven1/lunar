@@ -40,6 +40,9 @@ void* hhdm_virtual(physaddr_t physical);
  */
 void* hhdm_base(void);
 
+struct mm* mm_create(void);
+void mm_destroy(struct mm* mm);
+
 typedef enum {
 	MM_ZONE_DMA = (1 << 0), /* Memory less than 16MiB */
 	MM_ZONE_DMA32 = (1 << 1), /* Memory less than 4GiB */

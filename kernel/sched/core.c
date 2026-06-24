@@ -1,5 +1,6 @@
 #include <lunar/init.h>
 #include <lunar/sched.h>
+#include <lunar/proc.h>
 #include <lunar/vmm.h>
 #include <lunar/timer.h>
 #include <lunar/irq.h>
@@ -11,9 +12,8 @@ int sched_thread_attach(struct thread* thread, struct proc* proc, int prio) {
 	struct runqueue* rq = &atomic_load(&thread->topology.cpu)->runqueue;
 	int err = 0;
 
-	thread_ref(thread);
 	atomic_store(&thread->state.state, THREAD_READY);
-	sched_thread_attach_to_proc(proc, thread);
+	proc_thread_attach(proc, thread);
 
 	unsigned long flags;
 	spinlock_acquire_irq_save(&rq->lock, &flags);
@@ -21,12 +21,10 @@ int sched_thread_attach(struct thread* thread, struct proc* proc, int prio) {
 	if (rq->policy->ops->thread_attach)
 		err = rq->policy->ops->thread_attach(rq, thread, prio);
 
-	if (err == 0) {
+	if (err == 0)
 		atomic_fetch_add(&rq->thread_count, 1);
-	} else {
-		sched_thread_detach_from_proc(thread);
-		thread_unref(thread);
-	}
+	else
+		proc_thread_detach(thread);
 
 	spinlock_release_irq_restore(&rq->lock, &flags);
 	return err;
@@ -40,9 +38,8 @@ void sched_thread_detach(struct thread* thread) {
 
 	if (rq->policy->ops->thread_detach)
 		rq->policy->ops->thread_detach(rq, thread);
-	sched_thread_detach_from_proc(thread);
+	proc_thread_detach(thread);
 	atomic_fetch_sub(&rq->thread_count, 1);
-	thread_unref(thread);
 
 	spinlock_release_irq_restore(&rq->lock, &flags);
 }
@@ -346,7 +343,7 @@ _Noreturn void sched_thread_exit(void) {
 	bug("unreachable");
 }
 
-static struct proc kernel_proc;
+static struct proc* kernel_proc;
 
 static struct thread* create_bootstrap_thread(void (*exec)(void), int state, int prio) {
 	struct thread* thread = sched_thread_alloc(SCHED_TOPOLOGY_CURRENT | SCHED_TOPOLOGY_NO_MIGRATE);
@@ -360,7 +357,7 @@ static struct thread* create_bootstrap_thread(void (*exec)(void), int state, int
 	stack += 0x4000 + PAGE_SIZE;
 
 	if (prio) {
-		int err = sched_thread_attach(thread, &kernel_proc, prio);
+		int err = sched_thread_attach(thread, kernel_proc, prio);
 		if (err == -ENOMEM)
 			out_of_memory();
 		bug(err != 0);
@@ -395,7 +392,7 @@ static void sched_bootstrap_processor(void) {
 	/* First create the current thread, and we don't need the ref sched_thread_alloc() gives */
 	struct thread* thread = create_bootstrap_thread(NULL, THREAD_RUNNING, SCHED_PRIO_DEFAULT);
 	atomic_store(&rq->current, thread);
-	thread_unref(thread);
+	THREAD_RELEASE(thread);
 
 	/* Now create the idle thread, this thread should never be destroyed, so keep the ref */
 	thread = create_bootstrap_thread(idle, THREAD_READY, 0);
@@ -409,19 +406,8 @@ static void sched_init(void) {
 		out_of_memory();
 
 	sched_policy_cpu_init();
-	sched_proctbl_init();
 	sched_thread_cache_init();
-	sched_proc_cache_init();
-
-	kernel_proc.pid = 0;
-	kernel_proc.cred = current_cred();
-	kernel_proc.mm_struct = current_cpu()->mm_struct;
-	kernel_proc.fs.cwd = NULL;
-	kernel_proc.fs.root = NULL;
-	mutex_init(&kernel_proc.fs.mtx);
-	list_head_init(&kernel_proc.thread_list);
-	spinlock_init(&kernel_proc.lock);
-	sched_add_to_proctbl(&kernel_proc);
+	bug(proc_get(0, &kernel_proc) != 0);
 
 	if (arch_get_cpu_count() > 1) {
 		struct isr* isr = alloc_isr();
@@ -441,6 +427,6 @@ static void sched_ap_init(void) {
 	sched_bootstrap_processor();
 }
 
-INIT_TASK_DECLARE(timers_init_task, timekeeper_init_task, timers_ap_init_task, timekeeper_ap_init_task);
-INIT_TASK_DEFINE(sched_init_task, INIT_TASK_SCOPE_BSP, sched_init, &timers_init_task, &timekeeper_init_task);
+INIT_TASK_DECLARE(timers_init_task, timekeeper_init_task, timers_ap_init_task, timekeeper_ap_init_task, proc_init_task);
+INIT_TASK_DEFINE(sched_init_task, INIT_TASK_SCOPE_BSP, sched_init, &timers_init_task, &timekeeper_init_task, &proc_init_task);
 INIT_TASK_DEFINE(sched_ap_init_task, INIT_TASK_SCOPE_AP, sched_ap_init, &timers_ap_init_task, &timekeeper_ap_init_task);

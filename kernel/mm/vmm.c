@@ -24,6 +24,27 @@ static struct mm kernel_mm_struct = {
 	.mutex = MUTEX_INITIALIZER(kernel_mm_struct.mutex)
 };
 
+struct mm* mm_create(void) {
+	struct mm* mm = kmalloc(sizeof(*mm), MM_ZONE_NORMAL);
+	if (!mm)
+		return NULL;
+	mm->pagetable = arch_pagetable_new();
+	if (!mm->pagetable)
+		return NULL;
+
+	list_head_init(&mm->vma_list);
+	mm->mmap = (struct vmm_range){ .start = 0, .end = 0, .grows_down = false, .max_size = 0 };
+	mm->stack = (struct vmm_range){ .start = 0, .end = 0, .grows_down = false, .max_size = 0 };
+	mm->brk = (struct vmm_range){ .start = 0, .end = 0, .grows_down = false, .max_size = 0 };
+	mutex_init(&mm->mutex);
+	return mm;
+}
+
+void mm_destroy(struct mm* mm) {
+	arch_pagetable_free(mm->pagetable);
+	kfree(mm);
+}
+
 static bool handle_pagetable_error(int err, int vmm_flags, pte_t* pagetable, 
 		uintptr_t virtual, physaddr_t physical, pgprot_t prot) {
 	if (!(err == -EEXIST && vmm_flags & VMM_FIXED))

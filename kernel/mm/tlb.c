@@ -1,5 +1,5 @@
 #include <lunar/irq.h>
-#include <lunar/sched.h>
+#include <lunar/proc.h>
 #include <lunar/vmm.h>
 #include <arch/processor.h>
 #include <arch/tlb.h>
@@ -42,7 +42,7 @@ void tlb_invalidate(uintptr_t address, size_t size) {
 	arch_tlb_flush_range(address, size);
 	if (atomic_load(&shootdown_isr)) {
 		struct proc* proc = atomic_load(&current_thread()->proc);
-		unsigned int proc_thread_count = atomic_load(&proc->thread_count);
+		unsigned int proc_thread_count = atomic_load(&proc->threads.count);
 		if (proc_thread_count > 1 || address >= KERNEL_SPACE_START)
 			do_shootdown(address, size);
 	}

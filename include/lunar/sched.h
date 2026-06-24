@@ -17,10 +17,6 @@ static inline struct thread* current_thread(void) {
 	return ret;
 }
 
-static inline struct proc* current_proc(void) {
-	return atomic_load(&current_thread()->proc);
-}
-
 #define PREEMPT_HARDIRQ_SHIFT 8ul
 #define PREEMPT_SOFTIRQ_SHIFT 16ul
 #define PREEMPT_HARDIRQ_MASK (0xFFul << PREEMPT_HARDIRQ_SHIFT)
@@ -110,33 +106,6 @@ int sched_dequeue(struct thread* thread);
  * @return -errno on failure
  */
 int sched_change_prio(struct thread* thread, int prio);
-
-/**
- * @brief Add a process to the process table
- * @param proc The process to add
- * @retval 0 Successful
- * @retval -ENOMEM Out of memory
- */
-int sched_add_to_proctbl(struct proc* proc);
-
-/**
- * @brief Get a process from the process table
- *
- * @param[in] pid The PID of the process
- * @param[out] out Where the pointer to the process will be stored
- *
- * @retval 0 Successful
- * @retval -ESRCH Process doesn't exist
- */
-int sched_get_from_proctbl(pid_t pid, struct proc** out);
-
-/**
- * @brief Remove a process from the process table
- * @param pid The PID of the process to remove
- * @retval 0 Successful
- * @retval -ESRCH Process doesn't exist
- */
-int sched_remove_proctbl(pid_t pid);
 
 /**
  * @brief Wake a thread from sleep
