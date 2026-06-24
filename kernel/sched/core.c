@@ -130,6 +130,8 @@ static bool __context_switch(struct runqueue* rq, struct thread* to) {
 	struct thread* current = atomic_load(&rq->current);
 	if (current == to)
 		return false;
+	struct mm* mm = atomic_load(&current->proc)->mm_struct;
+	struct mm* next_mm = atomic_load(&to->proc)->mm_struct;
 
 	spinlock_acquire(&rq->lock);
 
@@ -138,6 +140,8 @@ static bool __context_switch(struct runqueue* rq, struct thread* to) {
 	expected = THREAD_READY;
 	bug(atomic_compare_exchange_strong(&to->state.state, &expected, THREAD_RUNNING) == false);
 	atomic_store(&rq->current, to);
+	if (mm != next_mm)
+		mm_switch_context(next_mm);
 
 	spinlock_release(&rq->lock);
 	return true;
@@ -350,19 +354,26 @@ static struct thread* create_bootstrap_thread(void (*exec)(void), int state, int
 	if (!thread)
 		out_of_memory();
 
+	/* Create a stack with a guard page */
 	u8* stack = vmap(NULL, 0x4000 + PAGE_SIZE, PGPROT_READ | PGPROT_WRITE, VMM_ALLOC | VMM_STACK, NULL);
 	if (IS_PTR_ERR(stack))
 		out_of_memory();
 	bug(vprotect(stack, PAGE_SIZE, PGPROT_NONE, 0, NULL) != 0);
 	stack += 0x4000 + PAGE_SIZE;
 
+	/*
+	 * When priority is zero, it means that it's the idle thread.
+	 * The idle thread does not get attached to a runqueue, so only attach it to the process.
+	 * Not doing so will cause a null dereference when switching to the idle thread.
+	 */
 	if (prio) {
 		int err = sched_thread_attach(thread, kernel_proc, prio);
 		if (err == -ENOMEM)
 			out_of_memory();
 		bug(err != 0);
+	} else {
+		proc_thread_attach(kernel_proc, thread);
 	}
-
 	atomic_store(&thread->state.state, state);
 	arch_thread_prepare_execution(thread, exec, stack, true);
 

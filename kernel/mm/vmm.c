@@ -45,6 +45,13 @@ void mm_destroy(struct mm* mm) {
 	kfree(mm);
 }
 
+void mm_switch_context(struct mm* mm) {
+	unsigned long irq_flags = local_irq_save();
+	current_cpu()->mm_struct = mm;
+	arch_pagetable_switch(mm->pagetable);
+	local_irq_restore(irq_flags);
+}
+
 static bool handle_pagetable_error(int err, int vmm_flags, pte_t* pagetable, 
 		uintptr_t virtual, physaddr_t physical, pgprot_t prot) {
 	if (!(err == -EEXIST && vmm_flags & VMM_FIXED))

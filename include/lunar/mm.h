@@ -40,8 +40,23 @@ void* hhdm_virtual(physaddr_t physical);
  */
 void* hhdm_base(void);
 
+/**
+ * @brief Create a new mm context
+ * @return A pointer to the new context
+ */
 struct mm* mm_create(void);
+
+/**
+ * @brief Destroy a mm context
+ * @param mm The context to destroy
+ */
 void mm_destroy(struct mm* mm);
+
+/**
+ * @brief Switch to a new mm context
+ * @param mm The mm context to switch to
+ */
+void mm_switch_context(struct mm* mm);
 
 typedef enum {
 	MM_ZONE_DMA = (1 << 0), /* Memory less than 16MiB */
