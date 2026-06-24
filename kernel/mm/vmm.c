@@ -10,7 +10,19 @@
 #include <arch/page.h>
 #include "internal.h"
 
-static struct mm kernel_mm_struct;
+/*
+ * The kernel does not follow any rules about where to place stuff in the virtual address space.
+ * So have the mmap and stack regions be the same. This is safe since the vma list operates indepedently from
+ * the ranges.
+ */
+static struct mm kernel_mm_struct = {
+	.pagetable = NULL,
+	.vma_list = LIST_HEAD_INITIALIZER(kernel_mm_struct.vma_list),
+	.mmap = { .start = KERNEL_SPACE_START, .end = KERNEL_SPACE_END, .grows_down = false, .max_size = 0 },
+	.stack = { .start = KERNEL_SPACE_START, .end = KERNEL_SPACE_END, .grows_down = false, .max_size = 0 },
+	.brk = { .start = 0, .end = 0, .grows_down = false, .max_size = 0 },
+	.mutex = MUTEX_INITIALIZER(kernel_mm_struct.mutex)
+};
 
 static bool handle_pagetable_error(int err, int vmm_flags, pte_t* pagetable, 
 		uintptr_t virtual, physaddr_t physical, pgprot_t prot) {
@@ -158,8 +170,12 @@ static int __vmap(uintptr_t hint, size_t size, pgprot_t prot, int flags, void* o
 	uintptr_t virtual;
 	err = vma_map(mm_struct, hint, size, prot, flags, &virtual);
 	if (err) {
-		snapshot_cleanup(prev_pages, false);
-		goto err_novma;
+		if (err == -EAGAIN)
+			err = vma_map(mm_struct, hint, size, prot, flags, &virtual);
+		if (err) {
+			snapshot_cleanup(prev_pages, false);
+			goto err_novma;
+		}
 	}
 
 	/* Actually map the memory in the page table */
@@ -419,15 +435,10 @@ int userunmap(void __user* virtual, size_t size, int flags, struct vmm_usermap_i
 
 static void vmm_init(void) {
 	arch_pagetable_init();
-	struct cpu* cpu = current_cpu();
 
-	cpu->mm_struct = &kernel_mm_struct;
-	struct mm* mm = cpu->mm_struct;
-	mutex_init(&mm->mutex);
+	struct mm* mm = &kernel_mm_struct;
 	mm->pagetable = arch_pagetable_get_cpu_current();
-	mm->mmap_start = KERNEL_SPACE_START;
-	mm->mmap_end = KERNEL_SPACE_END;
-	list_head_init(&mm->vma_list);
+	current_cpu()->mm_struct = mm;
 
 	/* 
 	 * This is primarily used for giving the HHDM region VMA's.

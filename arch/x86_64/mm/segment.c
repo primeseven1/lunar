@@ -40,7 +40,7 @@ static void ist_init(void) {
 	struct arch_x86_64_tss* const tss = &cpu->arch_specific.tss;
 	const size_t stack_size = (PAGE_SIZE * 4) + PAGE_SIZE;
 	for (int i = 0; i < ARCH_X86_64_IDT_IST_COUNT; i++) {
-		u8* stack = vmap(NULL, stack_size, PGPROT_READ | PGPROT_WRITE, VMM_ALLOC, NULL);
+		u8* stack = vmap(NULL, stack_size, PGPROT_READ | PGPROT_WRITE, VMM_ALLOC | VMM_STACK, NULL);
 		if (IS_PTR_ERR(stack))
 			out_of_memory();
 		int err = vprotect(stack, PAGE_SIZE, PGPROT_NONE, 0, NULL);

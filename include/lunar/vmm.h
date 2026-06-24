@@ -13,7 +13,8 @@ enum vmm_flags {
 	VMM_HUGETLB_2MB = (1 << 6), /* Mapping uses a 2MiB page, ignored if VMM_HUGETLB isn't set */
 	VMM_HUGETLB_1GB = (1 << 7), /* Mapping uses a 1GiB page, ignored if VMM_HUGETLB isn't set*/
 	VMM_USER = (1 << 8), /* Do not use directly, use usermap()/userprotect()/userunmap() */
-	VMM_SEALED = (1 << 9) /* Mapping can never be changed */
+	VMM_SEALED = (1 << 9), /* Mapping can never be changed */
+	VMM_STACK = (1 << 10) /* Mapping is used for a stack */
 };
 
 struct vmm_usermap_info {

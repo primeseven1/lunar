@@ -7,10 +7,16 @@
 
 struct vma;
 
+struct vmm_range {
+	uintptr_t start, end;
+	bool grows_down;
+	size_t max_size;
+};
+
 struct mm {
 	pte_t* pagetable;
 	struct list_head vma_list; /* struct vma */
-	uintptr_t mmap_start, mmap_end;
+	struct vmm_range mmap, stack, brk;
 	mutex_t mutex;
 };
 

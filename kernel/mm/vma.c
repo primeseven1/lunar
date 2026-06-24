@@ -72,8 +72,9 @@ int vma_map(struct mm* mm, uintptr_t hint, size_t size, pgprot_t prot, int vmm_f
 		return -ERANGE;
 	}
 	base = ROUND_UP(base, align);
-	if (!(vmm_flags & VMM_FIXED) && (base < (uintptr_t)mm->mmap_start || base + size > (uintptr_t)mm->mmap_end))
-		base = (uintptr_t)mm->mmap_start;
+	struct vmm_range* range = (vmm_flags & VMM_STACK) ? &mm->stack : &mm->mmap;
+	if (!(vmm_flags & VMM_FIXED) && (base < range->start || base + size > range->end))
+		base = range->start;
 	if (vmm_flags & VMM_FIXED && !(vmm_flags & VMM_NOREPLACE)) {
 		if (__builtin_add_overflow(base, size, &vma->top)) {
 			vma_free(vma);
@@ -112,9 +113,22 @@ int vma_map(struct mm* mm, uintptr_t hint, size_t size, pgprot_t prot, int vmm_f
 	if (vmm_flags & VMM_FIXED && addr != hint) {
 		vma_free(vma);
 		return -EEXIST;
-	} else if (addr >= (uintptr_t)mm->mmap_end) {
+	} else if (addr >= range->end) {
 		vma_free(vma);
-		return -ENOMEM;
+		size_t range_size = range->end - range->start;
+		if (range_size >= range->max_size)
+			return -ENOMEM;
+		uintptr_t x;
+		if (range->grows_down) {
+			if (__builtin_sub_overflow(range->start, size, &x))
+				return -ENOMEM;
+			range->start = x;
+		} else {
+			if (__builtin_add_overflow(range->end, size, &x))
+				return -ENOMEM;
+			range->end = x;
+		}
+		return -EAGAIN;
 	}
 
 	if (vmm_flags & VMM_HUGETLB)

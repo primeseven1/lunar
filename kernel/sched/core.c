@@ -353,7 +353,7 @@ static struct thread* create_bootstrap_thread(void (*exec)(void), int state, int
 	if (!thread)
 		out_of_memory();
 
-	u8* stack = vmap(NULL, 0x4000 + PAGE_SIZE, PGPROT_READ | PGPROT_WRITE, VMM_ALLOC, NULL);
+	u8* stack = vmap(NULL, 0x4000 + PAGE_SIZE, PGPROT_READ | PGPROT_WRITE, VMM_ALLOC | VMM_STACK, NULL);
 	if (IS_PTR_ERR(stack))
 		out_of_memory();
 	bug(vprotect(stack, PAGE_SIZE, PGPROT_NONE, 0, NULL) != 0);

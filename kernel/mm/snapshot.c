@@ -72,10 +72,13 @@ void snapshot_restore_pages(struct mm* mm_struct, struct page_snapshot* snapshot
 
 		const int flags = s->vmm_flags | VMM_FIXED;
 		const bool hugetlb = !!(s->vmm_flags & VMM_HUGETLB);
-		bug(vma_map(mm_struct, s->start, s->page_size, s->prot, flags, &unused) != 0);
+		int err = vma_map(mm_struct, s->start, s->page_size, s->prot, flags, &unused);
+		if (err == -EAGAIN)
+			err = vma_map(mm_struct, s->start, s->page_size, s->prot, flags, &unused);
+		bug(err != 0);
 
 		if (s->physical) {
-			int err = arch_pagetable_map(mm_struct->pagetable, s->start, s->physical, hugetlb, s->prot);
+			err = arch_pagetable_map(mm_struct->pagetable, s->start, s->physical, hugetlb, s->prot);
 			if (err) {
 				bug(err != -EEXIST);
 				bug(arch_pagetable_update(mm_struct->pagetable, s->start, s->physical, hugetlb, s->prot) != 0);
