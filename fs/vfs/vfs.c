@@ -1,7 +1,7 @@
 #include <lunar/vfs.h>
 #include <lunar/slab.h>
 #include <lunar/hashtable.h>
-#include <lunar/sched.h>
+#include <lunar/proc.h>
 #include <lunar/rwlock.h>
 
 static struct vnode_ops noops = {
