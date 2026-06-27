@@ -3,17 +3,17 @@
 #include <lunar/mm.h>
 #include <lunar/compiler.h>
 
-#define VMM_ALLOC (1 << 0)
-#define VMM_PHYSICAL (1 << 1)
-#define VMM_FIXED (1 << 2)
-#define VMM_NOREPLACE (1 << 3)
-#define VMM_IOMEM (1 << 4)
-#define VMM_HUGETLB (1 << 5)
-#define VMM_HUGETLB_2MB (1 << 6)
-#define VMM_HUGETLB_1GB (1 << 7)
-#define VMM_USER (1 << 8)
-#define VMM_SEALED (1 << 9)
-#define VMM_STACK (1 << 10)
+#define VMM_ALLOC (1 << 0) /* Allocate physical memory for the pages (optional argument NULL)*/
+#define VMM_PHYSICAL (1 << 1) /* Map pages to a physical address (optional pointing to a physaddr_t*) */
+#define VMM_FIXED (1 << 2) /* Only place the mapping at the exact hint */
+#define VMM_NOREPLACE (1 << 3) /* Used with VMM_FIXED, but will not replace mappings that already exist, instead returning -EEXIST */
+#define VMM_IOMEM (1 << 4) /* Mapping is used for MMIO. Do not use directly, use iomap() instead */
+#define VMM_HUGETLB (1 << 5) /* Use a page size bigger than the default. Uses 2MiB pages when page size is not specified */
+#define VMM_HUGETLB_2MB (1 << 6) /* Use a 2MiB page, use in conjunction with VMM_HUGETLB */
+#define VMM_HUGETLB_1GB (1 << 7) /* Unsupported, returns -ENOTSUP when used */
+#define VMM_USER (1 << 8) /* Mapping is for user space. Do not use directly, use usermap() instead */
+#define VMM_SEALED (1 << 9) /* Mapping cannot be changed even when VMM_FIXED is used, returning -EPERM when this happens */
+#define VMM_STACK (1 << 10) /* Mapping is for a stack */
 
 struct vmm_usermap_info {
 	struct mm* mm_struct;
