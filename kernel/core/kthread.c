@@ -33,6 +33,7 @@ struct thread* kthread_create(int flags, int (*func)(void*), void* arg, const ch
 	const size_t stack_size = PAGE_SIZE * 4;
 	void** stack = vmap(NULL, stack_size + PAGE_SIZE, PGPROT_READ | PGPROT_WRITE, VMM_ALLOC | VMM_STACK, NULL);
 	if (IS_PTR_ERR(stack)) {
+		THREAD_RELEASE(thread);
 		sched_thread_destroy(thread);
 		return NULL;
 	}
