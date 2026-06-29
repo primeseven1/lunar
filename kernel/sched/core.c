@@ -265,6 +265,7 @@ static void sched_timer_handler(void* event_handle, void* arg) {
 	struct thread* thread = targ->thread;
 
 	struct runqueue* rq = &atomic_load(&thread->topology.cpu)->runqueue;
+
 	unsigned long irq_flags;
 	spinlock_acquire_irq_save(&rq->lock, &irq_flags);
 
@@ -337,6 +338,7 @@ _Noreturn void sched_thread_exit(void) {
 	bug(atomic_exchange(&thread->state.state, THREAD_ZOMBIE) != THREAD_RUNNING);
 
 	struct runqueue* rq = &current_cpu()->runqueue;
+
 	spinlock_acquire(&rq->zombie_lock);
 	list_add_tail(&rq->zombie_list, &thread->state.block_link);
 	semaphore_signal(&rq->reaper_sem);
@@ -355,11 +357,11 @@ static struct thread* create_bootstrap_thread(void (*exec)(void), int state, int
 		out_of_memory();
 
 	/* Create a stack with a guard page */
-	u8* stack = vmap(NULL, 0x4000 + PAGE_SIZE, PGPROT_READ | PGPROT_WRITE, VMM_ALLOC | VMM_STACK, NULL);
-	if (IS_PTR_ERR(stack))
+	u8* _stack = vmap(NULL, 0x4000 + PAGE_SIZE, PGPROT_READ | PGPROT_WRITE, VMM_ALLOC | VMM_STACK, NULL);
+	if (IS_PTR_ERR(_stack))
 		out_of_memory();
-	bug(vprotect(stack, PAGE_SIZE, PGPROT_NONE, 0, NULL) != 0);
-	stack += 0x4000 + PAGE_SIZE;
+	bug(vprotect(_stack, PAGE_SIZE, PGPROT_NONE, 0, NULL) != 0);
+	_stack += 0x4000 + PAGE_SIZE;
 
 	/*
 	 * When priority is zero, it means that it's the idle thread.
@@ -375,7 +377,10 @@ static struct thread* create_bootstrap_thread(void (*exec)(void), int state, int
 		proc_thread_attach(kernel_proc, thread);
 	}
 	atomic_store(&thread->state.state, state);
-	arch_thread_prepare_execution(thread, exec, stack, true);
+
+	const struct thread_entry_point entry_point = { .kernel_entry = exec, .user_entry = NULL };
+	const struct thread_stack stack = { .kernel_stack_top = _stack, .user_stack_top = NULL };
+	arch_thread_prepare_execution(thread, &entry_point, &stack);
 
 	return thread;
 }
@@ -395,6 +400,7 @@ void sched_assign_id(void) {
 
 static void sched_bootstrap_processor(void) {
 	struct runqueue* rq = &current_cpu()->runqueue;
+
 	spinlock_init(&rq->lock);
 	list_head_init(&rq->zombie_list);
 	spinlock_init(&rq->zombie_lock);

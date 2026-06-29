@@ -17,7 +17,7 @@ struct thread* sched_thread_alloc(int flags) {
 	atomic_store(&ret->proc, NULL);
 	list_node_init(&ret->proc_link);
 
-	int err = arch_thread_context_init(ret);
+	int err = arch_context_init(&ret->context.ctx);
 	if (err)
 		return NULL;
 	ret->context.stack_base = NULL;
@@ -40,7 +40,7 @@ struct thread* sched_thread_alloc(int flags) {
 
 void sched_thread_destroy(struct thread* thread) {
 	bug(atomic_load(&thread->refcnt) != 0);
-	arch_thread_context_destroy(thread);
+	arch_context_destroy(&thread->context.ctx);
 	slab_cache_free(thread_cache, thread);
 }
 

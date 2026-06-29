@@ -34,6 +34,11 @@ struct context {
 	struct arch_context_extended arch_extended_context;
 };
 
+struct thread_stack {
+	void* kernel_stack_top;
+	void __user* user_stack_top;
+};
+
 struct thread {
 	struct {
 		atomic(struct cpu*) cpu; /* CPU this thread is running on */
@@ -57,6 +62,11 @@ struct thread {
 	long preempt_count; /* If zero, the thread can be preempted */
 	atomic(unsigned long) refcnt;
 	atomic(void*) policy_priv;
+};
+
+struct thread_entry_point {
+	void (*kernel_entry)(void);
+	void (__user* user_entry)(void);
 };
 
 #define THREAD_HOLD(t) \

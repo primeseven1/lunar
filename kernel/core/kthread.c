@@ -88,7 +88,10 @@ int kthread_run(struct thread* thread, int prio) {
 	err = sched_thread_attach(thread, kernel_proc, prio);
 	if (err)
 		goto out_unlock;
-	arch_thread_prepare_execution(thread, arch_asm_kthread_start, kt.stack, true);
+
+	const struct thread_entry_point entry_point = { .kernel_entry = arch_asm_kthread_start, .user_entry = NULL };
+	const struct thread_stack stack = { .kernel_stack_top = kt.stack, .user_stack_top = NULL };
+	arch_thread_prepare_execution(thread, &entry_point, &stack);
 
 	err = sched_enqueue(thread);
 	if (err) {
