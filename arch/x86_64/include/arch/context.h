@@ -2,7 +2,10 @@
 
 #include <lunar/types.h>
 
+struct context;
+struct thread_stack;
 struct thread;
+struct thread_entry_point;
 
 struct arch_context {
 	u64 ds, es;
@@ -34,13 +37,22 @@ struct arch_x86_64_fxsave_context {
 static_assert(sizeof(struct arch_x86_64_fxsave_context) == 512);
 
 struct arch_context_extended {
-	void* fsbase, *gsbase;
+	void* fsbase, *gsbase, *krnlgsbase;
 	struct arch_x86_64_fxsave_context* fxsave_region;
 };
 
 void arch_context_switch(struct thread* current, struct thread* next);
-int arch_thread_context_init(struct thread* ctx);
-void arch_thread_context_destroy(struct thread* thread);
-void arch_thread_prepare_execution(struct thread* thread, void (*exec)(void), void* stack, bool kernel);
+int arch_context_init(struct context* ctx);
+void arch_context_destroy(struct context* ctx);
+void arch_thread_prepare_execution(struct thread* thread, const struct thread_entry_point* entry_point, const struct thread_stack* stack);
 
+/**
+ * @brief Switch to a new thread, but in an interrupt context
+ *
+ * The interrupt context is written with the general purpose registers of the new thread after saving them.
+ *
+ * @param current The current thread
+ * @param next The thread to switch to
+ * @param intctx The current interrupt context
+ */
 void arch_x86_64_context_switch_in_interrupt(struct thread* current, struct thread* next, struct arch_context* intctx);
