@@ -112,9 +112,9 @@ static void add_pending(struct irq* irq) {
 static bool enter_irq(struct irq* irq) {
 	spinlock_acquire(&irq->lock);
 
-	irq_ref(irq);
 	bool enabled = (irq->disable_count == 0);
 	if (likely(enabled)) {
+		irq_ref(irq);
 		atomic_add_fetch(&irq->inflight, 1);
 		irq->status_flags &= ~IRQ_STATUS_FLAG_PENDING;
 	} else {
@@ -255,8 +255,8 @@ void disable_irq(unsigned int irqnum) {
 	struct irq* irq = find_irq_from_table(irqnum);
 	if (irq) {
 		__disable_irq(irq);
-		irq_unref(irq);
 		__synchronize_irq(irq);
+		irq_unref(irq);
 	}
 }
 
