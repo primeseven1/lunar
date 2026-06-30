@@ -50,7 +50,7 @@ static void add_message_to_ringbuffer(int level, const char* msg) {
 static atomic(int) current_level = atomic_init(CONFIG_PRINTK_LEVEL);
 
 void printk_set_level(int level) {
-	if (level >= 0 && level < PRINTK_MAX_N)
+	if (level >= 0 && level <= PRINTK_MAX_N)
 		atomic_store_explicit(&current_level, level, ATOMIC_RELAXED);
 }
 
