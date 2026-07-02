@@ -649,16 +649,6 @@ err:
 	dump_stack();
 }
 
-static u64 round_power2(u64 base, u64 x) {
-	if (x < base || base == 0)
-		return base;
-
-	u64 ret = base;
-	while (ret < x)
-		ret <<= 1;
-	return ret;
-}
-
 static unsigned int get_layer_count(size_t size) {
 	unsigned int layers = 1;
 	while (layers <= MAX_ORDER) {
@@ -719,7 +709,9 @@ static void dma_zone_init(physaddr_t last_usable) {
  * so this function can be used when not every zone is initialized yet.
  */
 static int init_area(struct mem_area* area, physaddr_t base, size_t real_size, bool atomic, struct zone* alloc_zone) {
-	u64 rounded_size = round_power2(PAGE_SIZE, real_size);
+	u64 rounded_size = roundup_pow2_minimum(PAGE_SIZE, real_size);
+	bug(rounded_size == 0);
+
 	unsigned int layer_count = get_layer_count(rounded_size);
 	if (layer_count == 1)
 		return -ELOOP;

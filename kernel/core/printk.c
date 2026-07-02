@@ -273,11 +273,11 @@ static void printk_late_init(void) {
 		unsigned long long cmdline_rbsize;
 		int err = kstrtoull(logsize_cmdline, 0, &cmdline_rbsize);
 		if (err == 0) {
-			cmdline_rbsize = round_up_pow2(cmdline_rbsize);
+			cmdline_rbsize = roundup_pow2(cmdline_rbsize);
 			if (cmdline_rbsize >= RBSIZE_MAX) {
 				printk(PRINTK_ERR "printk: logsize %llu is too big (maximum %lu)\n", cmdline_rbsize, RBSIZE_MAX);
 				rbsize = RBSIZE_MAX;
-			} else {
+			} else if (cmdline_rbsize != 0) {
 				rbsize = cmdline_rbsize;
 			}
 		}

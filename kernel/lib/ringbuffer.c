@@ -8,7 +8,7 @@ int ringbuffer_init(struct ringbuffer* rb, size_t size) {
 	if (size < RINGBUFFER_SIZE_MINIMUM)
 		return -EINVAL;
 	if (size & (size - 1)) {
-		size = round_up_pow2(size);
+		size = roundup_pow2(size);
 		if (size == 0)
 			return -EINVAL;
 	}
