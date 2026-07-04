@@ -1,11 +1,7 @@
 #pragma once
 
 #include <lunar/types.h>
-
-struct context;
-struct thread_stack;
-struct thread;
-struct thread_entry_point;
+#include <arch-generic/context.h>
 
 struct arch_context {
 	u64 ds, es;
@@ -40,11 +36,6 @@ struct arch_context_extended {
 	void* fsbase, *gsbase, *krnlgsbase;
 	struct arch_x86_64_fxsave_context* fxsave_region;
 };
-
-void arch_context_switch(struct thread* current, struct thread* next);
-int arch_context_init(struct context* ctx);
-void arch_context_destroy(struct context* ctx);
-void arch_thread_prepare_execution(struct thread* thread, const struct thread_entry_point* entry_point, const struct thread_stack* stack);
 
 /**
  * @brief Switch to a new thread, but in an interrupt context

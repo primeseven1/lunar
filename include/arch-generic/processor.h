@@ -15,7 +15,5 @@ static inline u32 arch_get_cpu_count(void) {
  *
  * Must be defined regardless of if CONFIG_SMP is defined or not.
  * If not defined, AP's should be put into an idle state with IRQ's off.
- *
- * This function also should wait for other CPU's to start before returning.
  */
 void arch_start_cpus(void);
