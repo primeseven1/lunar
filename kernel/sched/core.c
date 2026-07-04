@@ -357,11 +357,12 @@ static struct thread* create_bootstrap_thread(void (*exec)(void), int state, int
 		out_of_memory();
 
 	/* Create a stack with a guard page */
-	u8* _stack = vmap(NULL, 0x4000 + PAGE_SIZE, PGPROT_READ | PGPROT_WRITE, VMM_ALLOC | VMM_STACK, NULL);
-	if (IS_PTR_ERR(_stack))
+	const size_t stack_size = PAGE_SIZE * 4;
+	u8* stack = vmap(NULL, stack_size + PAGE_SIZE, PGPROT_READ | PGPROT_WRITE, VMM_ALLOC | VMM_STACK, NULL);
+	if (IS_PTR_ERR(stack))
 		out_of_memory();
-	bug(vprotect(_stack, PAGE_SIZE, PGPROT_NONE, 0, NULL) != 0);
-	_stack += 0x4000 + PAGE_SIZE;
+	bug(vprotect(stack, PAGE_SIZE, PGPROT_NONE, 0, NULL) != 0);
+	stack += stack_size + PAGE_SIZE;
 
 	/*
 	 * When priority is zero, it means that it's the idle thread.
@@ -379,8 +380,15 @@ static struct thread* create_bootstrap_thread(void (*exec)(void), int state, int
 	atomic_store(&thread->state.state, state);
 
 	const struct thread_entry_point entry_point = { .kernel_entry = exec, .user_entry = NULL };
-	const struct thread_stack stack = { .kernel_stack_top = _stack, .user_stack_top = NULL };
-	arch_thread_prepare_execution(thread, &entry_point, &stack);
+	thread->stack = (struct thread_stack){
+		.kernel_stack_top = stack,
+		.kernel_size = stack_size, .kernel_guard_size = PAGE_SIZE,
+		.kernel_ptr_off = 0,
+		.user_stack_top = NULL,
+		.user_size = 0, .user_guard_size = 0,
+		.user_ptr_off = 0
+	};
+	arch_thread_prepare_execution(thread, &entry_point);
 
 	return thread;
 }

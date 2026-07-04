@@ -15,14 +15,15 @@ struct kthread {
 	char name[32];
 	int (*func)(void*);
 	void* arg;
-	void* stack, *stack_base;
-	size_t vunmap_stack_size;
+	struct thread_stack stack;
 	bool scheduled;
 };
 
 static struct proc* kernel_proc;
 static struct hashtable* kthread_table;
 static MUTEX_DEFINE(kthread_table_lock);
+
+typedef atomic(void*) atomic_void_ptr_t; /* Don't really like doing this, since this allows more ways to use it wrong */
 
 struct thread* kthread_create(int flags, int (*func)(void*), void* arg, const char* fmt, ...) {
 	(void)flags;
@@ -31,7 +32,7 @@ struct thread* kthread_create(int flags, int (*func)(void*), void* arg, const ch
 	if (!thread)
 		return NULL;
 	const size_t stack_size = PAGE_SIZE * 4;
-	void** stack = vmap(NULL, stack_size + PAGE_SIZE, PGPROT_READ | PGPROT_WRITE, VMM_ALLOC | VMM_STACK, NULL);
+	atomic_void_ptr_t* stack = vmap(NULL, stack_size + PAGE_SIZE, PGPROT_READ | PGPROT_WRITE, VMM_ALLOC | VMM_STACK, NULL);
 	if (IS_PTR_ERR(stack)) {
 		THREAD_RELEASE(thread);
 		sched_thread_destroy(thread);
@@ -40,17 +41,23 @@ struct thread* kthread_create(int flags, int (*func)(void*), void* arg, const ch
 	void* const stack_base = stack;
 
 	bug(vprotect(stack, PAGE_SIZE, PGPROT_NONE, 0, NULL) != 0);
-	stack = (void**)((u8*)stack + stack_size + PAGE_SIZE);
+	stack = (atomic_void_ptr_t*)((u8*)stack + stack_size + PAGE_SIZE);
 	stack -= 2;
 
-	atomic(void*)* _fn = (void*)stack;
-	atomic(void*)* _arg = (void*)(stack + 1);
+	atomic_void_ptr_t* _fn = stack;
+	atomic_void_ptr_t* _arg = stack + 1;
+	const size_t ptr_off = sizeof(*_fn) + sizeof(*_arg);
+
 	atomic_store_explicit(_fn, func, ATOMIC_SEQ_CST);
 	atomic_store_explicit(_arg, arg, ATOMIC_SEQ_CST);
+	stack += 2;
 
 	struct kthread kt = {
 		.func = func, .arg = arg,
-		.stack = stack, .stack_base = stack_base, .vunmap_stack_size = stack_size + PAGE_SIZE,
+		.stack = {
+			.kernel_stack_top = stack, .kernel_ptr_off = ptr_off, .kernel_size = stack_size, .kernel_guard_size = PAGE_SIZE,
+			.user_stack_top = NULL, .user_ptr_off = 0, .user_size = 0, .user_guard_size = 0
+		},
 		.scheduled = false
 	};
 	va_list va;
@@ -63,6 +70,7 @@ struct thread* kthread_create(int flags, int (*func)(void*), void* arg, const ch
 
 	int err = hashtable_insert(kthread_table, &thread, sizeof(struct thread*), &kt);
 	if (err) {
+		bug(vunmap(stack_base, stack_size + PAGE_SIZE, 0, NULL) != 0);
 		THREAD_RELEASE(thread); /* Remove the ref that sched_thread_alloc() gives */
 		sched_thread_destroy(thread);
 		thread = NULL;
@@ -90,8 +98,8 @@ int kthread_run(struct thread* thread, int prio) {
 		goto out_unlock;
 
 	const struct thread_entry_point entry_point = { .kernel_entry = arch_asm_kthread_start, .user_entry = NULL };
-	const struct thread_stack stack = { .kernel_stack_top = kt.stack, .user_stack_top = NULL };
-	arch_thread_prepare_execution(thread, &entry_point, &stack);
+	thread->stack = kt.stack;
+	arch_thread_prepare_execution(thread, &entry_point);
 
 	err = sched_enqueue(thread);
 	if (err) {
@@ -116,7 +124,9 @@ void kthread_destroy(struct thread* thread) {
 		printk(PRINTK_ERR "kthread: %s() invalid pointer (err %d)\n", __func__, err);
 	} else {
 		bug(kt.scheduled == true);
-		bug(vunmap(kt.stack_base, kt.vunmap_stack_size, 0, NULL) != 0);
+		size_t unmap_size = kt.stack.kernel_size + kt.stack.kernel_guard_size;
+		void* const stack_base = (u8*)kt.stack.kernel_stack_top - unmap_size;
+		bug(vunmap(stack_base, unmap_size, 0, NULL) != 0);
 		bug(hashtable_remove(kthread_table, &thread, sizeof(struct thread*)) != 0);
 		THREAD_RELEASE(thread);
 		sched_thread_destroy(thread);

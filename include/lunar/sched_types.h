@@ -35,34 +35,39 @@ struct context {
 };
 
 struct thread_stack {
-	void* kernel_stack_top;
-	void __user* user_stack_top;
+	void* kernel_stack_top; /* Stack to switch to on syscalls and interrupts (unless it's a kthread) */
+	size_t kernel_ptr_off; /* How many bytes already "consumed" */
+	size_t kernel_size, kernel_guard_size;
+	void __user* user_stack_top; /* Unused for kernel threads */
+	size_t user_ptr_off; /* How many bytes already "consumed" */
+	size_t user_size, user_guard_size;
+};
+
+struct topology {
+	atomic(struct cpu*) cpu;
+	struct cpumask cpumask;
+	atomic(bool) migratable;
 };
 
 struct thread {
-	struct {
-		atomic(struct cpu*) cpu; /* CPU this thread is running on */
-		struct cpumask cpumask; /* CPU's this thread is allowed to run on */
-		atomic(bool) migratable; /* Can this thread move to another CPU? */
-	} topology;
+	struct thread_stack stack;
+	struct topology topology;
+	struct context context; /* Registers */
 	atomic(struct proc*) proc; /* Process this thread is associated with */
 	struct list_node proc_link; /* For thread list in process struct */
-	struct {
-		struct context ctx; /* CPU registers */
-		void* stack_base; /* Base of the stack */
-		size_t stack_size; /* Size of the stack including the guard page */
-	} context;
+	atomic(int) prio; /* Scheduler priority */
+	long preempt_count; /* If zero, the thread can be preempted */
 	struct {
 		atomic(int) state, flags; /* Running, sleeping, interruptible, etc. */
 		atomic(int) wakeup_errno; /* The reason for waking up the thread (eg. -EINTR)*/
 		atomic(unsigned long long) sleep_gen; /* Bumped on each sleep to prevent stale wakeups */
 		struct list_node block_link; /* Used by things like semaphores to manage sleeping threads */
 	} state;
-	atomic(int) prio; /* Scheduler priority */
-	long preempt_count; /* If zero, the thread can be preempted */
 	atomic(unsigned long) refcnt;
 	atomic(void*) policy_priv;
 };
+static_assert(offsetof(struct thread, stack.kernel_stack_top) == 0);
+static_assert(offsetof(struct thread, stack.kernel_ptr_off) == sizeof(void*) * 1);
 
 struct thread_entry_point {
 	void (*kernel_entry)(void);
@@ -80,5 +85,18 @@ struct thread_entry_point {
 		atomic_fetch_sub(&(t)->refcnt, 1); \
 	} while (0)
 
+/**
+ * @brief Allocate a thread structure
+ *
+ * Thread is returned with a ref
+ *
+ * @param flags SCHED_* flags
+ * @return A pointer to the thread
+ */
 struct thread* sched_thread_alloc(int flags);
+
+/**
+ * @brief Destroy a thread
+ * @param thread The thread to destroy
+ */
 void sched_thread_destroy(struct thread* thread);
