@@ -121,7 +121,7 @@ static inline void* kzalloc(size_t size, mm_t mm_flags) {
 	return ptr;
 }
 
-static inline void* kcalloc(size_t esize, size_t ecount, mm_t mm_flags) {
+static inline void* kcalloc(size_t ecount, size_t esize, mm_t mm_flags) {
 	size_t size;
-	return (__builtin_mul_overflow(esize, ecount, &size)) ? NULL : kzalloc(size, mm_flags);
+	return (__builtin_mul_overflow(ecount, esize, &size)) ? NULL : kzalloc(size, mm_flags);
 }

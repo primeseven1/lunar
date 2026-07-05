@@ -197,7 +197,7 @@ void* realloc(void* old, size_t new_size) {
 }
 
 void* calloc(size_t count, size_t size) {
-	return kzalloc(count * size, MM_ZONE_NORMAL);
+	return kcalloc(count, size, MM_ZONE_NORMAL);
 }
 
 void free(void* ptr) {

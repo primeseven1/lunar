@@ -88,7 +88,7 @@ static void stop_ipi(struct isr* isr) {
 
 static void smp_init(void) {
 	u32 cpu_count = arch_get_cpu_count();
-	struct cpu** cpus = kcalloc(sizeof(*cpus), cpu_count, MM_ZONE_NORMAL | MM_NOFAIL);
+	struct cpu** cpus = kcalloc(cpu_count, sizeof(*cpus), MM_ZONE_NORMAL | MM_NOFAIL);
 
 	struct isr* isr = NULL;
 	if (cpu_count >= 1) {
