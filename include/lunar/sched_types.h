@@ -50,8 +50,9 @@ struct topology {
 };
 
 struct thread {
-	struct thread_stack stack;
-	struct topology topology;
+	struct thread_stack stack; /* The stack for the current thread, also describes what stack to switch to when entering the kernel */
+	struct topology topology; /* What CPU's this thread can run on */
+	struct mm* mm_struct; /* Might be different from proc->mm_struct */
 	struct context context; /* Registers */
 	atomic(struct proc*) proc; /* Process this thread is associated with */
 	struct list_node proc_link; /* For thread list in process struct */

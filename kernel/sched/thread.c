@@ -29,6 +29,7 @@ struct thread* sched_thread_alloc(int flags) {
 	bug(cpu == NULL);
 	bug(topology_set_cpu(&ret->topology, cpu) != 0);
 
+	ret->mm_struct = NULL;
 	atomic_store(&ret->proc, NULL);
 	list_node_init(&ret->proc_link);
 	atomic_store(&ret->prio, 0);

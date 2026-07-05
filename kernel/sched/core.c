@@ -130,8 +130,6 @@ static bool __context_switch(struct runqueue* rq, struct thread* to) {
 	struct thread* current = atomic_load(&rq->current);
 	if (current == to)
 		return false;
-	struct mm* mm = atomic_load(&current->proc)->mm_struct;
-	struct mm* next_mm = atomic_load(&to->proc)->mm_struct;
 
 	spinlock_acquire(&rq->lock);
 
@@ -140,8 +138,8 @@ static bool __context_switch(struct runqueue* rq, struct thread* to) {
 	expected = THREAD_READY;
 	bug(atomic_compare_exchange_strong(&to->state.state, &expected, THREAD_RUNNING) == false);
 	atomic_store(&rq->current, to);
-	if (mm != next_mm)
-		mm_switch_context(next_mm);
+	if (current->mm_struct != to->mm_struct)
+		mm_switch_context(to->mm_struct);
 
 	spinlock_release(&rq->lock);
 	return true;

@@ -1,6 +1,7 @@
 #include <lunar/common.h>
 #include <lunar/printk.h>
 #include <lunar/compiler.h>
+#include <lunar/sched.h>
 #include <lunar/vmm.h>
 #include <lunar/string.h>
 #include <lunar/panic.h>
@@ -48,6 +49,7 @@ void mm_destroy(struct mm* mm) {
 void mm_switch_context(struct mm* mm) {
 	unsigned long irq_flags = local_irq_save();
 	current_cpu()->mm_struct = mm;
+	current_thread()->mm_struct = mm;
 	arch_pagetable_switch(mm->pagetable);
 	local_irq_restore(irq_flags);
 }

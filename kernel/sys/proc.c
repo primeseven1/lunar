@@ -86,6 +86,8 @@ void proc_thread_attach(struct proc* proc, struct thread* thread) {
 	bug(atomic_exchange(&thread->proc, proc) != NULL);
 	list_add(&proc->threads.list, &thread->proc_link);
 	atomic_fetch_add(&proc->threads.count, 1);
+	if (!thread->mm_struct)
+		thread->mm_struct = proc->mm_struct;
 
 	spinlock_release_irq_restore(&proc->threads.lock, &irq_flags);
 }
