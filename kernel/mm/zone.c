@@ -562,24 +562,22 @@ void out_of_memory(void) {
 }
 
 physaddr_t alloc_pages(mm_t mm_flags, unsigned int order) {
-	mm_t zone_mmflags = mm_flags & (MM_ZONE_NORMAL | MM_ZONE_DMA32 | MM_ZONE_DMA);
-	if (zone_mmflags == 0)
-		mm_flags |= MM_ZONE_NORMAL;
-
-	if (order >= MAX_ORDER) {
-		printk(PRINTK_ERR "mm: order (%u) >= MAX_ORDER (%u) in %s\n", order, MAX_ORDER, __func__);
+	if (order > MAX_ORDER) {
 		dump_stack();
+		printk(PRINTK_ERR "mm: %s(mm_flags: %u, order: %u) failed: bad order\n", __func__, mm_flags, order);
 		return 0;
 	}
 
+	if ((mm_flags & (MM_ZONE_NORMAL | MM_ZONE_DMA32 | MM_ZONE_DMA)) == 0)
+		mm_flags |= MM_ZONE_NORMAL;
 	struct zone* zone = get_zone_mm(mm_flags);
 	if (!zone) {
-		printk(PRINTK_ERR "mm: bad flags passed to %s, flags: %u\n", __func__, mm_flags);
 		dump_stack();
+		printk(PRINTK_ERR "mm: %s(mm_flags: %u, order: %u) failed: bad flags\n", __func__, mm_flags, order);
 		return 0;
 	}
 
-	/* For atomic contexts, don't retry at all to avoid latency issues */
+	/* For atomic contexts, don't retry at all to avoid latency issues (unless MM_NOFAIL is set (bad idea)) */
 	const unsigned int max_retries = (mm_flags & MM_ATOMIC) ? 0 : 8;
 	unsigned int retries = max_retries;
 	physaddr_t ret = 0;
@@ -620,7 +618,7 @@ physaddr_t alloc_pages(mm_t mm_flags, unsigned int order) {
 
 void free_pages(physaddr_t addr, unsigned int order) {
 	int err = -EINVAL;
-	if (order < MAX_ORDER && addr % PAGE_SIZE == 0 && addr >= PAGE_SIZE) {
+	if (order <= MAX_ORDER && addr % PAGE_SIZE == 0 && addr >= PAGE_SIZE) {
 		size_t alloc_size = PAGE_SIZE << order;
 		struct zone* zone = get_zone_addr(addr, alloc_size);
 		err = (zone) ? __free_pages(zone, addr, order) : -EFAULT;
