@@ -61,6 +61,8 @@ static physaddr_t mmap_get_last_usable(void) {
 	struct limine_mmap_response* mmap = mmap_request.response;
 	for (u64 i = 0; i < mmap->entry_count; i++) {
 		struct limine_mmap_entry* entry = mmap->entries[i];
+		if (unlikely(entry->length == 0))
+			continue;
 		if (entry->type == LIMINE_MMAP_USABLE)
 			ret = entry->base + entry->length - 1;
 	}
