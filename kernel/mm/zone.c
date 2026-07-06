@@ -549,12 +549,12 @@ static struct zone* get_zone_addr(physaddr_t addr, size_t size) {
 	return NULL;
 }
 
-static atomic(u64) mem_in_use = atomic_init(0);
+static atomic(u64) pages_in_use = atomic_init(0);
 static u64 mem_total = 0;
 
 void mm_get_free_pages(size_t* total_page_count, size_t* free_page_count) {
 	*total_page_count = mem_total >> PAGE_SHIFT;
-	*free_page_count = (mem_total >> PAGE_SHIFT) - (atomic_load(&mem_in_use) >> PAGE_SHIFT);
+	*free_page_count = (mem_total >> PAGE_SHIFT) - atomic_load(&pages_in_use);
 }
 
 void out_of_memory(void) {
@@ -562,6 +562,10 @@ void out_of_memory(void) {
 }
 
 physaddr_t alloc_pages(mm_t mm_flags, unsigned int order) {
+	mm_t zone_mmflags = mm_flags & (MM_ZONE_NORMAL | MM_ZONE_DMA32 | MM_ZONE_DMA);
+	if (zone_mmflags == 0)
+		mm_flags |= MM_ZONE_NORMAL;
+
 	if (order >= MAX_ORDER) {
 		printk(PRINTK_ERR "mm: order (%u) >= MAX_ORDER (%u) in %s\n", order, MAX_ORDER, __func__);
 		dump_stack();
@@ -575,21 +579,23 @@ physaddr_t alloc_pages(mm_t mm_flags, unsigned int order) {
 		return 0;
 	}
 
-	/* Have retries here, so that way we can see if another thread frees any memory */
-	const unsigned int max_retries = mm_flags & MM_ATOMIC ? 0 : 10;
+	/* For atomic contexts, don't retry at all to avoid latency issues */
+	const unsigned int max_retries = (mm_flags & MM_ATOMIC) ? 0 : 8;
 	unsigned int retries = max_retries;
+	physaddr_t ret = 0;
 	do {
-		physaddr_t physical = __alloc_pages(zone, mm_flags, order);
-		if (physical) {
-			atomic_add_fetch(&mem_in_use, (1u << order) << PAGE_SHIFT);
-			return physical;
+		ret = __alloc_pages(zone, mm_flags, order);
+		if (ret) {
+			atomic_add_fetch(&pages_in_use, 1ul << order);
+			break;
 		}
-
 		if (mm_flags & MM_NOFAIL && retries == 0) {
-			out_of_memory();
-			retries = max_retries;
+			retries = 1;
+			if ((mm_flags & MM_ATOMIC) == 0) /* Having MM_ATOMIC set with MM_NOFAIL is dangerous, but legal */
+				out_of_memory();
 			continue;
-		} else if (retries < max_retries / 2) {
+		}
+		if (retries < max_retries / 2) {
 			switch (zone->zone_type) {
 			case MM_ZONE_NORMAL:
 				zone = dma32_zone;
@@ -597,56 +603,35 @@ physaddr_t alloc_pages(mm_t mm_flags, unsigned int order) {
 			case MM_ZONE_DMA32:
 				zone = &dma_zone;
 				break;
-			default:
+			case MM_ZONE_DMA:
+				if (mm_flags & MM_ZONE_DMA32)
+					zone = dma32_zone;
+				else if (mm_flags & MM_ZONE_NORMAL)
+					zone = normal_zone;
 				break;
+			default:
+				bug("Invalid zone type");
 			}
 		}
 	} while (retries--);
 
-	return 0;
+	return ret;
 }
 
 void free_pages(physaddr_t addr, unsigned int order) {
-	int err = 0;
-	if (order >= MAX_ORDER || addr % PAGE_SIZE || addr < PAGE_SIZE) {
-		err = -EINVAL;
-		goto err;
+	int err = -EINVAL;
+	if (order < MAX_ORDER && addr % PAGE_SIZE == 0 && addr >= PAGE_SIZE) {
+		size_t alloc_size = PAGE_SIZE << order;
+		struct zone* zone = get_zone_addr(addr, alloc_size);
+		err = (zone) ? __free_pages(zone, addr, order) : -EFAULT;
 	}
 
-	size_t alloc_size = PAGE_SIZE << order;
-	struct zone* zone = get_zone_addr(addr, alloc_size);
-	if (!zone) {
-		err = -EFAULT;
-		goto err;
+	if (err == 0) {
+		atomic_sub_fetch(&pages_in_use, 1ul << order);
+	} else {
+		dump_stack();
+		printk(PRINTK_ERR "mm: %s(%#lx, %u) failed: %d\n", __func__, addr, order, err);
 	}
-
-	err = __free_pages(zone, addr, order);
-	if (err)
-		goto err;
-
-	atomic_sub_fetch(&mem_in_use, (1u << order) << PAGE_SHIFT);
-	return;
-err:
-	switch (err) {
-	case -EFAULT:
-		printk(PRINTK_ERR "mm: %s Tried to free bad address (%#.16lx)\n", __func__, addr);
-		break;
-	case -EALREADY:
-		printk(PRINTK_ERR "mm: %s tried to free an address that was already free (%#.16lx)\n", __func__, addr);
-		break;
-	case -EINVAL:
-		if (order >= MAX_ORDER)
-			printk(PRINTK_ERR "mm: order (%u) >= MAX_ORDER (%u) in %s\n", order, MAX_ORDER, __func__);
-		if (addr % PAGE_SIZE)
-			printk(PRINTK_ERR "mm: Misaligned address passed to %s (%#.16lx)\n", __func__, addr);
-		if (addr < PAGE_SIZE)
-			printk(PRINTK_ERR "mm: %s tried to free the first page of memory\n", __func__);
-		break;
-	default:
-		printk(PRINTK_ERR "mm: %s unknown error (%i)\n", __func__, err);
-		break;
-	}
-	dump_stack();
 }
 
 static unsigned int get_layer_count(size_t size) {
