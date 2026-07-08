@@ -105,6 +105,7 @@ static int init(struct timekeeper* self, struct timekeeper_source** out) {
 err_cleanup:
 	bug(iounmap(hpet_virtual, PAGE_SIZE) != 0);
 	hpet_virtual = NULL;
+	uacpi_table_unref(&table);
 	return err;
 }
 

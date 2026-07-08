@@ -409,7 +409,7 @@ static int ioapic_init(void) {
 
 		/* Record the IRQ's this IOAPIC handles */
 		u32 version = ioapic_read(ioapics[i].address, IOAPIC_REG_VERSION);
-		ioapics[i].id = ioapic_read(ioapics[i].address, IOAPIC_REG_ID);
+		ioapics[i].id = (ioapic_read(ioapics[i].address, IOAPIC_REG_ID) >> 24) & 0x0F;
 		ioapics[i].version = version & 0xFF;
 		ioapics[i].gsi_base = entry->gsi_base;
 		ioapics[i].gsi_top = ioapics[i].gsi_base + (version >> 16 & 0xFF) + 1;
