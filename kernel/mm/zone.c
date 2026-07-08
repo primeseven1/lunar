@@ -19,7 +19,180 @@ static volatile struct limine_mmap_request __limine_request mmap_request = {
 	.response = NULL
 };
 
-/* Check if an address + size is within the memory region or not */
+static struct {
+	struct limine_mmap_entry entries[1024]; /* Around 6 pages */
+	size_t entry_count;
+} sanitized_mmap = { 0 };
+
+/*
+ * This function may make it look like there is a bug in mmap_sanitize() when merging memory map
+ * entries. No, different types can map to the same string as you can clearly see.
+ */
+static const char* mmap_entry_type_to_string(enum limine_mmap_type type) {
+	switch (type) {
+	case LIMINE_MMAP_USABLE:
+	case LIMINE_MMAP_BOOTLOADER_RECLAIMABLE:
+	case LIMINE_MMAP_EXECUTABLE_AND_MODULES:
+		return "System RAM";
+	case LIMINE_MMAP_ACPI_RECLAIMABLE:
+		return "ACPI Reclaimable";
+	case LIMINE_MMAP_RESERVED:
+	case LIMINE_MMAP_ACPI_TABLES:
+	case LIMINE_MMAP_FRAMEBUFFER:
+		return "Reserved";
+	case LIMINE_MMAP_ACPI_NVS:
+		return "ACPI Non-volatile Storage";
+	case LIMINE_MMAP_BAD_MEMORY:
+		return "Bad Memory";
+	}
+	return "Unknown";
+}
+
+static inline bool mmap_entry_usable(const struct limine_mmap_entry* entry) {
+	return (entry->type == LIMINE_MMAP_USABLE || entry->type == LIMINE_MMAP_BOOTLOADER_RECLAIMABLE);
+}
+
+static inline bool mmap_entry_usable_strict(const struct limine_mmap_entry* entry) {
+	return entry->type == LIMINE_MMAP_USABLE;
+}
+
+#define MMAP_TYPE_BIT(t) (1u << (t))
+
+/**
+ * Limine already sanitizes the firmware memory map, but this function does a few more things that
+ * limine doesn't do:
+ *
+ * - First page of memory is ALWAYS reserved (some base revisions do this, some do not)
+ * - ALL memory map entries are aligned by 4K, not just usable/bootloader reclaimable ones
+ * - Merge entries of the same type when touching
+ */
+static void mmap_sanitize(void) {
+	const struct limine_mmap_response* response = mmap_request.response;
+	if (unlikely(!response || response->entry_count == 0))
+		panic("Where the fuck is the memory map");
+	if (unlikely(response->entry_count > ARRAY_SIZE(sanitized_mmap.entries)))
+		printk(PRINTK_WARN "mm: Memory map has more than %zu entries\n", ARRAY_SIZE(sanitized_mmap.entries));
+
+	sanitized_mmap.entries[0] = (struct limine_mmap_entry){ .base = 0, .length = PAGE_SIZE, .type = LIMINE_MMAP_RESERVED };
+	size_t sanitized_n = 1;
+
+	/* First, align every entry by a page, usable entries shrink inward, unusable entries grow outward */
+	for (u64 i = 0; i < response->entry_count && sanitized_n < ARRAY_SIZE(sanitized_mmap.entries); i++) {
+		struct limine_mmap_entry entry = *response->entries[i];
+		physaddr_t base = entry.base;
+		physaddr_t end;
+		if (unlikely(__builtin_add_overflow(entry.base, entry.length, &end)))
+			panic("Malformed memory map");
+
+		/* Limine guaruntees that usable regions are 4K aligned, but it's done again anyway since it's an easy thing to do */
+		if (mmap_entry_usable(&entry)) {
+			base = ROUND_UP(base, PAGE_SIZE);
+			end = ROUND_DOWN(end, PAGE_SIZE);
+		} else {
+			base = ROUND_DOWN(base, PAGE_SIZE);
+			end = ROUND_UP(end, PAGE_SIZE);
+		}
+		if (unlikely(end <= base)) {
+			printk(PRINTK_WARN "mm: Dropping unrepresentable entry at %#lx (length %zu, type %s)\n",
+					entry.base, entry.length, mmap_entry_type_to_string(entry.type));
+			continue;
+		}
+
+		entry.base = base;
+		entry.length = end - base;
+		sanitized_mmap.entries[sanitized_n++] = entry;
+	}
+
+	/* This is the "rule table" on how to handle overlaps. Ordering doesn't matter a whole lot, but it can affect how much memory gets reported */
+	static const struct {
+		unsigned int victim, winner;
+	} clip_passes[] = {
+		{
+			.victim = MMAP_TYPE_BIT(LIMINE_MMAP_USABLE) | MMAP_TYPE_BIT(LIMINE_MMAP_BOOTLOADER_RECLAIMABLE),
+			.winner = ~(MMAP_TYPE_BIT(LIMINE_MMAP_USABLE) | MMAP_TYPE_BIT(LIMINE_MMAP_BOOTLOADER_RECLAIMABLE)) /* Everything wins except these two */
+		},
+		{
+			.victim = MMAP_TYPE_BIT(LIMINE_MMAP_USABLE),
+			.winner = MMAP_TYPE_BIT(LIMINE_MMAP_BOOTLOADER_RECLAIMABLE) /* Bootloader reclaimable wins over usable */
+		}
+	};
+
+	/* Now handle overlaps */
+	for (size_t pass = 0; pass < ARRAY_SIZE(clip_passes); pass++) {
+		for (size_t i = 0; i < sanitized_n; i++) {
+			struct limine_mmap_entry* entry = &sanitized_mmap.entries[i];
+			if (!(MMAP_TYPE_BIT(entry->type) & clip_passes[pass].victim) || entry->length == 0)
+				continue;
+
+			physaddr_t entry_base = entry->base;
+			physaddr_t entry_end = entry_base + entry->length;
+
+			for (size_t j = 0; j < sanitized_n && entry_base < entry_end; j++) {
+				struct limine_mmap_entry* against = &sanitized_mmap.entries[j];
+				physaddr_t against_end;
+				if (j == i || !(MMAP_TYPE_BIT(against->type) & clip_passes[pass].winner) || against->length == 0)
+					continue;
+
+				against_end = against->base + against->length;
+				if (against_end <= entry_base || against->base >= entry_end)
+					continue;
+
+				/* Handle front overlap, tail overlap, and the entry being right in the middle */
+				if (against->base <= entry_base) {
+					entry_base = (against_end < entry_end) ? against_end : entry_end;
+				} else if (against_end >= entry_end) {
+					entry_end = against->base;
+				} else {
+					if (likely(sanitized_n < ARRAY_SIZE(sanitized_mmap.entries))) {
+						sanitized_mmap.entries[sanitized_n++] = (struct limine_mmap_entry){
+							.base = against_end, .length = entry_end - against_end, .type = entry->type
+						};
+					} else {
+						printk(PRINTK_WARN "mm: Memory map full, dropping region [%#lx-%#lx)\n", against_end, entry_end);
+					}
+					entry_end = against->base;
+				}
+			}
+
+			entry->base = entry_base;
+			entry->length = entry_end > entry_base ? entry_end - entry_base : 0;
+		}
+	}
+
+	/* Now sort the entries */
+	for (size_t i = 1; i < sanitized_n; i++) {
+		struct limine_mmap_entry key = sanitized_mmap.entries[i];
+		size_t j = i;
+		while (j > 0 && sanitized_mmap.entries[j - 1].base > key.base) {
+			sanitized_mmap.entries[j] = sanitized_mmap.entries[j - 1];
+			j--;
+		}
+		sanitized_mmap.entries[j] = key;
+	}
+
+	/* Now drop empty entries and merge any touching/overlapping same type */
+	size_t entry_count = 0;
+	for (size_t i = 0; i < sanitized_n; i++) {
+		struct limine_mmap_entry* curr = &sanitized_mmap.entries[i];
+		if (curr->length == 0)
+			continue;
+		if (entry_count > 0) {
+			struct limine_mmap_entry* prev = &sanitized_mmap.entries[entry_count - 1];
+			physaddr_t prev_end = prev->base + prev->length;
+			if (prev->type == curr->type && curr->base <= prev_end) {
+				physaddr_t curr_end = curr->base + curr->length;
+				if (curr_end > prev_end)
+					prev->length = curr_end - prev->base;
+				continue;
+			}
+		}
+		sanitized_mmap.entries[entry_count++] = *curr;
+	}
+
+	sanitized_mmap.entry_count = entry_count;
+}
+
+/* Check if an address + size is within a memory map entry */
 static bool mmap_entry_check(const struct limine_mmap_entry* entry, physaddr_t base, size_t size) {
 	if (size == 0)
 		return false;
@@ -28,53 +201,59 @@ static bool mmap_entry_check(const struct limine_mmap_entry* entry, physaddr_t b
 		return false;
 	physaddr_t entry_top;
 	if (unlikely(__builtin_add_overflow(entry->base, entry->length, &entry_top)))
-		panic("Bootloader provided memory map is bad!");
+		return false;
 
 	return (base >= entry->base && base_top <= entry_top);
 }
 
-/* Check if a memory region is free or not */
-static bool mmap_region_check(physaddr_t base, size_t size) {
-	const struct limine_mmap_response* mmap = mmap_request.response;
-	for (u64 i = 0; i < mmap->entry_count; i++) {
-		const struct limine_mmap_entry* entry = mmap->entries[i];
-		if (entry->type != LIMINE_MMAP_USABLE)
-			continue;
-
-		/* 
-		 * The bootloader sanitizes the usable memory entries so no
-		 * non-usable entries will overlap with usable entries, so we don't have
-		 * to deal with fucked up memory maps
-		 */
-		if (mmap_entry_check(entry, base, size))
-			return true;
+/* Get a memory map entry from a single page */
+static const struct limine_mmap_entry* mmap_get_entry_from_page(physaddr_t page) {
+	struct limine_mmap_entry* ret = NULL;
+	for (size_t i = 0; i < sanitized_mmap.entry_count; i++) {
+		if (mmap_entry_check(&sanitized_mmap.entries[i], page, PAGE_SIZE)) {
+			ret = &sanitized_mmap.entries[i];
+			break;
+		}
 	}
+	return ret;
+}
 
-	return false;
+/* Check if a memory region is free or not */
+static bool mmap_region_is_usable_strict(physaddr_t base, size_t size) {
+	if (size == 0)
+		return false;
+	physaddr_t end;
+	if (__builtin_add_overflow(base, size, &end))
+		return false;
+
+	if (end >= PHYSADDR_MAX - PAGE_SIZE)
+		return false;
+	end = ROUND_UP(end, PAGE_SIZE);
+	base = ROUND_DOWN(base, PAGE_SIZE);
+
+	const struct limine_mmap_entry* entry = mmap_get_entry_from_page(base);
+	return (entry && mmap_entry_usable_strict(entry)) ? mmap_entry_check(entry, base, end - base) : false;
 }
 
 /* Get the very last free usable address according to the memory map */
 static physaddr_t mmap_get_last_usable(void) {
 	physaddr_t ret = 0;
-
-	/* The entries are guarunteed to be sorted by base address */
-	struct limine_mmap_response* mmap = mmap_request.response;
-	for (u64 i = 0; i < mmap->entry_count; i++) {
-		struct limine_mmap_entry* entry = mmap->entries[i];
+	for (u64 i = 0; i < sanitized_mmap.entry_count; i++) {
+		struct limine_mmap_entry* entry = &sanitized_mmap.entries[i];
 		if (unlikely(entry->length == 0))
 			continue;
-		if (entry->type == LIMINE_MMAP_USABLE)
+		if (mmap_entry_usable(entry))
 			ret = entry->base + entry->length - 1;
 	}
 	return ret;
 }
 
+/* Return the number of bytes of usable memory, size returned is always a multiple of a page size */
 static u64 mmap_total_usable(void) {
 	u64 ret = 0;
-	struct limine_mmap_response* mmap = mmap_request.response;
-	for (u64 i = 0; i < mmap->entry_count; i++) {
-		struct limine_mmap_entry* entry = mmap->entries[i];
-		if (entry->type == LIMINE_MMAP_USABLE)
+	for (u64 i = 0; i < sanitized_mmap.entry_count; i++) {
+		struct limine_mmap_entry* entry = &sanitized_mmap.entries[i];
+		if (mmap_entry_usable(entry))
 			ret += entry->length;
 	}
 	return ret;
@@ -421,10 +600,10 @@ retry:
 	 * Now make sure this region is actually marked usable in the memory map.
 	 * These regions are reserved at boot, but this serves as a sanity check
 	 */
-	if (unlikely(!mmap_region_check(ret, alloc_size))) {
+	if (unlikely(!mmap_region_is_usable_strict(ret, alloc_size))) {
 		/* Go through each page, and see what usable pages there are, and free those blocks */
 		for (size_t i = 0; i < alloc_size; i += PAGE_SIZE) {
-			if (mmap_region_check(ret + i, PAGE_SIZE)) {
+			if (mmap_region_is_usable_strict(ret + i, PAGE_SIZE)) {
 				block = ((ret + i) - area->base) >> PAGE_SHIFT;
 				_free_block(area, area->layer_count - 1, block);
 			}
@@ -805,18 +984,25 @@ static inline void reserve_pages(physaddr_t addr, size_t size) {
 }
 
 static void reserve_unusable_memory(void) {
-	const struct limine_mmap_response* mmap = mmap_request.response;
-	for (u64 i = 0; i < mmap->entry_count; i++) {
-		const struct limine_mmap_entry* entry = mmap->entries[i];
-		if (entry->type != LIMINE_MMAP_USABLE)
+	for (size_t i = 0; i < sanitized_mmap.entry_count; i++) {
+		const struct limine_mmap_entry* entry = &sanitized_mmap.entries[i];
+		if (!mmap_entry_usable_strict(entry))
 			reserve_pages(entry->base, entry->length);
 	}
 }
 
 static void zones_init(void) {
-	mem_total = mmap_total_usable();
+	mmap_sanitize();
+	printk(PRINTK_INFO "mm: Memory map:\n");
+	for (size_t i = 0; i < sanitized_mmap.entry_count; i++) {
+		struct limine_mmap_entry* entry = &sanitized_mmap.entries[i];
+		physaddr_t base = entry->base;
+		printk(PRINTK_INFO "mm: %#lx-%#lx: %s\n", base, base + entry->length, mmap_entry_type_to_string(entry->type));
+	}
 
+	mem_total = mmap_total_usable();
 	physaddr_t last_usable = mmap_get_last_usable();
+
 	dma_zone_init(last_usable);
 
 	int err = zone_init(&__dma32_zone, MM_ZONE_DMA32, last_usable, DMA32_START, DMA32_END, &dma_zone);
