@@ -12,12 +12,29 @@
 
 #include <arch/asm/errno.h>
 
+#define DMA32_START 0x1000000
+#define DMA32_END 0x100000000
+#define NORMAL_START 0x100000000
+#define NORMAL_END PHYSADDR_MAX
+
 /* Must be volatile, so that way the null check doesn't get optimized away */
 static volatile struct limine_mmap_request __limine_request mmap_request = {
 	.request.id = LIMINE_MMAP_REQUEST,
 	.request.revision = 0,
 	.response = NULL
 };
+
+static struct {
+	struct limine_mmap_entry entries[1024];
+	size_t entry_count;
+} unsanitized_mmap = { 0 };
+
+static int mmap_add_entry_unsanitized(const struct limine_mmap_entry* entry) {
+	if (unsanitized_mmap.entry_count >= ARRAY_SIZE(unsanitized_mmap.entries))
+		return -ENOSPC;
+	unsanitized_mmap.entries[unsanitized_mmap.entry_count++] = *entry;
+	return 0;
+}
 
 static struct {
 	struct limine_mmap_entry entries[1024]; /* Around 6 pages */
@@ -67,18 +84,12 @@ static inline bool mmap_entry_usable_strict(const struct limine_mmap_entry* entr
  * - Merge entries of the same type when touching
  */
 static void mmap_sanitize(void) {
-	const struct limine_mmap_response* response = mmap_request.response;
-	if (unlikely(!response || response->entry_count == 0))
-		panic("Where the fuck is the memory map");
-	if (unlikely(response->entry_count > ARRAY_SIZE(sanitized_mmap.entries)))
-		printk(PRINTK_WARN "mm: Memory map has more than %zu entries\n", ARRAY_SIZE(sanitized_mmap.entries));
-
 	sanitized_mmap.entries[0] = (struct limine_mmap_entry){ .base = 0, .length = PAGE_SIZE, .type = LIMINE_MMAP_RESERVED };
 	size_t sanitized_n = 1;
 
 	/* First, align every entry by a page, usable entries shrink inward, unusable entries grow outward */
-	for (u64 i = 0; i < response->entry_count && sanitized_n < ARRAY_SIZE(sanitized_mmap.entries); i++) {
-		struct limine_mmap_entry entry = *response->entries[i];
+	for (u64 i = 0; i < unsanitized_mmap.entry_count && sanitized_n < ARRAY_SIZE(sanitized_mmap.entries); i++) {
+		struct limine_mmap_entry entry = unsanitized_mmap.entries[i];
 		physaddr_t base = entry.base;
 		physaddr_t end;
 		if (unlikely(__builtin_add_overflow(entry.base, entry.length, &end)))
@@ -245,6 +256,49 @@ static physaddr_t mmap_get_last_usable(void) {
 		if (mmap_entry_usable(entry))
 			ret = entry->base + entry->length - 1;
 	}
+	return ret;
+}
+
+/* Return a free address from the memory map, but with a minimum address */
+static physaddr_t mmap_get_free_address_from_size_min_strict(physaddr_t min, size_t size) {
+	for (size_t i = 0; i < sanitized_mmap.entry_count; i++) {
+		struct limine_mmap_entry* entry = &sanitized_mmap.entries[i];
+		if (!mmap_entry_usable_strict(entry))
+			continue;
+
+		physaddr_t base = entry->base;
+		physaddr_t end = entry->base + entry->length;
+		if (base < min)
+			base = min;
+		base = ROUND_UP(base, PAGE_SIZE);
+		if (base < end && end - base >= size)
+			return base;
+	}
+	return 0;
+}
+
+/* Allocate space from the memory map, not safe to use after zone initialization */
+static physaddr_t mmap_alloc(size_t size) {
+	if (size >= SIZE_MAX - PAGE_SIZE)
+		return 0;
+	size = ROUND_UP(size, PAGE_SIZE);
+
+	physaddr_t ret = mmap_get_free_address_from_size_min_strict(NORMAL_START, size);
+	if (ret == 0) {
+		ret = mmap_get_free_address_from_size_min_strict(DMA32_START, size);
+		if (unlikely(ret == 0))
+			ret = mmap_get_free_address_from_size_min_strict(PAGE_SIZE, size);
+	}
+	if (ret) {
+		struct limine_mmap_entry entry = { .base = ret, .length = size, .type = LIMINE_MMAP_EXECUTABLE_AND_MODULES };
+		int err = mmap_add_entry_unsanitized(&entry);
+		if (unlikely(err)) {
+			printk(PRINTK_CRIT "mm: %s() failed to add memory map entry entry, err: %d\n", __func__, err);
+			return 0;
+		}
+		mmap_sanitize();
+	}
+
 	return ret;
 }
 
@@ -968,11 +1022,6 @@ static int zone_init(struct zone* zone, mm_t zone_type,
 	return 0;
 }
 
-#define DMA32_START 0x1000000
-#define DMA32_END 0x100000000
-#define NORMAL_START 0x100000000
-#define NORMAL_END PHYSADDR_MAX
-
 static inline void reserve_pages(physaddr_t addr, size_t size) {
 	int errdma = __reserve_pages(&dma_zone, addr, size);
 	int errdma32 = __reserve_pages(dma32_zone, addr, size);
@@ -992,6 +1041,14 @@ static void reserve_unusable_memory(void) {
 }
 
 static void zones_init(void) {
+	struct limine_mmap_response* response = mmap_request.response;
+	if (unlikely(!response || response->entry_count == 0))
+		panic("Where the fuck is the memory map");
+	for (size_t i = 0; i < response->entry_count; i++) {
+		int err = mmap_add_entry_unsanitized(response->entries[i]);
+		if (unlikely(err))
+			panic("mmap_add_entry_unsanitized() failed: %d\n", err);
+	}
 	mmap_sanitize();
 	printk(PRINTK_INFO "mm: Memory map:\n");
 	for (size_t i = 0; i < sanitized_mmap.entry_count; i++) {
