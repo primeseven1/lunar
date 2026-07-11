@@ -69,6 +69,19 @@ static inline bool mmap_entry_usable(const struct limine_mmap_entry* entry) {
 	return (entry->type == LIMINE_MMAP_USABLE || entry->type == LIMINE_MMAP_BOOTLOADER_RECLAIMABLE);
 }
 
+static inline bool mmap_entry_is_ram(const struct limine_mmap_entry* entry) {
+	switch (entry->type) {
+	case LIMINE_MMAP_USABLE:
+	case LIMINE_MMAP_BOOTLOADER_RECLAIMABLE:
+	case LIMINE_MMAP_EXECUTABLE_AND_MODULES:
+	case LIMINE_MMAP_ACPI_RECLAIMABLE:
+	case LIMINE_MMAP_ACPI_TABLES:
+		return true;
+	default:
+		return false;
+	}
+}
+
 static inline bool mmap_entry_usable_strict(const struct limine_mmap_entry* entry) {
 	return entry->type == LIMINE_MMAP_USABLE;
 }
@@ -246,14 +259,12 @@ static bool mmap_region_is_usable_strict(physaddr_t base, size_t size) {
 	return (entry && mmap_entry_usable_strict(entry)) ? mmap_entry_check(entry, base, end - base) : false;
 }
 
-/* Get the very last free usable address according to the memory map */
-static physaddr_t mmap_get_last_usable(void) {
+/* Get the very last free address according to the memory map */
+static physaddr_t mmap_get_last_ram_address_inclusive(void) {
 	physaddr_t ret = 0;
 	for (u64 i = 0; i < sanitized_mmap.entry_count; i++) {
 		struct limine_mmap_entry* entry = &sanitized_mmap.entries[i];
-		if (unlikely(entry->length == 0))
-			continue;
-		if (mmap_entry_usable(entry))
+		if (mmap_entry_is_ram(entry))
 			ret = entry->base + entry->length - 1;
 	}
 	return ret;
@@ -1032,11 +1043,23 @@ static inline void reserve_pages(physaddr_t addr, size_t size) {
 	}
 }
 
-static void reserve_unusable_memory(void) {
-	for (size_t i = 0; i < sanitized_mmap.entry_count; i++) {
-		const struct limine_mmap_entry* entry = &sanitized_mmap.entries[i];
-		if (!mmap_entry_usable_strict(entry))
-			reserve_pages(entry->base, entry->length);
+static void reserve_unusable_memory(physaddr_t last_ram) {
+	size_t page_count = (last_ram + 1) >> PAGE_SHIFT;
+	physaddr_t address = 0;
+	while (page_count) {
+		const struct limine_mmap_entry* entry = mmap_get_entry_from_page(address);
+		size_t size = PAGE_SIZE;
+		bool usable = false;
+		if (entry) {
+			size = entry->length;
+			bug((size & (PAGE_SIZE - 1)) != 0);
+			usable = mmap_entry_usable_strict(entry);
+		}
+		if (!usable)
+			reserve_pages(address, size);
+
+		address += size;
+		bug(__builtin_sub_overflow(page_count, size >> PAGE_SHIFT, &page_count));
 	}
 }
 
@@ -1058,11 +1081,11 @@ static void zones_init(void) {
 	}
 
 	mem_total = mmap_total_usable();
-	physaddr_t last_usable = mmap_get_last_usable();
+	physaddr_t last_address = mmap_get_last_ram_address_inclusive();
 
-	dma_zone_init(last_usable);
+	dma_zone_init(last_address);
 
-	int err = zone_init(&__dma32_zone, MM_ZONE_DMA32, last_usable, DMA32_START, DMA32_END, &dma_zone);
+	int err = zone_init(&__dma32_zone, MM_ZONE_DMA32, last_address, DMA32_START, DMA32_END, &dma_zone);
 	if (unlikely(err)) {
 		if (unlikely(err == -ELOOP)) {
 			dma32_zone = &dma_zone;
@@ -1073,7 +1096,7 @@ static void zones_init(void) {
 	}
 	dma32_zone = &__dma32_zone;
 
-	err = zone_init(&__normal_zone, MM_ZONE_NORMAL, last_usable, NORMAL_START, NORMAL_END, dma32_zone);
+	err = zone_init(&__normal_zone, MM_ZONE_NORMAL, last_address, NORMAL_START, NORMAL_END, dma32_zone);
 	if (err) {
 		if (likely(err == -ELOOP)) {
 			normal_zone = dma32_zone;
@@ -1088,7 +1111,7 @@ out:
 		printk(PRINTK_DBG "mm: DMA32 linked to DMA\n");
 	else if (dma32_zone == normal_zone)
 		printk(PRINTK_DBG "mm: Normal linked to DMA32\n");
-	reserve_unusable_memory();
+	reserve_unusable_memory(last_address);
 }
 
 INIT_TASK_DECLARE(stack_tracer_init_task, hhdm_init_task);
