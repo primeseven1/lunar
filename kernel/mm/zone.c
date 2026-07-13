@@ -1063,6 +1063,127 @@ static void reserve_unusable_memory(physaddr_t last_ram) {
 	}
 }
 
+static struct page* page_array;
+static size_t page_count;
+
+static inline size_t get_pfn_from_address(physaddr_t address) {
+	size_t ret = address >> PAGE_SHIFT;
+	return (ret >= page_count) ? SIZE_MAX : ret;
+}
+
+static inline size_t get_pfn_from_page(struct page* page) {
+	if (page < page_array || page >= page_array + page_count)
+		return SIZE_MAX;
+	return page - page_array;
+}
+
+static inline int get_address_from_pfn(size_t pfn, physaddr_t* out) {
+	if (pfn >= page_count)
+		return -ENOMEM;
+	*out = pfn << PAGE_SHIFT;
+	return 0;
+}
+
+int get_page_from_address(physaddr_t address, struct page** page) {
+	size_t pfn = get_pfn_from_address(address);
+	if (pfn == SIZE_MAX)
+		return -ENOMEM;
+
+	struct page* tmp = &page_array[pfn];
+	if (tmp->flags & PAGE_FLAG_ALLOCATOR_CLAIMED)
+		return -EACCES;
+	bug(tmp != tmp->_head);
+	bug(tmp->_order != 0);
+
+	page_hold(tmp);
+	*page = tmp;
+	return 0;
+}
+
+struct page* page_alloc_pages(mm_t mm_flags, unsigned int order) {
+	physaddr_t address = alloc_pages(mm_flags, order);
+	if (!address)
+		return NULL;
+
+	size_t pfn = get_pfn_from_address(address);
+	struct page* page = &page_array[pfn];
+	bug((page->flags & PAGE_FLAG_ALLOCATOR_CLAIMED) == 0);
+	bug(page != page->_head);
+	for (size_t i = 1; i < 1ul << order; i++) {
+		bug((page[i].flags & PAGE_FLAG_ALLOCATOR_CLAIMED) == 0);
+		bug(page[i]._head != &page[i]);
+		page[i]._head = page;
+	}
+	page->_order = order;
+
+	page_hold(page);
+	return page;
+}
+
+void* page_hhdm_virtual(struct page* page) {
+	size_t pfn = get_pfn_from_page(page);
+	if (pfn == SIZE_MAX)
+		return NULL;
+	physaddr_t address;
+	int err = get_address_from_pfn(pfn, &address);
+	return err == 0 ? hhdm_virtual(address) : NULL;
+}
+
+static void page_inactive(struct page* page) {
+	bug(page->_head != page);
+	if (!(page->flags & PAGE_FLAG_ALLOCATOR_CLAIMED))
+		return;
+
+	size_t pfn = get_pfn_from_page(page);
+	bug(pfn == SIZE_MAX);
+	physaddr_t address;
+	bug(get_address_from_pfn(pfn, &address) != 0);
+
+	unsigned int order = page->_order;
+	page->_order = 0;
+	for (size_t i = 1; i < 1ul << order; i++) {
+		page[i]._head = &page[i];
+		page[i]._order = 0;
+	}
+
+	free_pages(address, order);
+}
+
+long page_hold(struct page* page) {
+	page = page->_head;
+	return atomic_fetch_add(&page->refcnt, 1);
+}
+
+void page_release(struct page* page) {
+	page = page->_head;
+	long current_refcnt = atomic_sub_fetch(&page->refcnt, 1);
+	bug(current_refcnt < 0);
+	if (current_refcnt == 0)
+		page_inactive(page);
+}
+
+static void create_page_array(physaddr_t last_ram) {
+	page_count = (last_ram + 1) >> PAGE_SHIFT;
+	page_array = hhdm_virtual(mmap_alloc(page_count * sizeof(*page_array)));
+	if (!page_array)
+		out_of_memory();
+
+	const struct limine_mmap_entry* entry = NULL;
+	for (size_t i = 0; i < page_count; i++) {
+		if (!entry || !mmap_entry_check(entry, PAGE_SIZE * i, PAGE_SIZE))
+			entry = mmap_get_entry_from_page(PAGE_SIZE * i);
+
+		struct page* page = &page_array[i];
+		if (!entry || !mmap_entry_usable_strict(entry))
+			page->flags |= PAGE_FLAG_RESERVED;
+		else
+			page->flags |= PAGE_FLAG_ALLOCATOR_CLAIMED;
+		page->_head = page;
+		page->_order = 0;
+		atomic_store(&page->refcnt, 0);
+	}
+}
+
 static void zones_init(void) {
 	struct limine_mmap_response* response = mmap_request.response;
 	if (unlikely(!response || response->entry_count == 0))
@@ -1082,6 +1203,7 @@ static void zones_init(void) {
 
 	mem_total = mmap_total_usable();
 	physaddr_t last_address = mmap_get_last_ram_address_inclusive();
+	create_page_array(last_address);
 
 	dma_zone_init(last_address);
 

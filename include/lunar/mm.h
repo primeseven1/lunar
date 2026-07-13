@@ -7,6 +7,16 @@
 
 struct vma;
 
+#define PAGE_FLAG_ALLOCATOR_CLAIMED (1 << 0) /* Page is claimed by the allocator, but not nessecarily */
+#define PAGE_FLAG_RESERVED (1 << 1) /* Reserved by firmware, the kernel, or the bootloader */
+
+struct page {
+	int flags;
+	struct page* _head;
+	unsigned int _order;
+	atomic(long) refcnt;
+};
+
 struct vmm_range {
 	uintptr_t start, end;
 	bool grows_down;
@@ -76,42 +86,78 @@ static inline unsigned int get_order(size_t size) {
 }
 
 /**
+ * @brief Get a page struct from an address
+ *
+ * This is primarily used to get the page structure for a reserved region
+ * (eg. ACPI Tables)
+ *
+ * @param[in] address The address to look up
+ * @param[out] page Where the resulting page will be stored
+ *
+ * @retval 0 Successful
+ * @retval -EACCES Page is owned by the allocator
+ * @retval -ENOMEM Page is not backed by physical RAM
+ */
+int get_page_from_address(physaddr_t address, struct page** page);
+
+/**
  * @brief Get memory usage statistics
  * @param[out] total_page_count Number of total pages on the system
  * @param[out] free_page_count Number of free pages
  */
 void mm_get_free_pages(size_t* total_page_count, size_t* free_page_count);
 
-/**
- * @brief Allocate physical pages
- * @param mm_flags The flags for how the allocation should be done
- * @param order 2 ^ order pages to allocate (0 for one page, 1 for 2 pages, 2 for 4 pages)
- * @return The physical address of the page. Returns 0 for no memory.
- */
+/* page_alloc_pages()/page_alloc_page() will get renamed to alloc_pages()/alloc_page() */
 physaddr_t alloc_pages(mm_t mm_flags, unsigned int order);
+void free_pages(physaddr_t addr, unsigned int order);
+static inline physaddr_t alloc_page(mm_t mm_flags) {
+	return alloc_pages(mm_flags, 0);
+}
+static inline void free_page(physaddr_t addr) {
+	free_pages(addr, 0);
+}
+
+/* page_alloc_pages/page_alloc_page will change to alloc_pages()/alloc_page() */
 
 /**
- * @brief Free physical pages
- * @param addr The address of the page(s)
- * @param order The 2 ^ order of pages to free (usually the same as whatever you gave alloc_pages)
+ * @brief Allocate physical pages
+ *
+ * @param mm_flags The flags for how the allocation should be done
+ * @param order 2 ^ order pages to allocate (0 for one page, 1 for 2 pages, 2 for 4 pages)
+ *
+ * @return A pointer to the page struct
  */
-void free_pages(physaddr_t addr, unsigned int order);
+struct page* page_alloc_pages(mm_t mm_flags, unsigned int order);
 
 /**
  * @brief Allocate a physical page
  * @param mm_flags The flags for how the allocation should be done
- * @return The physical address of the page
+ * @return The pointer to the page struct
  */
-static inline physaddr_t alloc_page(mm_t mm_flags) {
-	return alloc_pages(mm_flags, 0);
+static inline struct page* page_alloc_page(mm_t mm_flags) {
+	return page_alloc_pages(mm_flags, 0);
 }
 
 /**
- * @brief Free a physical page
- * @param addr The page to free
+ * @brief Get the virtual address from a page struct
+ * @param page The page
+ * @return A HHDM virtual address
  */
-static inline void free_page(physaddr_t addr) {
-	free_pages(addr, 0);
-}
+void* page_hhdm_virtual(struct page* page);
+
+/**
+ * @brief Increment the refcount on a page
+ * @param page The page to hold
+ */
+long page_hold(struct page* page);
+
+/**
+ * @brief Decrement the refcount on a page
+ *
+ * May free the page(s) when refcount hits zero.
+ *
+ * @param page The page to release
+ */
+void page_release(struct page* page);
 
 void out_of_memory(void);
