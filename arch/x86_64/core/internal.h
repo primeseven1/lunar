@@ -7,6 +7,6 @@
 #define I8259_VECTOR_OFFSET 0x20
 #define I8259_VECTOR_COUNT 0x10
 
-void i8259_disable(void);
-void i8259_spurious_isr(struct isr* isr);
-void __asmlinkage arch_asm_ap_start(struct arch_limine_mp_info* cpu_info);
+void arch_x86_64_i8259_spurious_isr(struct isr* isr);
+void arch_x86_64_i8259_initialize_and_mask(void);
+void __asmlinkage arch_x86_64_asm_ap_start(struct arch_limine_mp_info* cpu_info);

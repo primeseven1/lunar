@@ -3,56 +3,57 @@
 
 #include "internal.h"
 
-#define PIC1 0x20
-#define PIC2 0xA0
-#define PIC1_DATA (PIC1 + 1)
-#define PIC2_DATA (PIC2 + 1)
+enum pic_io_address {
+	PIC_IO_ADDRESS_MASTER = 0x20,
+	PIC_IO_ADDRESS_SLAVE = 0xA0,
+	PIC_IO_ADDRESS_MASTER_DATA = PIC_IO_ADDRESS_MASTER + 1,
+	PIC_IO_ADDRESS_SLAVE_DATA = PIC_IO_ADDRESS_SLAVE + 1
+};
 
+#define PIC_CASCADE_IRQ 0x02
 #define PIC_EOI 0x20
 
-void i8259_spurious_isr(struct isr* isr) {
-	int irqnum = isr->arch_specific.id - I8259_VECTOR_OFFSET;
-	if (irqnum == 15)
-		arch_x86_64_outb(PIC1, PIC_EOI);
+static inline void i8259_write(enum pic_io_address address, u8 data) {
+	arch_x86_64_outb(address, data);
+	arch_x86_64_pmio_delay();
 }
 
-#define ICW1_ICW4 0x01
-#define ICW1_SINGLE 0x02
-#define ICW1_INTERVAL4 0x04
-#define ICW1_LEVEL 0x08
-#define ICW1_INIT 0x10
-#define ICW4_8086 0x01
-#define ICW4_AUTO 0x02
-#define ICW4_BUF_SLAVE 0x08
-#define ICW4_BUF_MASTER 0x0C
-#define ICW4_SFNM 0x10
+/*
+ * Spurious IRQ's can only happen on IRQ 7 and IRQ 15. Since all IRQ's are masked on the i8259,
+ * the IRQ has to be spurious, so no need to check the PIC for a spurious IRQ.
+ */
+void arch_x86_64_i8259_spurious_isr(struct isr* isr) {
+	int irqnum = isr->arch_specific.id - I8259_VECTOR_OFFSET;
 
-void i8259_disable(void) {
-	/* Start initiailization in cascade mode */
-	arch_x86_64_outb(PIC1, ICW1_INIT | ICW1_ICW4);
-	arch_x86_64_pmio_delay();
-	arch_x86_64_outb(PIC2, ICW1_INIT | ICW1_ICW4);
-	arch_x86_64_pmio_delay();
+	/* A spurious IRQ15 comes from the slave PIC, but the master doesn't know it was spurious, so send the EOI to the master */
+	if (irqnum == 15)
+		arch_x86_64_outb(PIC_IO_ADDRESS_MASTER, PIC_EOI);
+	else
+		bug(irqnum != 7);
+}
 
-	/* Set vector offsets */
-	arch_x86_64_outb(PIC1_DATA, I8259_VECTOR_OFFSET);
-	arch_x86_64_pmio_delay();
-	arch_x86_64_outb(PIC2_DATA, I8259_VECTOR_OFFSET + 8);
-	arch_x86_64_pmio_delay();
+#define PIC_ICW1_ICW4 0x01
+#define PIC_ICW1_SINGLE 0x02
+#define PIC_ICW1_INTERVAL4 0x04
+#define PIC_ICW1_LEVEL 0x08
+#define PIC_ICW1_INIT 0x10
+#define PIC_ICW4_8086 0x01
+#define PIC_ICW4_AUTO 0x02
+#define PIC_ICW4_BUF_SLAVE 0x08
+#define PIC_ICW4_BUF_MASTER 0x0C
+#define PIC_ICW4_SFNM 0x10
 
-	/* Tell PIC1 there is a PIC2 */
-	arch_x86_64_outb(PIC1_DATA, 4);
-	arch_x86_64_pmio_delay();
-	arch_x86_64_outb(PIC2_DATA, 2); /* Tell PIC2 it's "cascade identity", whatever that means */
-	arch_x86_64_pmio_delay();
+void arch_x86_64_i8259_initialize_and_mask(void) {
+	/* Start the initialization process, with the PIC's expecting 4 commands (including this one) */
+	i8259_write(PIC_IO_ADDRESS_MASTER, PIC_ICW1_INIT | PIC_ICW1_ICW4);
+	i8259_write(PIC_IO_ADDRESS_SLAVE, PIC_ICW1_INIT | PIC_ICW1_ICW4);
 
-	/* Put both PIC's into 8086 mode */
-	arch_x86_64_outb(PIC1_DATA, ICW4_8086);
-	arch_x86_64_pmio_delay();
-	arch_x86_64_outb(PIC2_DATA, ICW4_8086);
-	arch_x86_64_pmio_delay();
-
-	/* Mask all interrupts */
-	arch_x86_64_outb(PIC1_DATA, 0xFF);
-	arch_x86_64_outb(PIC2_DATA, 0xFF);
+	i8259_write(PIC_IO_ADDRESS_MASTER_DATA, I8259_VECTOR_OFFSET); /* Set IDT vector offset for IRQ's 0-7 */
+	i8259_write(PIC_IO_ADDRESS_SLAVE_DATA, I8259_VECTOR_OFFSET + 8); /* Set IDT vector offset for IRQ's 8-15  */
+	i8259_write(PIC_IO_ADDRESS_MASTER_DATA, 1 << PIC_CASCADE_IRQ); /* For some reason, the master PIC has this as a bitmask */
+	i8259_write(PIC_IO_ADDRESS_SLAVE_DATA, PIC_CASCADE_IRQ); /* Tell the slave PIC what cascade IRQ the master PIC expects */
+	i8259_write(PIC_IO_ADDRESS_MASTER_DATA, PIC_ICW4_8086); /* Put the master PIC into 8086 mode */
+	i8259_write(PIC_IO_ADDRESS_SLAVE_DATA, PIC_ICW4_8086); /* Put the slave PIC into 8086 mode */
+	i8259_write(PIC_IO_ADDRESS_MASTER_DATA, 0xFF); /* Mask IRQ 0-7 */
+	i8259_write(PIC_IO_ADDRESS_SLAVE_DATA, 0xFF); /* Mask IRQ 8-15 */
 }

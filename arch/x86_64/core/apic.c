@@ -442,7 +442,7 @@ err_nocleanup:
 }
 
 static void ioapic_mask_all(void) {
-	i8259_disable();
+	arch_x86_64_i8259_initialize_and_mask();
 
 	ioapic_count = get_entry_count(ACPI_MADT_ENTRY_TYPE_IOAPIC);
 	for (unsigned long i = 0; i < ioapic_count; i++) {

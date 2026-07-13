@@ -39,8 +39,8 @@ ASM_FUNCTION_START(_start, ASM_LINKAGE_GLOBAL):
 	ud2
 ASM_FUNCTION_END(_start)
 
-/* void __asmlinkage arch_asm_ap_start(struct arch_limine_mp_info* cpu_info) */
-ASM_FUNCTION_START(arch_asm_ap_start, ASM_LINKAGE_GLOBAL):
+/* void __asmlinkage arch_x86_64_asm_ap_start(struct arch_limine_mp_info* cpu_info) */
+ASM_FUNCTION_START(arch_x86_64_asm_ap_start, ASM_LINKAGE_GLOBAL):
 	cli
 	cld
 
@@ -54,4 +54,4 @@ ASM_FUNCTION_START(arch_asm_ap_start, ASM_LINKAGE_GLOBAL):
 	call arch_x86_64_kernel_ap_main
 
 	ud2
-ASM_FUNCTION_END(arch_asm_ap_start)
+ASM_FUNCTION_END(arch_x86_64_asm_ap_start)

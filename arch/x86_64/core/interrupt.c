@@ -24,13 +24,13 @@ static SPINLOCK_DEFINE(isr_handlers_lock);
 
 static struct isr exceptions[EXCEPTION_COUNT] = { 0 };
 static struct isr i8259_spurious_irq7 = {
-	.handler = i8259_spurious_isr, .private = NULL,
+	.handler = arch_x86_64_i8259_spurious_isr, .private = NULL,
 	.arch_specific = (struct arch_isr){
 		.id = I8259_VECTOR_OFFSET + 7, .flags = 0, .ehandler = NULL, .need_eoi = false
 	}
 };
 static struct isr i8259_spurious_irq15 = {
-	.handler = i8259_spurious_isr, .private = NULL,
+	.handler = arch_x86_64_i8259_spurious_isr, .private = NULL,
 	.arch_specific = (struct arch_isr){
 		.id = I8259_VECTOR_OFFSET + 15, .flags = 0, .ehandler = NULL, .need_eoi = false
 	}

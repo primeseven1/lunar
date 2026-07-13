@@ -46,7 +46,7 @@ void arch_start_cpus(void) {
 		if (acpu_current->lapic_id == limine_cpuinfo->lapic_id)
 			continue;
 #ifdef CONFIG_SMP
-		atomic_store(&limine_cpuinfo->goto_address, arch_asm_ap_start);
+		atomic_store(&limine_cpuinfo->goto_address, arch_x86_64_asm_ap_start);
 #else
 		atomic_store(&limine_cpuinfo->goto_address, halt);
 #endif /* CONFIG_SMP */
