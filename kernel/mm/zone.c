@@ -1149,9 +1149,19 @@ static void page_inactive(struct page* page) {
 	free_pages(address, order);
 }
 
-long page_hold(struct page* page) {
+void page_hold(struct page* page) {
 	page = page->_head;
-	return atomic_fetch_add(&page->refcnt, 1);
+	atomic_fetch_add(&page->refcnt, 1);
+}
+
+bool page_try_hold(struct page* page) {
+	page = page->_head;
+	long current_refcnt = atomic_load(&page->refcnt);
+	do {
+		if (current_refcnt <= 0)
+			return false;
+	} while (!atomic_compare_exchange_weak(&page->refcnt, &current_refcnt, current_refcnt + 1));
+	return true;
 }
 
 void page_release(struct page* page) {

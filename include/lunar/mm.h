@@ -149,7 +149,15 @@ void* page_hhdm_virtual(struct page* page);
  * @brief Increment the refcount on a page
  * @param page The page to hold
  */
-long page_hold(struct page* page);
+void page_hold(struct page* page);
+
+/**
+ * @brief Increment the refcount on a page if refcount > 0
+ * @param page The page to hold
+ * @retval false Failed to hold the page
+ * @retval true Successfully held the page
+ */
+bool page_try_hold(struct page* page);
 
 /**
  * @brief Decrement the refcount on a page
