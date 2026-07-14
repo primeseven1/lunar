@@ -11,13 +11,21 @@
 #include <arch/asm/errno.h>
 
 struct slab {
-	void* base;
-	u8* free;
+	struct page* self_page;
+	struct {
+		void* virtual;
+		struct page* page;
+	} base;
+	struct {
+		u8* virtual;
+		struct page* page;
+	} free;
 	size_t in_use;
 	struct list_node link;
 };
 
 struct slab_cache {
+	struct page* self_page;
 	void (*ctor)(void*);
 	void (*dtor)(void*);
 	struct list_head full, partial, empty;

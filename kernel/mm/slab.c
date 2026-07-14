@@ -11,30 +11,37 @@
 #define SLAB_SIZE_CUTOFF 512
 #define SLAB_AFTER_CUTOFF_OBJ_COUNT 16
 
-static inline void* slab_alloc_struct(mm_t mm_flags, size_t size) {
-	void* ptr = hhdm_virtual(alloc_pages(mm_flags, get_order(size)));
-	if (ptr)
-		memset(ptr, 0, size);
+static inline void* slab_alloc_struct(mm_t mm_flags, size_t size, struct page** out) {
+	struct page* page = page_alloc_pages(mm_flags, get_order(size));
+	if (!page)
+		return NULL;
+
+	void* ptr = page_hhdm_virtual(page);
+	memset(ptr, 0, size);
+
+	*out = page;
 	return ptr;
 }
 
-static inline void slab_free_struct(void* ptr, size_t size) {
-	free_pages(hhdm_physical(ptr), get_order(size));
+static inline void slab_free_struct(struct page* page) {
+	page_release(page);
 }
 
-static int slab_init(struct slab_cache* cache, struct slab* slab) {
+static int slab_init(struct slab_cache* cache, struct page* slab_page, struct slab* slab) {
+	slab->self_page = slab_page;
+
 	size_t map_size = (cache->obj_count + 7) >> 3;
 	size_t slab_size = cache->obj_size * cache->obj_count;
 
 	/* Allocate free list bitmap */
-	slab->free = slab_alloc_struct(cache->mm_flags, map_size);
-	if (!slab->free)
+	slab->free.virtual = slab_alloc_struct(cache->mm_flags, map_size, &slab->free.page);
+	if (!slab->free.virtual)
 		return -ENOMEM;
 
 	/* Allocate a virtual address for the slab base */
-	slab->base = slab_alloc_struct(cache->mm_flags, slab_size);
-	if (!slab->base) {
-		slab_free_struct(slab->free, map_size);
+	slab->base.virtual = slab_alloc_struct(cache->mm_flags, slab_size, &slab->base.page);
+	if (!slab->base.virtual) {
+		slab_free_struct(slab->free.page);
 		return -ENOMEM;
 	}
 
@@ -44,13 +51,14 @@ static int slab_init(struct slab_cache* cache, struct slab* slab) {
 }
 
 static int slab_cache_grow(struct slab_cache* cache) {
-	struct slab* slab = slab_alloc_struct((cache->mm_flags & MM_ATOMIC) | MM_ZONE_NORMAL, sizeof(*slab));
+	struct page* slab_page;
+	struct slab* slab = slab_alloc_struct((cache->mm_flags & MM_ATOMIC) | MM_ZONE_NORMAL, sizeof(*slab), &slab_page);
 	if (!slab)
 		return -ENOMEM;
 
-	int err = slab_init(cache, slab);
+	int err = slab_init(cache, slab_page, slab);
 	if (err) {
-		slab_free_struct(slab, sizeof(*slab));
+		slab_free_struct(slab_page);
 		return err;
 	}
 
@@ -66,8 +74,8 @@ static void* slab_take(struct slab_cache* cache, struct slab* slab) {
 		size_t byte_index = i >> 3;
 		unsigned int bit_index = i & 7;
 
-		if (!(slab->free[byte_index] & (1 << bit_index))) {
-			slab->free[byte_index] |= (1 << bit_index);
+		if (!(slab->free.virtual[byte_index] & (1 << bit_index))) {
+			slab->free.virtual[byte_index] |= (1 << bit_index);
 			obj_num = i;
 			break;
 		}
@@ -77,7 +85,7 @@ static void* slab_take(struct slab_cache* cache, struct slab* slab) {
 		return NULL;
 
 	/* Now just get the object's pointer and call its constructor */
-	void* obj = (u8*)slab->base + cache->obj_size * obj_num;
+	void* obj = (u8*)slab->base.virtual + cache->obj_size * obj_num;
 	if (cache->ctor)
 		cache->ctor(obj);
 
@@ -88,8 +96,8 @@ static void* slab_take(struct slab_cache* cache, struct slab* slab) {
 static struct slab* __slab_find(struct list_head* slabs, unsigned long obj_count, size_t obj_size, void* obj) {
 	struct slab* pos;
 	list_for_each_entry(pos, slabs, link) {
-		void* top = (u8*)pos->base + obj_count * obj_size;
-		if (obj >= pos->base && obj < top)
+		void* top = (u8*)pos->base.virtual + obj_count * obj_size;
+		if (obj >= pos->base.virtual && obj < top)
 			return pos;
 	}
 
@@ -113,13 +121,13 @@ static struct slab* slab_release(struct slab_cache* cache, void* obj) {
 		return NULL; /* Let the caller do what it wants */
 
 	/* Get the object number and then mark it as free */
-	size_t obj_num = ((uintptr_t)obj - (uintptr_t)slab->base) / cache->obj_size;
+	size_t obj_num = ((uintptr_t)obj - (uintptr_t)slab->base.virtual) / cache->obj_size;
 	size_t byte_index = obj_num >> 3;
 	size_t bit_index = obj_num & 7;
 
 	/* Check for a double free here since the caller can't check directly */
-	bug((slab->free[byte_index] & (1 << bit_index)) == 0);
-	slab->free[byte_index] &= ~(1 << bit_index);
+	bug((slab->free.virtual[byte_index] & (1 << bit_index)) == 0);
+	slab->free.virtual[byte_index] &= ~(1 << bit_index);
 
 	/* Now call the destructor and return the slab the free happened on */
 	if (cache->dtor)
@@ -215,11 +223,12 @@ struct slab_cache* slab_cache_create(size_t obj_size, size_t align,
 		return NULL;
 
 	struct slab_cache* cache;
-	physaddr_t _cache = alloc_pages(MM_ZONE_NORMAL | (mm_flags & MM_ATOMIC), get_order(sizeof(*cache)));
-	if (!_cache)
+	struct page* cache_page = page_alloc_pages(MM_ZONE_NORMAL | (mm_flags & MM_ATOMIC), get_order(sizeof(*cache)));
+	if (!cache_page)
 		return NULL;
 
-	cache = hhdm_virtual(_cache);
+	cache = page_hhdm_virtual(cache_page);
+	cache->self_page = cache_page;
 	cache->ctor = ctor;
 	cache->dtor = dtor;
 	list_head_init(&cache->full);
@@ -255,12 +264,12 @@ int slab_cache_destroy(struct slab_cache* cache) {
 	struct slab* slab, *tmp;
 	list_for_each_entry_safe(slab, tmp, &cache->empty, link) {
 		list_remove(&slab->link);
-		slab_free_struct(slab->base, cache->obj_size * cache->obj_count);
-		slab_free_struct(slab->free, (cache->obj_count + 7) >> 3);
-		slab_free_struct(slab, sizeof(*slab));
+		slab_free_struct(slab->base.page);
+		slab_free_struct(slab->free.page);
+		slab_free_struct(slab->self_page);
 	}
 
 	slab_cache_unlock(cache, &irq_flags);
-	free_pages(hhdm_physical(cache), get_order(sizeof(*cache)));
+	page_release(cache->self_page);
 	return 0;
 }
