@@ -105,8 +105,8 @@ static void mmap_sanitize(void) {
 		struct limine_mmap_entry entry = unsanitized_mmap.entries[i];
 		physaddr_t base = entry.base;
 		physaddr_t end;
-		if (unlikely(__builtin_add_overflow(entry.base, entry.length, &end)))
-			panic("Malformed memory map");
+		if (unlikely(__builtin_add_overflow(entry.base, entry.length, &end) || end >= PHYSADDR_MAX - PAGE_SIZE))
+			end = ROUND_DOWN(PHYSADDR_MAX, PAGE_SIZE);
 
 		/* Limine guaruntees that usable regions are 4K aligned, but it's done again anyway since it's an easy thing to do */
 		if (mmap_entry_usable(&entry)) {
