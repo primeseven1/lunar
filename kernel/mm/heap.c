@@ -11,12 +11,17 @@
 
 #define HEAP_CANARY_XOR 0xdecafc0ffeeUL
 #define HEAP_ALIGN BIGGEST_ALIGNMENT
+#define HEAP_ZERO_SIZE_PTR ((void*)HEAP_ALIGN)
 
 struct alloc_info {
-	struct slab_cache* cache;
-	u64 size;
+	size_t size;
+	bool cache_backing;
+	union {
+		struct slab_cache* cache;
+		struct page* page;
+	} backing_un;
 } __attribute__((aligned(BIGGEST_ALIGNMENT)));
-static_assert((sizeof(struct alloc_info) & (HEAP_ALIGN - 1)) == 0,"struct alloc_info is broken");
+static_assert((sizeof(struct alloc_info) & (HEAP_ALIGN - 1)) == 0, "struct alloc_info is broken");
 
 #define CACHE_COUNT 27
 static struct slab_cache* normal_caches[CACHE_COUNT];
@@ -39,8 +44,8 @@ static struct slab_cache* get_cache(size_t size, mm_t mm_flags) {
 }
 
 void* kmalloc(size_t size, mm_t mm_flags) {
-	if (!size)
-		return NULL;
+	if (size == 0)
+		return HEAP_ZERO_SIZE_PTR;
 	if (size >= SIZE_MAX - HEAP_ALIGN)
 		return NULL;
 	size = ROUND_UP(size, HEAP_ALIGN);
@@ -51,17 +56,23 @@ void* kmalloc(size_t size, mm_t mm_flags) {
 
 	struct alloc_info* ai = NULL;
 	struct slab_cache* cache = get_cache(total_size, mm_flags);
+	struct page* page = NULL;
 	if (cache)
 		ai = slab_cache_alloc(cache);
 	if (!ai) {
-		ai = hhdm_virtual(alloc_pages(mm_flags, get_order(total_size)));
-		if (!ai)
+		page = page_alloc_pages(mm_flags, get_order(total_size));
+		if (!page)
 			return NULL;
 		cache = NULL;
+		ai = page_hhdm_virtual(page);
 	}
 
-	ai->cache = cache;
 	ai->size = size;
+	ai->cache_backing = !!cache;
+	if (ai->cache_backing)
+		ai->backing_un.cache = cache;
+	else
+		ai->backing_un.page = page;
 
 	u8* ret = (u8*)(ai + 1);
 	size_t* canary = (size_t*)(ret + size);
@@ -70,7 +81,7 @@ void* kmalloc(size_t size, mm_t mm_flags) {
 }
 
 void kfree(void* ptr) {
-	if (!ptr)
+	if (ptr == NULL || ptr == HEAP_ZERO_SIZE_PTR)
 		return;
 
 	struct alloc_info* ai = (struct alloc_info*)ptr - 1;
@@ -79,14 +90,14 @@ void kfree(void* ptr) {
 
 	size_t total_size;
 	bug(__builtin_add_overflow(ai->size, sizeof(struct alloc_info) + sizeof(size_t), &total_size) == true);
-	if (ai->cache)
-		slab_cache_free(ai->cache, ai);
+	if (ai->cache_backing)
+		slab_cache_free(ai->backing_un.cache, ai);
 	else
-		free_pages(hhdm_physical(ai), get_order(total_size));
+		page_release(ai->backing_un.page);
 }
 
 void* krealloc(void* old, size_t new_size, mm_t mm_flags) {
-	if (!old)
+	if (old == NULL || old == HEAP_ZERO_SIZE_PTR)
 		return kmalloc(new_size, mm_flags);
 	if (!new_size) {
 		kfree(old);
