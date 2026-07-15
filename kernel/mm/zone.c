@@ -1084,20 +1084,26 @@ static inline int get_address_from_pfn(size_t pfn, physaddr_t* out) {
 	return 0;
 }
 
+/* To pair page_head(), but not accessable outside of this file */
+static inline struct page* page_head_set(struct page* page, struct page* head) {
+	return atomic_exchange(&page->buddy.head, head);
+}
+
 int get_page_from_address(physaddr_t address, struct page** page) {
 	size_t pfn = get_pfn_from_address(address);
 	if (pfn == SIZE_MAX)
 		return -ENOMEM;
 
-	struct page* tmp = &page_array[pfn];
-	if (tmp->flags & PAGE_FLAG_ALLOCATOR_CLAIMED)
-		return -EACCES;
-	bug(tmp != tmp->_head);
-	bug(tmp->_order != 0);
+	struct page* _page = &page_array[pfn];
+	int err = 0;
+	if (mmap_region_is_usable_strict(address, PAGE_SIZE))
+		err = page_try_hold(_page) ? 0 : -EACCES;
+	else
+		page_hold(_page);
 
-	page_hold(tmp);
-	*page = tmp;
-	return 0;
+	if (err == 0)
+		*page = _page;
+	return err;
 }
 
 struct page* page_alloc_pages(mm_t mm_flags, unsigned int order) {
@@ -1107,68 +1113,68 @@ struct page* page_alloc_pages(mm_t mm_flags, unsigned int order) {
 
 	size_t pfn = get_pfn_from_address(address);
 	struct page* page = &page_array[pfn];
-	bug((page->flags & PAGE_FLAG_ALLOCATOR_CLAIMED) == 0);
-	bug(page != page->_head);
 	for (size_t i = 1; i < 1ul << order; i++) {
-		bug((page[i].flags & PAGE_FLAG_ALLOCATOR_CLAIMED) == 0);
-		bug(page[i]._head != &page[i]);
-		page[i]._head = page;
+		bug(page_head_set(&page[i], page) != &page[i]);
+		bug(atomic_load(&page[i].refcnt) != 0);
 	}
-	page->_order = order;
+	bug(atomic_exchange(&page->buddy.order, order) != 0);
 
 	page_hold(page);
 	return page;
 }
 
 void* page_hhdm_virtual(struct page* page) {
+	void* ret = NULL;
 	size_t pfn = get_pfn_from_page(page);
-	if (pfn == SIZE_MAX)
-		return NULL;
-	physaddr_t address;
-	int err = get_address_from_pfn(pfn, &address);
-	return err == 0 ? hhdm_virtual(address) : NULL;
+	if (pfn != SIZE_MAX) {
+		physaddr_t address;
+		int err = get_address_from_pfn(pfn, &address);
+		if (err == 0)
+			ret = hhdm_virtual(address);
+	}
+	return ret;
 }
 
 static void page_inactive(struct page* page) {
-	bug(page->_head != page);
-	if (!(page->flags & PAGE_FLAG_ALLOCATOR_CLAIMED))
-		return;
+	bug(page_head(page) != page);
 
+	/* Check if the page(s) need to be given back to the allocator */
 	size_t pfn = get_pfn_from_page(page);
-	bug(pfn == SIZE_MAX);
+	if (pfn == SIZE_MAX)
+		return;
 	physaddr_t address;
 	bug(get_address_from_pfn(pfn, &address) != 0);
+	if (!mmap_region_is_usable_strict(address, PAGE_SIZE))
+		return;
 
-	unsigned int order = page->_order;
-	page->_order = 0;
-	for (size_t i = 1; i < 1ul << order; i++) {
-		page[i]._head = &page[i];
-		page[i]._order = 0;
-	}
+	/* Make all the page's head pointers point to itself */
+	unsigned int order = atomic_exchange(&page->buddy.order, 0);
+	for (size_t i = 1; i < 1ul << order; i++)
+		page_head_set(&page[i], &page[i]);
 
 	free_pages(address, order);
 }
 
 void page_hold(struct page* page) {
-	page = page->_head;
+	page = page_head(page);
 	atomic_fetch_add(&page->refcnt, 1);
 }
 
 bool page_try_hold(struct page* page) {
-	page = page->_head;
-	long current_refcnt = atomic_load(&page->refcnt);
+	page = page_head(page);
+	long refcnt = atomic_load(&page->refcnt);
 	do {
-		if (current_refcnt <= 0)
+		if (refcnt <= 0)
 			return false;
-	} while (!atomic_compare_exchange_weak(&page->refcnt, &current_refcnt, current_refcnt + 1));
+	} while (!atomic_compare_exchange_weak(&page->refcnt, &refcnt, refcnt + 1));
 	return true;
 }
 
 void page_release(struct page* page) {
-	page = page->_head;
-	long current_refcnt = atomic_sub_fetch(&page->refcnt, 1);
-	bug(current_refcnt < 0);
-	if (current_refcnt == 0)
+	page = page_head(page);
+	long refcnt = atomic_sub_fetch(&page->refcnt, 1);
+	bug(refcnt < 0);
+	if (refcnt == 0)
 		page_inactive(page);
 }
 
@@ -1186,10 +1192,8 @@ static void create_page_array(physaddr_t last_ram) {
 		struct page* page = &page_array[i];
 		if (!entry || !mmap_entry_usable_strict(entry))
 			page->flags |= PAGE_FLAG_RESERVED;
-		else
-			page->flags |= PAGE_FLAG_ALLOCATOR_CLAIMED;
-		page->_head = page;
-		page->_order = 0;
+		page_head_set(page, page);
+		atomic_store(&page->buddy.order, 0);
 		atomic_store(&page->refcnt, 0);
 	}
 }

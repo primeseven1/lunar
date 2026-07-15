@@ -7,13 +7,14 @@
 
 struct vma;
 
-#define PAGE_FLAG_ALLOCATOR_CLAIMED (1 << 0) /* Page is claimed by the allocator, but not nessecarily */
-#define PAGE_FLAG_RESERVED (1 << 1) /* Reserved by firmware, the kernel, or the bootloader */
+#define PAGE_FLAG_RESERVED (1 << 0) /* Reserved by firmware, the kernel, or the bootloader */
 
 struct page {
 	int flags;
-	struct page* _head;
-	unsigned int _order;
+	struct {
+		atomic(struct page*) head;
+		atomic(unsigned int) order;
+	} buddy;
 	atomic(long) refcnt;
 };
 
@@ -136,6 +137,15 @@ struct page* page_alloc_pages(mm_t mm_flags, unsigned int order);
  */
 static inline struct page* page_alloc_page(mm_t mm_flags) {
 	return page_alloc_pages(mm_flags, 0);
+}
+
+/**
+ * @brief Get the head page of the block containing the page
+ * @param page The page to get the head of
+ * @return The head of the page
+ */
+static inline struct page* page_head(struct page* page) {
+	return atomic_load(&page->buddy.head);
 }
 
 /**
