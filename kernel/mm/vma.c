@@ -172,18 +172,22 @@ int vma_protect(struct mm* mm, uintptr_t address, size_t size, pgprot_t prot) {
 	struct vma* pos;
 	struct vma* v = NULL;
 	struct vma* u = NULL;
+	uintptr_t expected = address;
 	list_for_each_entry(pos, &mm->vma_list, link) {
 		if (pos->top <= address)
 			continue;
-		if (!v)
-			v = pos;
 		if (pos->start >= end)
 			break;
+		if (pos->start > expected)
+			return -ENOENT;
 		if (pos->vmm_flags & VMM_SEALED)
 			return -EPERM;
+		if (!v)
+			v = pos;
 		u = pos;
+		expected = pos->top;
 	}
-	if (!v || !u)
+	if (expected < end)
 		return -ENOENT;
 
 	bool need_start_split = address > v->start;
