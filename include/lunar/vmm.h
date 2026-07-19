@@ -20,130 +20,98 @@ struct vmm_usermap_info {
 };
 
 /**
- * @brief Map kernel memory
+ * @brief Get the CPU's MM struct
+ * @return The pointer to the MM struct
+ */
+struct mm* current_mm(void);
+
+/**
+ * @brief Map pages into kernel space
  *
- * @param hint A hint on where the mapping should be placed
- * @param size The size of the mapping
+ * If a page is NULL in the page array, it becomes a guard page with no permisions.
+ *
+ * @param hint The hint on where to place the mapping
+ * @param pages The page array to map
+ * @param page_count Number of pages in the page array
  * @param prot Protection flags
- * @param flags Flags for how the mapping should be done
- * @param optional Optional argument depending on the flags
+ * @param flags VMM flags
  *
- * @retval -ENOMEM Out of memory
- * @retval -ENOTSUP Trying to map a 1GB page
- * @retval -EINVAL Invalid flags/prot, size is zero, hint is misaligned with VMM_FIXED, or optional is required but NULL
- * @retval -EEXIST Mapping already exists (only happens when VMM_FIXED | VMM_NOREPLACE is used)
- * @retval -ERANGE hint + size overflows
- * @return A pointer to the memory, or -errno as a pointer on failure
+ * @return -errno on failure
  */
-void* vmap(void* hint, size_t size, pgprot_t prot, int flags, void* optional);
+void* vm_map(void* hint, struct page** pages, size_t page_count, pgprot_t prot, int flags);
 
 /**
- * @brief Protect kernel memory
+ * @brief Map a physical address range into kernel space
  *
- * @param virtual The memory to protect
- * @param size The size to protect
- * @param prot New protection flags
- * @param flags VMM_USER and VMM_IOMEM cause this function to return -EINVAL, everything else is ignored
- * @param optional NULL, nothing is implemented here
- *
- * @retval -EINVAL Misaligned address, size is zero, invalid prot or flags, or optional is required but is NULL
- * @retval -ENOENT Mapping does not exist
- * @retval -ERANGE virtual + size overflows
- * @retval 0 Successful
- */
-int vprotect(void* virtual, size_t size, pgprot_t prot, int flags, void* optional);
-
-/**
- * @brief Unmap kernel memory
- *
- * @param virtual The memory to unmap
- * @param size The size to unmap
- * @param flags VMM_USER and VMM_IOMEM cause this function to return -EINVAL, everything else is ignored
- * @param optional NULL, nothing is implemented here
- *
- * @retval -EINVAL Misaligned address, size is zero, invalid flags, or optional is required but is NULL
- * @retval -ENOENT Mapping does not exist
- * @retval 0 Successful
- */
-int vunmap(void* virtual, size_t size, int flags, void* optional);
-
-/**
- * @brief Map I/O memory into kernel space
- *
+ * @param hint The hint on where to place the mapping
  * @param physical The physical address
- * @param size The size of the mapping
- * @param cache Caching mode
+ * @param page_count The number of pages to map
+ * @param prot Page protection flags
+ * @param flags VMM flags
  *
- * @return The pointer to the memory, NULL on failure
+ * @return -errno on failure
  */
-void __iomem* iomap(physaddr_t physical, size_t size, pgprot_t cache);
+void* vm_map_physical(void* hint, physaddr_t physical, size_t page_count, pgprot_t prot, int flags);
 
 /**
- * @brief Unmap I/O memory
- *
- * @param virtual The virtual address to unmap
- * @param size The size of the mapping
- *
- * @retval -EINVAL The size is zero
- * @retval -ENOENT Virtual address not mapped
- * @retval 0 Successful
- */
-int iounmap(void __iomem* virtual, size_t size);
-
-/**
- * @brief Map memory into user space
- *
- * @param hint A hint on where to place the mapping
- * @param size The size of the mapping
- * @param mmu_flags Page protection flags
- * @param flags VMM specific flags
- * @param usermap_info Information on how to map the memory in user space
- *
- * @retval -EINVAL Invalid flags, invalid hint, size is zero, or optional is NULL but required
- * @retval -ENOMEM Out of memory
- * @retval -EEXIST Mapping already exists AND flags have VMM_FIXED | VMM_NOREPLACE
- * @retval -ERANGE hint + size overflows
- * @return The pointer to the memory
- */
-void __user* usermap(void __user* hint, size_t size, pgprot_t prot, int flags, struct vmm_usermap_info* usermap_info);
-
-/**
- * @brief Change the protection flags for a mapping in user space
- *
- * @param virtual The page(s)
- * @param size The size of the mapping
- * @param mmu_flags The new protection flags
- * @param flags Unimplemented
- * @param usermap_info Information on how to map the memory in user space
- *
- * @retval -EINVAL Virtual address isn't aligned or size is zero
- * @retval -ENOENT Mapping does not exist
- * @retval -ERANGE virtual + size overflows
- * @retval 0 Successful
- */
-int userprotect(void __user* virtual, size_t size, pgprot_t prot, int flags, struct vmm_usermap_info* usermap_info);
-
-/**
- * @brief Unmap user memory
+ * @brief Change the MMU permissions on pages
  *
  * @param virtual The virtual address
- * @param size The size of the mapping
- * @param flags Unimplemented
- * @param usermap_info Information on how to unmap the memory in user space
+ * @param page_count The number of pages to change
+ * @param prot Page protection flags
+ * @param flags VMM flags
  *
- * @retval -EINVAL Virtual address isn't aligned or size is zero
- * @retval -ENOENT Mapping does not exist
- * @retval -ERANGE virtual + size overflow
- * @retval 0 Successful
+ * @return -errno on failure
  */
+int vm_protect(void* virtual, size_t page_count, pgprot_t prot, int flags);
+
+/**
+ * @brief Unmap virtual pages
+ *
+ * @param virtual The virtual address
+ * @param page_count The number of pages to unmap
+ * @param flags VMM flags
+ *
+ * @return -errno on failure
+ */
+int vm_unmap(void* virtual, size_t page_count, int flags);
+
+__attribute__((deprecated("Use vm_map()")))
+void* vmap(void* hint, size_t size, pgprot_t prot, int flags, void* optional);
+__attribute__((deprecated("Use vm_protect()")))
+int vprotect(void* virtual, size_t size, pgprot_t prot, int flags, void* optional);
+__attribute__((deprecated("Use vm_unmap()")))
+int vunmap(void* virtual, size_t size, int flags, void* optional);
+__attribute__((deprecated))
+void __iomem* iomap(physaddr_t physical, size_t size, pgprot_t cache);
+__attribute__((deprecated))
+int iounmap(void __iomem* virtual, size_t size);
+__attribute__((deprecated))
+void __user* usermap(void __user* hint, size_t size, pgprot_t prot, int flags, struct vmm_usermap_info* usermap_info);
+__attribute__((deprecated))
+int userprotect(void __user* virtual, size_t size, pgprot_t prot, int flags, struct vmm_usermap_info* usermap_info);
+__attribute__((deprecated))
 int userunmap(void __user* virtual, size_t size, int flags, struct vmm_usermap_info* usermap_info);
 
 /**
- * @brief Allocate non-contiguous memory
- * @param size The size of the allocation
- * @return The address of the memory
+ * @brief Allocate memory using the VMM
+ *
+ * This function allocates virtually contiguous memory. A guard page is placed at the end.
+ *
+ * @param size The size to allocate
+ * @return A pointer to the memory
  */
 void* vmalloc(size_t size);
+
+/**
+ * @brief Re-allocate memory allocated by vmalloc()
+ *
+ * @param ptr The original pointer
+ * @param size The new size
+ *
+ * @return A pointer to the new block of memory
+ */
+void* vrealloc(void* ptr, size_t size);
 
 /**
  * @brief Free memory allocated with vmalloc()
