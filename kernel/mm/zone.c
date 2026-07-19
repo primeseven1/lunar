@@ -1093,6 +1093,8 @@ int get_page_from_address(physaddr_t address, struct page** page) {
 	size_t pfn = get_pfn_from_address(address);
 	if (pfn == SIZE_MAX)
 		return -ENOMEM;
+	if (pfn == 0)
+		return -EACCES;
 
 	struct page* _page = &page_array[pfn];
 	int err = 0;
