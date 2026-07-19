@@ -146,46 +146,9 @@ static bool cache_set_init(struct slab_cache** caches, size_t count, mm_t mm_ext
 	return true;
 }
 
-struct vmalloc_info {
-	size_t size;
-};
-static struct hashtable* vmalloc_hashtable;
-
-void* vmalloc(size_t size) {
-	size = ROUND_UP(size, PAGE_SIZE);
-
-	u8* virtual = vmap(NULL, size + PAGE_SIZE, PGPROT_READ | PGPROT_WRITE, VMM_ALLOC, NULL);
-	if (IS_PTR_ERR(virtual))
-		return NULL;
-	bug(vprotect(virtual + size, PAGE_SIZE, PGPROT_NONE, 0, NULL) != 0);
-
-	struct vmalloc_info ai = { .size = size };
-	if (hashtable_insert(vmalloc_hashtable, &virtual, sizeof(void*), &ai)) {
-		bug(vunmap(virtual, size + PAGE_SIZE, 0, NULL) != 0);
-		return NULL;
-	}
-
-	return virtual;
-}
-
-void vfree(void* ptr) {
-	if (!ptr)
-		return;
-	struct vmalloc_info ai;
-	if (hashtable_search(vmalloc_hashtable, &ptr, sizeof(void*), &ai)) {
-		dump_stack();
-		printk(PRINTK_ERR "Invalid pointer passed to vfree: %p\n", ptr);
-		return;
-	}
-	bug(vunmap(ptr, ai.size + PAGE_SIZE, 0, NULL) != 0);
-}
-
 static void heap_init(void) {
 	if (!cache_set_init(normal_caches, ARRAY_SIZE(normal_caches), 0) ||
 			!cache_set_init(atomic_caches, ARRAY_SIZE(atomic_caches), MM_ATOMIC))
-		out_of_memory();
-	vmalloc_hashtable = hashtable_create(128, sizeof(void*));
-	if (!vmalloc_hashtable)
 		out_of_memory();
 }
 
