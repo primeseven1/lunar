@@ -73,6 +73,7 @@ struct page_snapshot {
  *
  * @return A pointer to the snapshots
  */
+__attribute__((deprecated))
 struct page_snapshot* snapshot_pages(struct mm* mm_struct, uintptr_t virtual, size_t size);
 
 /**
@@ -81,6 +82,7 @@ struct page_snapshot* snapshot_pages(struct mm* mm_struct, uintptr_t virtual, si
  * @param mm_struct The mm struct
  * @param snapshots The snapshots to restore from
  */
+__attribute__((deprecated))
 void snapshot_restore_pages(struct mm* mm_struct, struct page_snapshot* snapshots);
 
 /**
@@ -89,6 +91,7 @@ void snapshot_restore_pages(struct mm* mm_struct, struct page_snapshot* snapshot
  * @param snapshots The snapshots
  * @param free Whether or not to free the pages previously allocated from the actual mappings (only if VMM_ALLOC is in the flags)
  */
+__attribute__((deprecated))
 void snapshot_cleanup(struct page_snapshot* snapshots, bool free);
 
 /**
