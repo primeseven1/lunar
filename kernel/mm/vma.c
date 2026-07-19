@@ -183,10 +183,8 @@ int vma_protect(struct mm* mm, uintptr_t address, size_t size, pgprot_t prot) {
 			return -EPERM;
 		u = pos;
 	}
-	if (!v)
+	if (!v || !u)
 		return -ENOENT;
-	if (!u)
-		return 0; /* Nothing overlaps the range, nothing to change */
 
 	bool need_start_split = address > v->start;
 	bool need_end_split = end < u->top;
