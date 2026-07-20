@@ -32,6 +32,8 @@ static void cmdline_init(void) {
 	size_t cmdline_size = strlen(cmdline);
 	if (cmdline_size++ == 0)
 		return;
+	if (cmdline_size > PAGE_SIZE)
+		cmdline_size = PAGE_SIZE;
 
 	/* Hastable with 10 nodes is probably more than enough */
 	cmdline_hashtable = hashtable_create(10, sizeof(char*));
@@ -39,12 +41,15 @@ static void cmdline_init(void) {
 		return;
 
 	/* Create a writable copy, this will be tokenized and made read only */
-	char* cmdline_copy = vmap(NULL, cmdline_size, PGPROT_READ | PGPROT_WRITE, VMM_ALLOC, NULL);
+	struct page* page = page_alloc_page(MM_ZONE_NORMAL);
+	if (!page)
+		return;
+	char* cmdline_copy = vm_map(NULL, &page, 1, PGPROT_READ | PGPROT_WRITE, 0);
 	if (IS_PTR_ERR(cmdline_copy))
 		return;
 
 	char* const cmdline_base = cmdline_copy;
-	strcpy(cmdline_copy, cmdline);
+	strlcpy(cmdline_copy, cmdline, PAGE_SIZE);
 
 	int err = 0;
 	char* save_outer = NULL;
@@ -61,7 +66,9 @@ static void cmdline_init(void) {
 	}
 
 	printk(PRINTK_INFO "cmdline: %s\n", cmdline);
-	bug(vprotect(cmdline_base, cmdline_size, PGPROT_READ, 0, NULL) != 0);
+	err = vm_protect(cmdline_base, 1, PGPROT_READ, 0);
+	if (err)
+		printk("cmdline: Failed to make command line read only: %d\n", err);
 }
 
 INIT_TASK_DECLARE(vmm_init_task, heap_init_task);
