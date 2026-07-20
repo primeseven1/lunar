@@ -36,19 +36,19 @@ void uacpi_kernel_log(uacpi_log_level level, const uacpi_char* str) {
 void* uacpi_kernel_map(uacpi_phys_addr physical, uacpi_size size) {
 	size_t page_offset = physical % PAGE_SIZE;
 	physaddr_t _physical = physical - page_offset;
-	void* virtual = vmap(NULL, size + page_offset, PGPROT_READ | PGPROT_WRITE, VMM_PHYSICAL, &_physical);
-	if (IS_PTR_ERR(virtual))
-		return NULL;
-	return (u8*)virtual + page_offset;
+	size = ROUND_UP(size + page_offset, PAGE_SIZE);
+	u8* virtual = vm_map_physical(NULL, _physical, size >> PAGE_SHIFT, PGPROT_READ | PGPROT_WRITE, 0);
+	return IS_PTR_ERR(virtual) ? UACPI_MAP_FAILED : virtual + page_offset;
 }
 
 void uacpi_kernel_unmap(void* virtual, uacpi_size size) {
 	size_t page_offset = (uintptr_t)virtual % PAGE_SIZE;
 	void* _virtual = (u8*)virtual - page_offset;
-	int err = vunmap(_virtual, size + page_offset, 0, NULL);
+	size = ROUND_UP(size + page_offset, PAGE_SIZE);
+	int err = vm_unmap(_virtual, size >> PAGE_SHIFT, 0);
 	if (unlikely(err)) {
 		dump_stack();
-		printk(PRINTK_ERR "acpi: vunmap() failed with error code %i\n", err);
+		printk(PRINTK_ERR "acpi: vm_unmap() failed with error code %i\n", err);
 	}
 }
 
