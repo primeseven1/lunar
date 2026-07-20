@@ -81,7 +81,7 @@ static void destroy_directory(struct tmpfs_node* tnode) {
 static void destroy_regular_or_symlink(struct tmpfs_node* tnode) {
 	struct tmpfs_block* block = tnode->typedata.data;
 	if (block->data.file.data)
-		bug(vunmap(block->data.file.data, block->data.file.cap, 0, NULL) != 0);
+		vfree(block->data.file.data);
 	kfree(block);
 }
 
@@ -299,12 +299,12 @@ static int tmpfs_write(struct vnode* vnode, const void* buf, size_t count, off_t
 	struct tmpfs_block* block = tnode->typedata.data;
 	if (end > block->data.file.cap) {
 		size_t new_cap = (end + PAGE_SIZE - 1) & ~((size_t)PAGE_SIZE - 1);
-		u8* new_data = vmap(NULL, new_cap, PGPROT_READ | PGPROT_WRITE, VMM_ALLOC, NULL);
-		if (IS_PTR_ERR(new_data))
-			return PTR_ERR(new_data);
+		u8* new_data = vmalloc(new_cap);
+		if (!new_data)
+			return -ENOMEM;
 		if (block->data.file.data) {
 			memcpy(new_data, block->data.file.data, block->data.file.cap);
-			bug(vunmap(block->data.file.data, block->data.file.cap, 0, NULL) != 0);
+			vfree(block->data.file.data);
 		}
 		block->data.file.data = new_data;
 		block->data.file.cap = new_cap;
