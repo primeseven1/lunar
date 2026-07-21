@@ -2,7 +2,7 @@
 
 #include <lunar/sched.h>
 
-struct thread* kthread_create(int flags, int (*func)(void*), void* arg, const char* fmt, ...);
+struct thread* kthread_create(int flags, int (*threadfn)(void*), void* arg, const char* fmt, ...);
 int kthread_run(struct thread* thread, int prio);
 void kthread_destroy(struct thread* thread);
 void kthread_detach(struct thread* thread);

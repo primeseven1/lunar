@@ -11,68 +11,59 @@
 
 #include <arch/kthread.h>
 
+typedef int (*kthread_entry_t)(void*); /* Makes this play nice with the atomic() macro */
+
+union kthread_asm_arg {
+	struct {
+		kthread_entry_t threadfn;
+		void* arg;
+	} nonatomic;
+	struct {
+		atomic(kthread_entry_t) threadfn;
+		atomic(void*) arg;
+	} atomic;
+};
+static_assert(sizeof(union kthread_asm_arg) == 16);
+
 struct kthread {
 	char name[32];
-	int (*func)(void*);
-	void* arg;
-	struct thread_stack stack;
+	union kthread_asm_arg arg;
+	void* stack_bottom, *stack_top;
 	bool scheduled;
 };
 
 static struct proc* kernel_proc;
+
 static struct hashtable* kthread_table;
 static MUTEX_DEFINE(kthread_table_lock);
 
-typedef atomic(void*) atomic_void_ptr_t; /* Don't really like doing this, since this allows more ways to use it wrong */
-
-struct thread* kthread_create(int flags, int (*func)(void*), void* arg, const char* fmt, ...) {
-	(void)flags;
-
-	struct thread* thread = sched_thread_alloc(flags);
+struct thread* kthread_create(int flags, int (*threadfn)(void*), void* arg, const char* fmt, ...) {
+	struct thread* thread = alloc_thread(flags);
 	if (!thread)
 		return NULL;
-	const size_t stack_size = PAGE_SIZE * 4;
-	atomic_void_ptr_t* stack = vmap(NULL, stack_size + PAGE_SIZE, PGPROT_READ | PGPROT_WRITE, VMM_ALLOC | VMM_STACK, NULL);
-	if (IS_PTR_ERR(stack)) {
-		THREAD_RELEASE(thread);
-		sched_thread_destroy(thread);
-		return NULL;
-	}
-	void* const stack_base = stack;
 
-	bug(vprotect(stack, PAGE_SIZE, PGPROT_NONE, 0, NULL) != 0);
-	stack = (atomic_void_ptr_t*)((u8*)stack + stack_size + PAGE_SIZE);
-	stack -= 2;
-
-	atomic_void_ptr_t* _fn = stack;
-	atomic_void_ptr_t* _arg = stack + 1;
-	const size_t ptr_off = sizeof(*_fn) + sizeof(*_arg);
-
-	atomic_store_explicit(_fn, func, ATOMIC_SEQ_CST);
-	atomic_store_explicit(_arg, arg, ATOMIC_SEQ_CST);
-	stack += 2;
-
-	struct kthread kt = {
-		.func = func, .arg = arg,
-		.stack = {
-			.kernel_stack_top = stack, .kernel_ptr_off = ptr_off, .kernel_size = stack_size, .kernel_guard_size = PAGE_SIZE,
-			.user_stack_top = NULL, .user_ptr_off = 0, .user_size = 0, .user_guard_size = 0
-		},
-		.scheduled = false
-	};
+	struct kthread kt;
 	va_list va;
 	va_start(va, fmt);
 	if (vsnprintf(kt.name, sizeof(kt.name), fmt, va) < 0)
 		strlcpy(kt.name, "kthread", sizeof(kt.name));
 	va_end(va);
+	kt.arg = (union kthread_asm_arg){ .nonatomic = { .threadfn = threadfn, .arg = arg } };
+	int err = alloc_thread_stack(thread, sizeof(kt.arg), &kt.stack_bottom, &kt.stack_top);
+	if (err) {
+		THREAD_RELEASE(thread);
+		free_thread(thread);
+		return NULL;
+	}
+	kt.scheduled = false;
 
 	mutex_acquire(&kthread_table_lock);
 
-	int err = hashtable_insert(kthread_table, &thread, sizeof(struct thread*), &kt);
+	err = hashtable_insert(kthread_table, &thread, sizeof(struct thread*), &kt);
 	if (err) {
-		bug(vunmap(stack_base, stack_size + PAGE_SIZE, 0, NULL) != 0);
-		THREAD_RELEASE(thread); /* Remove the ref that sched_thread_alloc() gives */
-		sched_thread_destroy(thread);
+		vm_unmap_force(kt.stack_bottom, (THREAD_STACK_SIZE >> PAGE_SHIFT) + 1, 0);
+		THREAD_RELEASE(thread); /* Remove the ref that alloc_thread() gives */
+		free_thread(thread);
 		thread = NULL;
 	}
 
@@ -97,8 +88,12 @@ int kthread_run(struct thread* thread, int prio) {
 	if (err)
 		goto out_unlock;
 
+	/* Prepare the stack */
+	union kthread_asm_arg* thread_args = (union kthread_asm_arg*)kt.stack_top - 1;
+	atomic_store(&thread_args->atomic.threadfn, kt.arg.nonatomic.threadfn);
+	atomic_store(&thread_args->atomic.arg, kt.arg.nonatomic.arg);
+
 	const struct thread_entry_point entry_point = { .kernel_entry = arch_asm_kthread_start, .user_entry = NULL };
-	thread->stack = kt.stack;
 	arch_thread_prepare_execution(thread, &entry_point);
 
 	err = sched_enqueue(thread);
@@ -124,12 +119,9 @@ void kthread_destroy(struct thread* thread) {
 		printk(PRINTK_ERR "kthread: %s() invalid pointer (err %d)\n", __func__, err);
 	} else {
 		bug(kt.scheduled == true);
-		size_t unmap_size = kt.stack.kernel_size + kt.stack.kernel_guard_size;
-		void* const stack_base = (u8*)kt.stack.kernel_stack_top - unmap_size;
-		bug(vunmap(stack_base, unmap_size, 0, NULL) != 0);
 		bug(hashtable_remove(kthread_table, &thread, sizeof(struct thread*)) != 0);
 		THREAD_RELEASE(thread);
-		sched_thread_destroy(thread);
+		free_thread(thread);
 	}
 
 	mutex_release(&kthread_table_lock);
@@ -145,6 +137,7 @@ void kthread_detach(struct thread* thread) {
 		printk(PRINTK_ERR "kthread: %s() invalid pointer (err %d)\n", __func__, err);
 	} else {
 		bug(kt.scheduled == false);
+		free_thread_stack(kt.stack_bottom);
 		bug(hashtable_remove(kthread_table, &thread, sizeof(struct thread*)) != 0);
 		THREAD_RELEASE(thread);
 	}
