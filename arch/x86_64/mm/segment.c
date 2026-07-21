@@ -38,15 +38,16 @@ void arch_x86_64_gdt_init(void) {
 static void ist_init(void) {
 	struct cpu* const cpu = current_cpu();
 	struct arch_x86_64_tss* const tss = &cpu->arch_specific.tss;
-	const size_t stack_size = (PAGE_SIZE * 4) + PAGE_SIZE;
 	for (int i = 0; i < ARCH_X86_64_IDT_IST_COUNT; i++) {
-		u8* stack = vmap(NULL, stack_size, PGPROT_READ | PGPROT_WRITE, VMM_ALLOC | VMM_STACK, NULL);
-		if (IS_PTR_ERR(stack))
-			out_of_memory();
-		int err = vprotect(stack, PAGE_SIZE, PGPROT_NONE, 0, NULL);
-		if (err)
-			panic("Failed to create IST guard page: %i", err);
-		tss->ist[i] = stack + stack_size;
+		void* tmp, *top; /* Using top here instead of the entry directly stops ubsan from complaining about a misaligned pointer access */
+		int err = alloc_stack(&tmp, &top);
+		if (err) {
+			if (err == -ENOMEM)
+				out_of_memory();
+			else
+				panic("Failed to allocate IST stack: %d", err);
+		}
+		tss->ist[i] = top;
 	}
 }
 
