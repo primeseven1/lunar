@@ -10,6 +10,8 @@
 #include <arch/posix.h>
 #include <arch/context.h>
 
+#define THREAD_STACK_SIZE 0x4000
+
 #define THREAD_NEW 0
 #define THREAD_RUNNING 1
 #define THREAD_READY 2
@@ -35,12 +37,10 @@ struct context {
 };
 
 struct thread_stack {
-	void* kernel_stack_top; /* Stack to switch to on syscalls and interrupts (unless it's a kthread) */
+	void* kernel_stack_top, *kernel_stack_bottom; /* Stack to switch to on syscalls and interrupts (unless it's a kthread) */
 	size_t kernel_ptr_off; /* How many bytes already "consumed" */
-	size_t kernel_size, kernel_guard_size;
-	void __user* user_stack_top; /* Unused for kernel threads */
+	void __user* user_stack_top, *user_stack_bottom; /* Unused for kernel threads */
 	size_t user_ptr_off; /* How many bytes already "consumed" */
-	size_t user_size, user_guard_size;
 };
 
 struct topology {
@@ -68,7 +68,6 @@ struct thread {
 	atomic(void*) policy_priv;
 };
 static_assert(offsetof(struct thread, stack.kernel_stack_top) == 0);
-static_assert(offsetof(struct thread, stack.kernel_ptr_off) == sizeof(void*) * 1);
 
 struct thread_entry_point {
 	void (*kernel_entry)(void);
@@ -94,10 +93,47 @@ struct thread_entry_point {
  * @param flags SCHED_* flags
  * @return A pointer to the thread
  */
-struct thread* sched_thread_alloc(int flags);
+struct thread* alloc_thread(int flags);
 
 /**
- * @brief Destroy a thread
- * @param thread The thread to destroy
+ * @brief free a thread
+ *
+ * Refcount must be zero
+ *
+ * @param thread The thread to free
  */
-void sched_thread_destroy(struct thread* thread);
+void free_thread(struct thread* thread);
+
+/**
+ * @brief Allocate a kernel stack
+ *
+ * @param[out] bottom Bottom of the stack
+ * @param[out] top Top of the stack
+ *
+ * @return -errno on failure
+ */
+int alloc_stack(void** bottom, void** top);
+
+/**
+ * @brief Free a kernel stack
+ * @param bottom The bottom of the stack
+ */
+void free_stack(void* bottom);
+
+/**
+ * @brief Allocate a kernel stack for a thread
+ *
+ * @param[in] thread The thread the stack is for
+ * @param[in] off Number of bytes to reserve (eg. for thread arguments)
+ * @param[out] bottom Bottom of the stack, optional
+ * @param[out] top The top of the stack, optional
+ *
+ * @return -errno on failure
+ */
+int alloc_thread_stack(struct thread* thread, size_t off, void** bottom, void** top);
+
+/**
+ * @brief Free a kernel thread stack
+ * @param thread The thread to free the stack for
+ */
+void free_thread_stack(struct thread* thread);

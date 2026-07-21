@@ -350,17 +350,17 @@ _Noreturn void sched_thread_exit(void) {
 static struct proc* kernel_proc;
 
 static struct thread* create_bootstrap_thread(void (*exec)(void), int state, int prio) {
-	struct thread* thread = sched_thread_alloc(SCHED_TOPOLOGY_CURRENT | SCHED_TOPOLOGY_NO_MIGRATE);
+	struct thread* thread = alloc_thread(SCHED_TOPOLOGY_CURRENT | SCHED_TOPOLOGY_NO_MIGRATE);
 	if (!thread)
 		out_of_memory();
 
-	/* Create a stack with a guard page */
-	const size_t stack_size = PAGE_SIZE * 4;
-	u8* stack = vmap(NULL, stack_size + PAGE_SIZE, PGPROT_READ | PGPROT_WRITE, VMM_ALLOC | VMM_STACK, NULL);
-	if (IS_PTR_ERR(stack))
-		out_of_memory();
-	bug(vprotect(stack, PAGE_SIZE, PGPROT_NONE, 0, NULL) != 0);
-	stack += stack_size + PAGE_SIZE;
+	int err = alloc_thread_stack(thread, 0, NULL, NULL);
+	if (err) {
+		if (err == -ENOMEM)
+			out_of_memory();
+		else
+			panic("Failed to allocate bootstrap thread stack: %d\n", err);
+	}
 
 	/*
 	 * When priority is zero, it means that it's the idle thread.
@@ -368,7 +368,7 @@ static struct thread* create_bootstrap_thread(void (*exec)(void), int state, int
 	 * Not doing so will cause a null dereference when switching to the idle thread.
 	 */
 	if (prio) {
-		int err = sched_thread_attach(thread, kernel_proc, prio);
+		err = sched_thread_attach(thread, kernel_proc, prio);
 		if (err == -ENOMEM)
 			out_of_memory();
 		bug(err != 0);
@@ -378,14 +378,6 @@ static struct thread* create_bootstrap_thread(void (*exec)(void), int state, int
 	atomic_store(&thread->state.state, state);
 
 	const struct thread_entry_point entry_point = { .kernel_entry = exec, .user_entry = NULL };
-	thread->stack = (struct thread_stack){
-		.kernel_stack_top = stack,
-		.kernel_size = stack_size, .kernel_guard_size = PAGE_SIZE,
-		.kernel_ptr_off = 0,
-		.user_stack_top = NULL,
-		.user_size = 0, .user_guard_size = 0,
-		.user_ptr_off = 0
-	};
 	arch_thread_prepare_execution(thread, &entry_point);
 
 	return thread;
@@ -412,7 +404,7 @@ static void sched_bootstrap_processor(void) {
 	spinlock_init(&rq->zombie_lock);
 	semaphore_init(&rq->reaper_sem, 0);
 
-	/* First create the current thread, and we don't need the ref sched_thread_alloc() gives */
+	/* First create the current thread, and we don't need the ref alloc_thread() gives */
 	struct thread* thread = create_bootstrap_thread(NULL, THREAD_RUNNING, SCHED_PRIO_DEFAULT);
 	atomic_store(&rq->current, thread);
 	THREAD_RELEASE(thread);

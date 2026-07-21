@@ -25,7 +25,7 @@ static int reaper(void* arg) {
 		spinlock_release_preempt_enable(&rq->zombie_lock);
 		if (zombie) {
 			sched_thread_detach(zombie);
-			sched_thread_destroy(zombie);
+			free_thread(zombie);
 		} else {
 			schedule();
 		}
