@@ -68,13 +68,25 @@ int vm_protect(void* virtual, size_t page_count, pgprot_t prot, int flags);
 /**
  * @brief Unmap virtual pages
  *
- * @param virtual The virtual address
+ * @param virtual The virtual address to unmap
  * @param page_count The number of pages to unmap
  * @param flags VMM flags
  *
  * @return -errno on failure
  */
 int vm_unmap(void* virtual, size_t page_count, int flags);
+
+/**
+ * @brief Unmap virtual pages
+ *
+ * Unlike vm_unmap, this function will handle the -ENOMEM error. Because this function doesn't
+ * return any error, this function will panic when failing to unmap the memory.
+ *
+ * @param virtual The virtual address to unmap
+ * @param page_count The number of pages to unmap
+ * @param flags VMM flags
+ */
+void vm_unmap_force(void* virtual, size_t page_count, int flags);
 
 __attribute__((deprecated("Use vm_map()")))
 void* vmap(void* hint, size_t size, pgprot_t prot, int flags, void* optional);

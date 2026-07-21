@@ -254,6 +254,18 @@ int vm_unmap(void* virtual, size_t page_count, int flags) {
 	return err;
 }
 
+void vm_unmap_force(void* virtual, size_t page_count, int flags) {
+	int err;
+	do {
+		err = vm_unmap(virtual, page_count, flags);
+		if (err == -ENOMEM)
+			out_of_memory();
+	} while (err == -ENOMEM);
+
+	if (err != 0)
+		panic("%s() failed: %d\n", __func__, err);
+}
+
 struct vmalloc_node {
 	void* address;
 	size_t page_count, guard_page_count;
@@ -336,19 +348,7 @@ static inline struct vmalloc_node* get_node_and_unlink(void* ptr) {
 }
 
 static void vunmap_node(struct vmalloc_node* node) {
-	const size_t unmap_page_count = node->page_count + node->guard_page_count;
-	int err = vm_unmap(node->address, unmap_page_count, 0);
-	if (err) {
-		bug(err != -ENOMEM);
-		printk(PRINTK_WARN "mm: %s() vm_unmap() failed, retrying\n", __func__);
-		while (1) {
-			out_of_memory();
-			err = vm_unmap(node->address, unmap_page_count, 0);
-			if (!err)
-				break;
-			bug(err != -ENOMEM);
-		}
-	}
+	vm_unmap_force(node->address, node->page_count + node->guard_page_count, 0);
 }
 
 void* vrealloc(void* ptr, size_t size) {
