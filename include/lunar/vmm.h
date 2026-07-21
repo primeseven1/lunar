@@ -94,9 +94,7 @@ __attribute__((deprecated("Use vm_protect()")))
 int vprotect(void* virtual, size_t size, pgprot_t prot, int flags, void* optional);
 __attribute__((deprecated("Use vm_unmap()")))
 int vunmap(void* virtual, size_t size, int flags, void* optional);
-__attribute__((deprecated))
 void __iomem* iomap(physaddr_t physical, size_t size, pgprot_t cache);
-__attribute__((deprecated))
 int iounmap(void __iomem* virtual, size_t size);
 __attribute__((deprecated))
 void __user* usermap(void __user* hint, size_t size, pgprot_t prot, int flags, struct vmm_usermap_info* usermap_info);

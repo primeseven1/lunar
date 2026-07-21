@@ -18,8 +18,19 @@ static void release_page_address(physaddr_t physical) {
 	}
 }
 
-static int hold_page_address(physaddr_t physical, struct page** page) {
-	return get_page_from_address(physical, page); /* Gives page with a ref added */
+/* Look up a page by address and add a reference to it if it exists */
+static int hold_page_address(physaddr_t physical, struct page** page, int flags) {
+	struct page* tmp;
+	int err = get_page_from_address(physical, &tmp); /* Gives page with a ref added */
+	if (err == 0) {
+		if (flags & VMM_IOMEM && !(tmp->flags & PAGE_FLAG_RESERVED)) {
+			page_release(tmp);
+			err = -EACCES;
+		} else {
+			*page = tmp;
+		}
+	}
+	return err;
 }
 
 /* Unmap a page, with an optional page argument to release the page without a lookup */
@@ -61,7 +72,7 @@ struct map_pages_arg {
  * Map a page, either a direct physical address or a struct page*, if mapping a physical address,
  * it attempts to hold the page associated with the address if it exists
  */
-static int map_page(pte_t* pagetable, uintptr_t virtual, const struct map_page_arg* arg, pgprot_t prot) {
+static int map_page(pte_t* pagetable, uintptr_t virtual, const struct map_page_arg* arg, pgprot_t prot, int flags) {
 	physaddr_t physical;
 	struct page* page;
 
@@ -71,7 +82,7 @@ static int map_page(pte_t* pagetable, uintptr_t virtual, const struct map_page_a
 		page_hold(page);
 	} else {
 		physical = arg->un.physaddr;
-		int err = hold_page_address(physical, &page);
+		int err = hold_page_address(physical, &page, flags);
 		if (err) {
 			if (err == -EACCES)
 				return err;
@@ -91,7 +102,7 @@ static int map_page(pte_t* pagetable, uintptr_t virtual, const struct map_page_a
 	return 0;
 }
 
-static int map_pages(pte_t* pagetable, uintptr_t virtual, const struct map_pages_arg* arg, pgprot_t prot) {
+static int map_pages(pte_t* pagetable, uintptr_t virtual, const struct map_pages_arg* arg, pgprot_t prot, int flags) {
 	for (size_t mapped_pages = 0; mapped_pages < arg->page_count; mapped_pages++) {
 		uintptr_t page_virtual = virtual + mapped_pages * PAGE_SIZE;
 
@@ -105,7 +116,7 @@ static int map_pages(pte_t* pagetable, uintptr_t virtual, const struct map_pages
 			map_page_arg.un.physaddr = arg->un.physaddr + mapped_pages * PAGE_SIZE;
 		}
 
-		int err = map_page(pagetable, virtual + mapped_pages * PAGE_SIZE, &map_page_arg, prot);
+		int err = map_page(pagetable, virtual + mapped_pages * PAGE_SIZE, &map_page_arg, prot, flags);
 		if (err) {
 			for (size_t i = 0; i < mapped_pages; i++) {
 				page_virtual = virtual + i * PAGE_SIZE;
@@ -132,14 +143,16 @@ static void protect_pages(pte_t* pagetable, uintptr_t virtual, size_t count, pgp
 	}
 }
 
-static void force_vma_unmap_enomem(struct mm* mm, uintptr_t virtual, size_t page_count) {
-	while (1) {
-		int err = vma_unmap(mm, virtual, page_count * PAGE_SIZE);
-		if (likely(err == 0))
-			break;
-		bug(err != -ENOMEM);
-		out_of_memory();
-	}
+static void vma_unmap_force(struct mm* mm, uintptr_t virtual, size_t page_count) {
+	int err;
+	do {
+		err = vma_unmap(mm, virtual, page_count * PAGE_SIZE);
+		if (err == -ENOMEM)
+			out_of_memory();
+	} while (err == -ENOMEM);
+
+	if (err)
+		panic("%s() failed: %d", __func__, err);
 }
 
 struct mm* current_mm(void) {
@@ -149,17 +162,22 @@ struct mm* current_mm(void) {
 	return ret;
 }
 
+static int check_vm_args_generic(void* hint, size_t page_count, int flags) {
+	return (page_count == 0 || (flags & VMM_FIXED && (uintptr_t)hint % PAGE_SIZE != 0) || flags & VMM_SEALED) ? -EINVAL : 0;
+}
+
 void* vm_map(void* hint, struct page** pages, size_t page_count, pgprot_t prot, int flags) {
-	if (pages == NULL || page_count == 0)
+	if (pages == NULL)
 		return ERR_PTR(-EINVAL);
-	if (flags & VMM_SEALED)
-		return ERR_PTR(-EINVAL);
+	int err = check_vm_args_generic(hint, page_count, flags);
+	if (err)
+		return ERR_PTR(err);
 
 	struct mm* mm = current_mm();
 	mutex_acquire(&mm->mutex);
 
 	uintptr_t virtual;
-	int err = vma_map(mm, (uintptr_t)hint, page_count * PAGE_SIZE, prot, flags, &virtual);
+	err = vma_map(mm, (uintptr_t)hint, page_count * PAGE_SIZE, prot, flags, &virtual);
 	if (err)
 		goto out;
 
@@ -170,7 +188,7 @@ void* vm_map(void* hint, struct page** pages, size_t page_count, pgprot_t prot, 
 		const uintptr_t page_virtual = virtual + i * PAGE_SIZE;
 		err = vma_protect(mm, page_virtual, PAGE_SIZE, PGPROT_NONE);
 		if (err) {
-			force_vma_unmap_enomem(mm, virtual, page_count);
+			vma_unmap_force(mm, virtual, page_count);
 			goto out;
 		}
 	}
@@ -179,9 +197,9 @@ void* vm_map(void* hint, struct page** pages, size_t page_count, pgprot_t prot, 
 		unmap_pages(mm->pagetable, virtual, page_count);
 
 	const struct map_pages_arg arg = { .page_count = page_count, .use_pages = true, .un.pages = pages };
-	err = map_pages(mm->pagetable, virtual, &arg, prot);
+	err = map_pages(mm->pagetable, virtual, &arg, prot, flags);
 	if (unlikely(err))
-		force_vma_unmap_enomem(mm, virtual, page_count);
+		vma_unmap_force(mm, virtual, page_count);
 
 	tlb_invalidate(virtual, page_count * PAGE_SIZE); /* Invalidate even on error just in case */
 out:
@@ -189,29 +207,43 @@ out:
 	return (err == 0) ? (void*)virtual : ERR_PTR(err);
 }
 
-void* vm_map_physical(void* hint, physaddr_t physical, size_t page_count, pgprot_t prot, int flags) {
-	if (physical % PAGE_SIZE != 0 || page_count == 0)
-		return ERR_PTR(-EINVAL);
+static int __vm_map_physical(void* hint, physaddr_t physical, size_t page_count, pgprot_t prot, int flags, void** out) {
+	if (physical % PAGE_SIZE != 0)
+		return -EINVAL;
+	int err = check_vm_args_generic(hint, page_count, flags);
+	if (err)
+		return err;
 
 	struct mm* mm = current_mm();
 	mutex_acquire(&mm->mutex);
 
 	uintptr_t virtual;
-	int err = vma_map(mm, (uintptr_t)hint, page_count * PAGE_SIZE, prot, flags, &virtual);
+	err = vma_map(mm, (uintptr_t)hint, page_count * PAGE_SIZE, prot, flags, &virtual);
 	if (err == 0) {
 		if (flags & VMM_FIXED && (!(flags & VMM_NOREPLACE)))
 			unmap_pages(mm->pagetable, virtual, page_count);
 
 		const struct map_pages_arg arg = { .page_count = page_count, .use_pages = false, .un.physaddr = physical };
-		err = map_pages(mm->pagetable, virtual, &arg, prot);
+		err = map_pages(mm->pagetable, virtual, &arg, prot, flags);
 		if (unlikely(err))
-			force_vma_unmap_enomem(mm, virtual, page_count);
+			vma_unmap_force(mm, virtual, page_count);
 
 		tlb_invalidate(virtual, page_count * PAGE_SIZE);
 	}
 
 	mutex_release(&mm->mutex);
-	return (err == 0) ? (void*)virtual : ERR_PTR(err);
+
+	if (err == 0)
+		*out = (void*)virtual;
+	return err;
+}
+
+void* vm_map_physical(void* hint, physaddr_t physical, size_t page_count, pgprot_t prot, int flags) {
+	if (flags & VMM_IOMEM)
+		return ERR_PTR(-EINVAL);
+	void* ret;
+	int err = __vm_map_physical(hint, physical, page_count, prot, flags, &ret);
+	return err ? ERR_PTR(err) : ret;
 }
 
 int vm_protect(void* virtual, size_t page_count, pgprot_t prot, int flags) {
@@ -252,6 +284,25 @@ int vm_unmap(void* virtual, size_t page_count, int flags) {
 
 	mutex_release(&mm->mutex);
 	return err;
+}
+
+void __iomem* iomap(physaddr_t physical, size_t size, pgprot_t cache) {
+	cache &= PGPROT_PWT | PGPROT_PCD;
+
+	const size_t page_offset = physical % PAGE_SIZE;
+	size = ROUND_UP(size + page_offset, PAGE_SIZE);
+
+	void* ret;
+	int err = __vm_map_physical(NULL, physical, size >> PAGE_SHIFT, PGPROT_READ | PGPROT_WRITE | cache, VMM_IOMEM, &ret);
+	if (err)
+		return (void __iomem*)ERR_PTR(err);
+	return (u8 __iomem*)ret + page_offset;
+}
+
+int iounmap(void __iomem* virtual, size_t size) {
+	const size_t page_offset = (uintptr_t)virtual % PAGE_SIZE;
+	size = ROUND_UP(size + page_offset, PAGE_SIZE);
+	return vm_unmap((void __force*)virtual, size >> PAGE_SHIFT, 0);
 }
 
 void vm_unmap_force(void* virtual, size_t page_count, int flags) {
@@ -347,10 +398,6 @@ static inline struct vmalloc_node* get_node_and_unlink(void* ptr) {
 	return node;
 }
 
-static void vunmap_node(struct vmalloc_node* node) {
-	vm_unmap_force(node->address, node->page_count + node->guard_page_count, 0);
-}
-
 void* vrealloc(void* ptr, size_t size) {
 	if (!ptr)
 		return vmalloc(size);
@@ -377,7 +424,7 @@ void* vrealloc(void* ptr, size_t size) {
 	const size_t copy_count = (node->page_count > page_count) ? page_count << PAGE_SHIFT : node->page_count << PAGE_SHIFT;
 	memcpy(ret, ptr, copy_count);
 
-	vunmap_node(node);
+	vm_unmap_force(node->address, node->page_count + node->guard_page_count, 0);
 	kfree(node);
 	return ret;
 }
@@ -393,6 +440,6 @@ void vfree(void* ptr) {
 		return;
 	}
 
-	vunmap_node(node);
+	vm_unmap_force(node->address, node->page_count + node->guard_page_count, 0);
 	kfree(node);
 }

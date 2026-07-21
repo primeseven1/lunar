@@ -409,27 +409,6 @@ int vunmap(void* virtual, size_t size, int flags, void* optional) {
 	return ((flags & VMM_USER) || (flags & VMM_IOMEM)) ? -EINVAL : __vunmap((uintptr_t)virtual, size, flags, optional);
 }
 
-void __iomem* iomap(physaddr_t physical, size_t size, pgprot_t cache) {
-	if ((!(cache & PGPROT_PCD) && !(cache & PGPROT_PCD)) || (cache & PGPROT_EXEC))
-		return NULL;
-
-	const size_t page_offset = physical % PAGE_SIZE;
-	const size_t total_size = size + page_offset;
-
-	uintptr_t ret;
-	int err = __vmap(0, total_size, cache | PGPROT_READ | PGPROT_WRITE, VMM_IOMEM, &physical, &ret);
-	if (err)
-		return NULL;
-
-	return (u8 __iomem*)ret + page_offset;
-}
-
-int iounmap(void __iomem* virtual, size_t size) {
-	size_t page_offset = (uintptr_t)virtual % PAGE_SIZE;
-	const size_t total_size = size + page_offset;
-	return __vunmap(ROUND_DOWN((uintptr_t)virtual, PAGE_SIZE), total_size, 0, NULL);
-}
-
 void __user* usermap(void __user* hint, size_t size, pgprot_t prot, int flags, struct vmm_usermap_info* usermap_info) {
 	if ((flags & VMM_PHYSICAL) || (flags & VMM_IOMEM))
 		return (__force void __user*)ERR_PTR(-EINVAL);
