@@ -94,10 +94,19 @@ void snapshot_restore_pages(struct mm* mm_struct, struct page_snapshot* snapshot
 __attribute__((deprecated))
 void snapshot_cleanup(struct page_snapshot* snapshots, bool free);
 
-/**
- * @brief Invalidate a TLB entry
- *
- * @param address The address to invalidate
- * @param size The size to invalidate
- */
+#define TLB_BATCH_PAGE_COUNT 16
+
+struct tlb_batch {
+	pte_t* pagetable;
+	uintptr_t start;
+	uintptr_t end;
+	size_t page_count;
+	struct page* pages[TLB_BATCH_PAGE_COUNT];
+};
+
+void tlb_batch_init(struct tlb_batch* batch, pte_t* pagetable);
+void tlb_batch_flush(struct tlb_batch* batch);
+void tlb_batch_add_range(struct tlb_batch* batch, uintptr_t virtual);
+void tlb_batch_add_page(struct tlb_batch* batch, struct page* page);
+
 void tlb_invalidate(uintptr_t address, size_t size);
