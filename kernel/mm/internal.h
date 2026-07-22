@@ -94,7 +94,7 @@ void snapshot_restore_pages(struct mm* mm_struct, struct page_snapshot* snapshot
 __attribute__((deprecated))
 void snapshot_cleanup(struct page_snapshot* snapshots, bool free);
 
-#define TLB_BATCH_PAGE_COUNT 16
+#define TLB_BATCH_PAGE_COUNT 32
 
 struct tlb_batch {
 	pte_t* pagetable;
@@ -104,9 +104,33 @@ struct tlb_batch {
 	struct page* pages[TLB_BATCH_PAGE_COUNT];
 };
 
+/**
+ * @brief Initialize a TLB batch structure
+ *
+ * @param batch The batch to initialize
+ * @param pagetable The page table
+ */
 void tlb_batch_init(struct tlb_batch* batch, pte_t* pagetable);
+
+/**
+ * @brief Flush TLB entries for a TLB batch structure
+ *
+ * After this function, any page structures associated with this batch will be released
+ *
+ * @param batch The batch to flush
+ */
 void tlb_batch_flush(struct tlb_batch* batch);
-void tlb_batch_add_range(struct tlb_batch* batch, uintptr_t virtual);
-void tlb_batch_add_page(struct tlb_batch* batch, struct page* page);
+
+/**
+ * @brief Add a page to a TLB batch
+ *
+ * If the number of pages exceeds TLB_BATCH_PAGE_COUNT, this function will call
+ * tlb_batch_flush() to allow more pages to be added.
+ *
+ * @param batch The batch to add to
+ * @param virtual The virtual address of the page
+ * @param page The page to release after flushing (optional)
+ */
+void tlb_batch_add(struct tlb_batch* batch, uintptr_t virtual, struct page* page);
 
 void tlb_invalidate(uintptr_t address, size_t size);

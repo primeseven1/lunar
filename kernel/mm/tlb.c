@@ -66,7 +66,7 @@ void tlb_batch_flush(struct tlb_batch* batch) {
 	batch->page_count = 0;
 }
 
-void tlb_batch_add_range(struct tlb_batch* batch, uintptr_t virtual) {
+void tlb_batch_add(struct tlb_batch* batch, uintptr_t virtual, struct page* page) {
 	if (batch->start == batch->end) {
 		batch->start = virtual;
 		batch->end = virtual + PAGE_SIZE;
@@ -76,12 +76,12 @@ void tlb_batch_add_range(struct tlb_batch* batch, uintptr_t virtual) {
 		if (virtual + PAGE_SIZE > batch->end)
 			batch->end = virtual + PAGE_SIZE;
 	}
-}
 
-void tlb_batch_add_page(struct tlb_batch* batch, struct page* page) {
-	if (batch->page_count == ARRAY_SIZE(batch->pages))
-		tlb_batch_flush(batch);
-	batch->pages[batch->page_count++] = page;
+	if (page) {
+		if (batch->page_count == ARRAY_SIZE(batch->pages))
+			tlb_batch_flush(batch);
+		batch->pages[batch->page_count++] = page;
+	}
 }
 
 void tlb_shootdown_init(void) {

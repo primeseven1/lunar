@@ -36,9 +36,7 @@ static void unmap_page(struct tlb_batch* batch, struct page* page, uintptr_t vir
 			page_release(page); /* Drop lookup ref */
 	}
 
-	tlb_batch_add_range(batch, virtual);
-	if (page)
-		tlb_batch_add_page(batch, page);
+	tlb_batch_add(batch, virtual, page);
 }
 
 /* Unmap several pages, does NOT optimize lookup */
@@ -69,16 +67,16 @@ struct map_pages_arg {
  * it attempts to hold the page associated with the address if it exists
  */
 static int map_page(struct tlb_batch* batch, uintptr_t virtual, const struct map_page_arg* arg, pgprot_t prot, int flags) {
-	physaddr_t physical;
 	struct page* page;
+	physaddr_t physical;
 
 	if (arg->use_page) {
-		physical = hhdm_physical(page_hhdm_virtual(arg->un.page));
 		page = arg->un.page;
+		physical = hhdm_physical(page_hhdm_virtual(page));
 		page_hold(page);
 	} else {
 		physical = arg->un.physaddr;
-		int err = hold_page_address(physical, &page, flags);
+		const int err = hold_page_address(physical, &page, flags);
 		if (err) {
 			if (err == -EACCES)
 				return err;
@@ -89,20 +87,20 @@ static int map_page(struct tlb_batch* batch, uintptr_t virtual, const struct map
 		}
 	}
 
-	int err = arch_pagetable_map(batch->pagetable, virtual, physical, false, prot);
+	const int err = arch_pagetable_map(batch->pagetable, virtual, physical, false, prot);
 	if (err) {
 		if (page)
 			page_release(page);
 		return err;
 	}
-	tlb_batch_add_range(batch, virtual);
+
+	/* Invalidate just in case */
+	tlb_batch_add(batch, virtual, NULL);
 	return 0;
 }
 
 static int map_pages(struct tlb_batch* batch, uintptr_t virtual, const struct map_pages_arg* arg, pgprot_t prot, int flags) {
 	for (size_t mapped_pages = 0; mapped_pages < arg->page_count; mapped_pages++) {
-		uintptr_t page_virtual = virtual + mapped_pages * PAGE_SIZE;
-
 		struct map_page_arg map_page_arg;
 		map_page_arg.use_page = arg->use_pages;
 		if (arg->use_pages) {
@@ -113,10 +111,10 @@ static int map_pages(struct tlb_batch* batch, uintptr_t virtual, const struct ma
 			map_page_arg.un.physaddr = arg->un.physaddr + mapped_pages * PAGE_SIZE;
 		}
 
-		int err = map_page(batch, virtual + mapped_pages * PAGE_SIZE, &map_page_arg, prot, flags);
+		const int err = map_page(batch, virtual + mapped_pages * PAGE_SIZE, &map_page_arg, prot, flags);
 		if (err) {
 			for (size_t i = 0; i < mapped_pages; i++) {
-				page_virtual = virtual + i * PAGE_SIZE;
+				const uintptr_t page_virtual = virtual + i * PAGE_SIZE;
 				if (arg->use_pages)
 					unmap_page(batch, arg->un.pages[i], page_virtual);
 				else
@@ -137,7 +135,7 @@ static void protect_pages(struct tlb_batch* batch, uintptr_t virtual, size_t cou
 			continue;
 
 		bug(arch_pagetable_update(batch->pagetable, page_virtual, physical, false, prot) != 0);
-		tlb_batch_add_range(batch, page_virtual);
+		tlb_batch_add(batch, page_virtual, NULL);
 	}
 }
 
