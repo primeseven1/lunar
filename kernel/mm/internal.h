@@ -98,8 +98,8 @@ void snapshot_cleanup(struct page_snapshot* snapshots, bool free);
 
 struct tlb_batch {
 	pte_t* pagetable;
-	uintptr_t start;
-	uintptr_t end;
+	uintptr_t first_page_virtual;
+	uintptr_t last_page_virtual;
 	size_t page_count;
 	struct page* pages[TLB_BATCH_PAGE_COUNT];
 };
@@ -115,7 +115,8 @@ void tlb_batch_init(struct tlb_batch* batch, pte_t* pagetable);
 /**
  * @brief Flush TLB entries for a TLB batch structure
  *
- * After this function, any page structures associated with this batch will be released
+ * After this function, any page structures associated with this batch will be released.
+ * Not safe to call from an atomic context, as this may acquire mutexes.
  *
  * @param batch The batch to flush
  */
