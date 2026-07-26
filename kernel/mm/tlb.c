@@ -89,12 +89,14 @@ void tlb_batch_flush(struct tlb_batch* batch) {
 }
 
 void tlb_batch_add(struct tlb_batch* batch, uintptr_t virtual, struct page* page) {
-	if (page && batch->page_count == ARRAY_SIZE(batch->pages))
+	if (unlikely(batch->page_count == ARRAY_SIZE(batch->pages) && page))
 		tlb_batch_flush(batch);
+
 	if (virtual < batch->first_page_virtual)
 		batch->first_page_virtual = virtual;
 	if (virtual > batch->last_page_virtual)
 		batch->last_page_virtual = virtual;
+
 	if (page)
 		batch->pages[batch->page_count++] = page;
 }
