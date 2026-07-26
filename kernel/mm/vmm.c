@@ -151,6 +151,15 @@ static void vma_unmap_force(struct mm* mm, uintptr_t virtual, size_t page_count)
 		panic("%s() failed: %d", __func__, err);
 }
 
+static struct mm kernel_mm_struct = {
+	.pagetable = NULL,
+	.vma_list = LIST_HEAD_INITIALIZER(kernel_mm_struct.vma_list),
+	.mmap = { .start = KERNEL_SPACE_START, .end = KERNEL_SPACE_END, .grows_down = false, .max_size = 0 },
+	.stack = { .start = KERNEL_SPACE_START, .end = KERNEL_SPACE_END, .grows_down = false, .max_size = 0 },
+	.brk = { .start = 0, .end = 0, .grows_down = false, .max_size = 0 },
+	.mutex = MUTEX_INITIALIZER(kernel_mm_struct.mutex)
+};
+
 struct mm* current_mm(void) {
 	unsigned long flags = local_irq_save();
 	struct mm* ret = current_cpu()->mm_struct;
@@ -452,3 +461,35 @@ void vfree(void* ptr) {
 	vm_unmap_force(node->address, node->page_count + node->guard_page_count, 0);
 	kfree(node);
 }
+
+static void vmm_init(void) {
+	arch_pagetable_init();
+
+	struct mm* mm = &kernel_mm_struct;
+	mm->pagetable = arch_pagetable_get_cpu_current();
+	current_cpu()->mm_struct = mm;
+
+	/* Give HHDM VMA's that can't be changed */
+	uintptr_t _unused;
+	uintptr_t next;
+	for (uintptr_t addr = KERNEL_SPACE_START; addr < KERNEL_SPACE_END; addr = next) {
+		size_t page_size = arch_pagetable_iterate_range(mm->pagetable, addr, &next);
+		if (page_size != 0) {
+			int err = vma_map(mm, addr, page_size, PGPROT_READ | PGPROT_WRITE, VMM_FIXED | VMM_NOREPLACE | VMM_SEALED, &_unused);
+			if (err == -ENOMEM)
+				out_of_memory();
+			else
+				bug(err != 0);
+		}
+	}
+}
+
+static void vmm_ap_init(void) {
+	struct cpu* cpu = current_cpu();
+	cpu->mm_struct = &kernel_mm_struct;
+	arch_pagetable_switch(cpu->mm_struct->pagetable);
+}
+
+INIT_TASK_DECLARE(vma_init_task, hhdm_init_task, zones_init_task);
+INIT_TASK_DEFINE(vmm_init_task, INIT_TASK_SCOPE_BSP, vmm_init, &vma_init_task, &hhdm_init_task, &zones_init_task);
+INIT_TASK_DEFINE(vmm_ap_init_task, INIT_TASK_SCOPE_AP, vmm_ap_init, &vmm_init_task);

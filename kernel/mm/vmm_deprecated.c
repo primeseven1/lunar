@@ -441,33 +441,3 @@ int userunmap(void __user* virtual, size_t size, int flags, struct vmm_usermap_i
 
 	return __vunmap((uintptr_t)virtual, size, flags, usermap_info);
 }
-
-static void vmm_init(void) {
-	arch_pagetable_init();
-
-	struct mm* mm = &kernel_mm_struct;
-	mm->pagetable = arch_pagetable_get_cpu_current();
-	current_cpu()->mm_struct = mm;
-
-	/* 
-	 * This is primarily used for giving the HHDM region VMA's.
-	 * This ignores the actual kernel sections (KERNEL_SPACE_END doesn't include it)
-	 */
-	uintptr_t _unused;
-	uintptr_t next;
-	for (uintptr_t addr = KERNEL_SPACE_START; addr < KERNEL_SPACE_END; addr = next) {
-		size_t page_size = arch_pagetable_iterate_range(mm->pagetable, addr, &next);
-		if (page_size != 0)
-			bug(vma_map(mm, addr, page_size, PGPROT_READ | PGPROT_WRITE, VMM_FIXED | VMM_NOREPLACE | VMM_SEALED, &_unused) != 0);
-	}
-}
-
-static void vmm_ap_init(void) {
-	struct cpu* cpu = current_cpu();
-	cpu->mm_struct = &kernel_mm_struct;
-	arch_pagetable_switch(cpu->mm_struct->pagetable);
-}
-
-INIT_TASK_DECLARE(vma_init_task, hhdm_init_task, zones_init_task);
-INIT_TASK_DEFINE(vmm_init_task, INIT_TASK_SCOPE_BSP, vmm_init, &vma_init_task, &hhdm_init_task, &zones_init_task);
-INIT_TASK_DEFINE(vmm_ap_init_task, INIT_TASK_SCOPE_AP, vmm_ap_init, &vmm_init_task);
