@@ -1099,9 +1099,9 @@ int get_page_from_address(physaddr_t address, struct page** page) {
 	struct page* _page = &page_array[pfn];
 	int err = 0;
 	if (mmap_region_is_usable_strict(address, PAGE_SIZE))
-		err = page_try_hold(_page) ? 0 : -EACCES;
+		err = try_hold_page(_page) ? 0 : -EACCES;
 	else
-		page_hold(_page);
+		hold_page(_page);
 
 	if (err == 0)
 		*page = _page;
@@ -1121,7 +1121,7 @@ struct page* page_alloc_pages(mm_t mm_flags, unsigned int order) {
 	}
 	bug(atomic_exchange(&page->buddy.order, order) != 0);
 
-	page_hold(page);
+	hold_page(page);
 	return page;
 }
 
@@ -1157,12 +1157,12 @@ static void page_inactive(struct page* page) {
 	free_pages(address, order);
 }
 
-void page_hold(struct page* page) {
+void hold_page(struct page* page) {
 	page = page_head(page);
 	atomic_fetch_add(&page->refcnt, 1);
 }
 
-bool page_try_hold(struct page* page) {
+bool try_hold_page(struct page* page) {
 	page = page_head(page);
 	long refcnt = atomic_load(&page->refcnt);
 	do {
@@ -1172,7 +1172,7 @@ bool page_try_hold(struct page* page) {
 	return true;
 }
 
-void page_release(struct page* page) {
+void release_page(struct page* page) {
 	page = page_head(page);
 	long refcnt = atomic_sub_fetch(&page->refcnt, 1);
 	bug(refcnt < 0);

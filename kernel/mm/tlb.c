@@ -83,7 +83,7 @@ void tlb_batch_flush(struct tlb_batch* batch) {
 	}
 
 	for (size_t i = 0; i < batch->page_count; i++)
-		page_release(batch->pages[i]);
+		release_page(batch->pages[i]);
 
 	__tlb_batch_init(batch);
 }

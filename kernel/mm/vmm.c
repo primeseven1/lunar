@@ -12,7 +12,7 @@ static int hold_page_address(physaddr_t physical, struct page** page, int flags)
 	int err = get_page_from_address(physical, &tmp); /* Gives page with a ref added */
 	if (err == 0) {
 		if (flags & VMM_IOMEM && !(tmp->flags & PAGE_FLAG_RESERVED)) {
-			page_release(tmp);
+			release_page(tmp);
 			err = -EACCES;
 		} else {
 			*page = tmp;
@@ -33,7 +33,7 @@ static void unmap_page(struct tlb_batch* batch, struct page* page, uintptr_t vir
 		if (err != 0)
 			bug(err == -EACCES); /* Mapped with zero refs, very bad thing!! :D */
 		else
-			page_release(page); /* Drop lookup ref */
+			release_page(page); /* Drop lookup ref */
 	}
 
 	tlb_batch_add(batch, virtual, page);
@@ -73,7 +73,7 @@ static int map_page(struct tlb_batch* batch, uintptr_t virtual, const struct map
 	if (arg->use_page) {
 		page = arg->un.page;
 		physical = hhdm_physical(page_hhdm_virtual(page));
-		page_hold(page);
+		hold_page(page);
 	} else {
 		physical = arg->un.physaddr;
 		const int err = hold_page_address(physical, &page, flags);
@@ -90,7 +90,7 @@ static int map_page(struct tlb_batch* batch, uintptr_t virtual, const struct map
 	const int err = arch_pagetable_map(batch->pagetable, virtual, physical, false, prot);
 	if (err) {
 		if (page)
-			page_release(page);
+			release_page(page);
 		return err;
 	}
 
@@ -444,7 +444,7 @@ void* vmalloc(size_t size) {
 out:
 	/* Now drop this function's ref to the pages, on failure these pages will be released back to the allocator */
 	for (size_t i = 0; i < page_count && pages[i] != NULL; i++)
-		page_release(pages[i]);
+		release_page(pages[i]);
 
 	kfree(node);
 	kfree(pages);

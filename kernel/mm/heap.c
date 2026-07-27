@@ -93,7 +93,7 @@ void kfree(void* ptr) {
 	if (ai->cache_backing)
 		slab_cache_free(ai->backing_un.cache, ai);
 	else
-		page_release(ai->backing_un.page);
+		release_page(ai->backing_un.page);
 }
 
 void* krealloc(void* old, size_t new_size, mm_t mm_flags) {

@@ -24,7 +24,7 @@ static inline void* slab_alloc_struct(mm_t mm_flags, size_t size, struct page** 
 }
 
 static inline void slab_free_struct(struct page* page) {
-	page_release(page);
+	release_page(page);
 }
 
 static int slab_init(struct slab_cache* cache, struct page* slab_page, struct slab* slab) {
@@ -270,6 +270,6 @@ int slab_cache_destroy(struct slab_cache* cache) {
 	}
 
 	slab_cache_unlock(cache, &irq_flags);
-	page_release(cache->self_page);
+	release_page(cache->self_page);
 	return 0;
 }

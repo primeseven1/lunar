@@ -29,7 +29,7 @@ int alloc_stack(void** bottom, void** top) {
 	}
 
 	for (size_t i = 1; i < ARRAY_SIZE(page_array) && page_array[i]; i++)
-		page_release(page_array[i]);
+		release_page(page_array[i]);
 	return err;
 }
 
