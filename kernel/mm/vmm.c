@@ -139,10 +139,10 @@ static void protect_pages(struct tlb_batch* batch, uintptr_t virtual, size_t cou
 	}
 }
 
-static void vma_unmap_force(struct mm* mm, uintptr_t virtual, size_t page_count) {
+static void vma_unmap_force(struct mm* mm, uintptr_t virtual, size_t size) {
 	int err;
 	do {
-		err = vma_unmap(mm, virtual, page_count * PAGE_SIZE);
+		err = vma_unmap(mm, virtual, size);
 		if (err == -ENOMEM)
 			out_of_memory();
 	} while (err == -ENOMEM);
@@ -167,27 +167,40 @@ struct mm* current_mm(void) {
 	return ret;
 }
 
-static int check_vm_args_generic(void* hint, size_t page_count, int flags) {
-	return (page_count == 0 || (flags & VMM_FIXED && (uintptr_t)hint % PAGE_SIZE != 0) || flags & VMM_SEALED) ? -EINVAL : 0;
+/* Check for bad flag combinations */
+static int check_vm_map_args(uintptr_t hint, size_t page_count, int flags) {
+	if (page_count == 0 || flags & VMM_SEALED || (flags & VMM_FIXED && hint % PAGE_SIZE != 0))
+		return -EINVAL;
+	if (flags & VMM_HUGETLB) {
+		if (flags & VMM_HUGETLB_1GB)
+			return -ENOTSUP;
+		return -ENOSYS;
+	} else if (flags & (VMM_HUGETLB_2MB | VMM_HUGETLB_1GB)) {
+		return -EINVAL;
+	}
+	return 0;
 }
 
-void* vm_map(void* hint, struct page** pages, size_t page_count, pgprot_t prot, int flags) {
-	if (pages == NULL)
-		return ERR_PTR(-EINVAL);
-	int err = check_vm_args_generic(hint, page_count, flags);
+static int __vm_map(struct mm* mm, uintptr_t hint, struct page** pages, size_t page_count, pgprot_t prot, int flags, uintptr_t* out) {
+	if (pages == NULL || flags & VMM_IOMEM)
+		return -EINVAL;
+	int err = check_vm_map_args(hint, page_count, flags);
 	if (err)
-		return ERR_PTR(err);
+		return err;
 
-	struct mm* mm = current_mm();
 	mutex_acquire(&mm->mutex);
 
 	struct tlb_batch tlb_batch;
 	tlb_batch_init(&tlb_batch, mm->pagetable);
 
 	uintptr_t virtual;
-	err = vma_map(mm, (uintptr_t)hint, page_count * PAGE_SIZE, prot, flags, &virtual);
-	if (err)
-		goto out;
+	err = vma_map(mm, hint, page_count * PAGE_SIZE, prot, flags, &virtual);
+	if (err) {
+		if (err == -EAGAIN)
+			err = vma_map(mm, hint, page_count * PAGE_SIZE, prot, flags, &virtual);
+		if (err)
+			goto out;
+	}
 
 	/* Leave guard pages unmapped */
 	for (size_t i = 0; i < page_count; i++) {
@@ -196,7 +209,7 @@ void* vm_map(void* hint, struct page** pages, size_t page_count, pgprot_t prot, 
 		const uintptr_t page_virtual = virtual + i * PAGE_SIZE;
 		err = vma_protect(mm, page_virtual, PAGE_SIZE, PGPROT_NONE);
 		if (err) {
-			vma_unmap_force(mm, virtual, page_count);
+			vma_unmap_force(mm, virtual, page_count * PAGE_SIZE);
 			goto out;
 		}
 	}
@@ -209,26 +222,31 @@ void* vm_map(void* hint, struct page** pages, size_t page_count, pgprot_t prot, 
 	const struct map_pages_arg arg = { .page_count = page_count, .use_pages = true, .un.pages = pages };
 	err = map_pages(&tlb_batch, virtual, &arg, prot, flags);
 	if (unlikely(err))
-		vma_unmap_force(mm, virtual, page_count);
+		vma_unmap_force(mm, virtual, page_count * PAGE_SIZE);
 
 	tlb_batch_flush(&tlb_batch);
 out:
 	mutex_release(&mm->mutex);
-	return (err == 0) ? (void*)virtual : ERR_PTR(err);
+	if (err == 0)
+		*out = virtual;
+	return err;
 }
 
-static int __vm_map_physical(void* hint, physaddr_t physical, size_t page_count, pgprot_t prot, int flags, void** out) {
+static int __vm_map_physical(uintptr_t hint, physaddr_t physical, size_t page_count, pgprot_t prot, int flags, uintptr_t* out) {
 	if (physical % PAGE_SIZE != 0)
 		return -EINVAL;
-	int err = check_vm_args_generic(hint, page_count, flags);
+	int err = check_vm_map_args(hint, page_count, flags);
 	if (err)
 		return err;
 
-	struct mm* mm = current_mm();
+	struct mm* mm = &kernel_mm_struct;
 	mutex_acquire(&mm->mutex);
 
 	uintptr_t virtual;
-	err = vma_map(mm, (uintptr_t)hint, page_count * PAGE_SIZE, prot, flags, &virtual);
+	err = vma_map(mm, hint, page_count * PAGE_SIZE, prot, flags, &virtual);
+	if (err == -EAGAIN)
+		err = vma_map(mm, hint, page_count * PAGE_SIZE, prot, flags, &virtual);
+
 	if (err == 0) {
 		struct tlb_batch tlb_batch;
 		tlb_batch_init(&tlb_batch, mm->pagetable);
@@ -240,7 +258,7 @@ static int __vm_map_physical(void* hint, physaddr_t physical, size_t page_count,
 		const struct map_pages_arg arg = { .page_count = page_count, .use_pages = false, .un.physaddr = physical };
 		err = map_pages(&tlb_batch, virtual, &arg, prot, flags);
 		if (unlikely(err))
-			vma_unmap_force(mm, virtual, page_count);
+			vma_unmap_force(mm, virtual, page_count * PAGE_SIZE);
 
 		tlb_batch_flush(&tlb_batch);
 	}
@@ -248,60 +266,98 @@ static int __vm_map_physical(void* hint, physaddr_t physical, size_t page_count,
 	mutex_release(&mm->mutex);
 
 	if (err == 0)
-		*out = (void*)virtual;
+		*out = virtual;
 	return err;
+}
+
+static int __vm_protect(struct mm* mm, uintptr_t virtual, size_t page_count, pgprot_t prot, int flags) {
+	(void)flags;
+	if (page_count == 0)
+		return 0;
+	if (!virtual || virtual % PAGE_SIZE != 0)
+		return -EINVAL;
+
+	mutex_acquire(&mm->mutex);
+
+	int err = vma_protect(mm, virtual, page_count * PAGE_SIZE, prot);
+	if (err == 0) {
+		struct tlb_batch tlb_batch;
+		tlb_batch_init(&tlb_batch, mm->pagetable);
+		protect_pages(&tlb_batch, virtual, page_count, prot);
+		tlb_batch_flush(&tlb_batch);
+	}
+
+	mutex_release(&mm->mutex);
+	return err;
+}
+
+static int __vm_unmap(struct mm* mm, uintptr_t virtual, size_t page_count, int flags) {
+	(void)flags;
+	if (page_count == 0)
+		return 0;
+	if (virtual == 0 || virtual % PAGE_SIZE != 0)
+		return -EINVAL;
+
+	mutex_acquire(&mm->mutex);
+
+	int err = vma_unmap(mm, virtual, page_count * PAGE_SIZE);
+	if (err == 0) {
+		struct tlb_batch tlb_batch;
+		tlb_batch_init(&tlb_batch, mm->pagetable);
+		unmap_pages(&tlb_batch, virtual, page_count);
+		tlb_batch_flush(&tlb_batch);
+	}
+
+	mutex_release(&mm->mutex);
+	return err;
+}
+
+void* vm_map(void* hint, struct page** pages, size_t page_count, pgprot_t prot, int flags) {
+	uintptr_t ret;
+	int err = __vm_map(&kernel_mm_struct, (uintptr_t)hint, pages, page_count, prot, flags, &ret);
+	return (err == 0) ? (void*)ret : ERR_PTR(err);
 }
 
 void* vm_map_physical(void* hint, physaddr_t physical, size_t page_count, pgprot_t prot, int flags) {
 	if (flags & VMM_IOMEM)
 		return ERR_PTR(-EINVAL);
-	void* ret;
-	int err = __vm_map_physical(hint, physical, page_count, prot, flags, &ret);
-	return err ? ERR_PTR(err) : ret;
+	uintptr_t ret;
+	int err = __vm_map_physical((uintptr_t)hint, physical, page_count, prot, flags, &ret);
+	return err ? ERR_PTR(err) : (void*)ret;
 }
 
 int vm_protect(void* virtual, size_t page_count, pgprot_t prot, int flags) {
-	(void)flags;
-	if (page_count == 0)
-		return 0;
-	if (virtual == NULL || (uintptr_t)virtual % PAGE_SIZE != 0)
-		return -EINVAL;
-
-	struct mm* mm = current_mm();
-	mutex_acquire(&mm->mutex);
-
-	int err = vma_protect(mm, (uintptr_t)virtual, page_count * PAGE_SIZE, prot);
-	if (err == 0) {
-		struct tlb_batch tlb_batch;
-		tlb_batch_init(&tlb_batch, mm->pagetable);
-		protect_pages(&tlb_batch, (uintptr_t)virtual, page_count, prot);
-		tlb_batch_flush(&tlb_batch);
-	}
-
-	mutex_release(&mm->mutex);
-	return err;
+	return __vm_protect(&kernel_mm_struct, (uintptr_t)virtual, page_count, prot, flags);
 }
 
 int vm_unmap(void* virtual, size_t page_count, int flags) {
-	(void)flags;
-	if (page_count == 0)
-		return 0;
-	if (virtual == NULL || (uintptr_t)virtual % PAGE_SIZE != 0)
+	return __vm_unmap(&kernel_mm_struct, (uintptr_t)virtual, page_count, flags);
+}
+
+void __user* vm_map_user(void __user* hint, struct page** pages, size_t page_count, pgprot_t prot, int flags) {
+	struct mm* mm = current_mm();
+	if (mm == &kernel_mm_struct)
+		return (void __user*)ERR_PTR(-EINVAL);
+
+	uintptr_t ret;
+	int err = __vm_map(mm, (uintptr_t)hint, pages, page_count, prot, flags, &ret);
+	return (err == 0) ? (void __user*)ret : (void __user*)ERR_PTR(err);
+}
+
+int vm_protect_user(void __user* virtual, size_t page_count, pgprot_t prot, int flags) {
+	struct mm* mm = current_mm();
+	if (mm == &kernel_mm_struct)
 		return -EINVAL;
 
+	return __vm_protect(mm, (uintptr_t)virtual, page_count, prot, flags);
+}
+
+int vm_unmap_user(void __user* virtual, size_t page_count, int flags) {
 	struct mm* mm = current_mm();
-	mutex_acquire(&mm->mutex);
+	if (mm == &kernel_mm_struct)
+		return -EINVAL;
 
-	int err = vma_unmap(mm, (uintptr_t)virtual, page_count * PAGE_SIZE);
-	if (err == 0) {
-		struct tlb_batch tlb_batch;
-		tlb_batch_init(&tlb_batch, mm->pagetable);
-		unmap_pages(&tlb_batch, (uintptr_t)virtual, page_count);
-		tlb_batch_flush(&tlb_batch);
-	}
-
-	mutex_release(&mm->mutex);
-	return err;
+	return __vm_unmap(mm, (uintptr_t)virtual, page_count, flags);
 }
 
 void __iomem* iomap(physaddr_t physical, size_t size, pgprot_t cache) {
@@ -310,8 +366,8 @@ void __iomem* iomap(physaddr_t physical, size_t size, pgprot_t cache) {
 	const size_t page_offset = physical % PAGE_SIZE;
 	size = ROUND_UP(size + page_offset, PAGE_SIZE);
 
-	void* ret;
-	int err = __vm_map_physical(NULL, physical, size >> PAGE_SHIFT, PGPROT_READ | PGPROT_WRITE | cache, VMM_IOMEM, &ret);
+	uintptr_t ret;
+	int err = __vm_map_physical(0, physical, size >> PAGE_SHIFT, PGPROT_READ | PGPROT_WRITE | cache, VMM_IOMEM, &ret);
 	if (err)
 		return (void __iomem*)ERR_PTR(err);
 	return (u8 __iomem*)ret + page_offset;

@@ -88,14 +88,19 @@ int vm_unmap(void* virtual, size_t page_count, int flags);
  */
 void vm_unmap_force(void* virtual, size_t page_count, int flags);
 
+void __user* vm_map_user(void __user* hint, struct page** pages, size_t page_count, pgprot_t prot, int flags);
+int vm_protect_user(void __user* virtual, size_t page_count, pgprot_t prot, int flags);
+int vm_unmap_user(void __user* virtual, size_t page_count, int flags);
+
+void __iomem* iomap(physaddr_t physical, size_t size, pgprot_t cache);
+int iounmap(void __iomem* virtual, size_t size);
+
 __attribute__((deprecated("Use vm_map()")))
 void* vmap(void* hint, size_t size, pgprot_t prot, int flags, void* optional);
 __attribute__((deprecated("Use vm_protect()")))
 int vprotect(void* virtual, size_t size, pgprot_t prot, int flags, void* optional);
 __attribute__((deprecated("Use vm_unmap()")))
 int vunmap(void* virtual, size_t size, int flags, void* optional);
-void __iomem* iomap(physaddr_t physical, size_t size, pgprot_t cache);
-int iounmap(void __iomem* virtual, size_t size);
 __attribute__((deprecated))
 void __user* usermap(void __user* hint, size_t size, pgprot_t prot, int flags, struct vmm_usermap_info* usermap_info);
 __attribute__((deprecated))
