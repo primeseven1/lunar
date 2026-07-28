@@ -55,45 +55,6 @@ int vma_protect(struct mm* mm, uintptr_t address, size_t size, pgprot_t prot);
  */
 int vma_unmap(struct mm* mm, uintptr_t address, size_t size);
 
-struct page_snapshot {
-	uintptr_t start;
-	physaddr_t physical;
-	size_t page_size;
-	pgprot_t prot;
-	int vmm_flags;
-	struct page_snapshot* next;
-};
-
-/**
- * @brief Create a snapshot of pages
- *
- * @param mm_struct The mm struct
- * @param virtual The virtual address to start at
- * @param size The size to snapshot
- *
- * @return A pointer to the snapshots
- */
-__attribute__((deprecated))
-struct page_snapshot* snapshot_pages(struct mm* mm_struct, uintptr_t virtual, size_t size);
-
-/**
- * @brief Restore pages and VMA's from a snapshot
- *
- * @param mm_struct The mm struct
- * @param snapshots The snapshots to restore from
- */
-__attribute__((deprecated))
-void snapshot_restore_pages(struct mm* mm_struct, struct page_snapshot* snapshots);
-
-/**
- * @brief Clean up snapshots
- *
- * @param snapshots The snapshots
- * @param free Whether or not to free the pages previously allocated from the actual mappings (only if VMM_ALLOC is in the flags)
- */
-__attribute__((deprecated))
-void snapshot_cleanup(struct page_snapshot* snapshots, bool free);
-
 #define TLB_BATCH_PAGE_COUNT 32
 
 struct tlb_batch {
