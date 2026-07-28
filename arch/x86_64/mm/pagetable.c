@@ -13,8 +13,31 @@
 #define PUD_SHIFT 30
 #define PUD_SIZE (1ul << PUD_SHIFT)
 
+static struct page* alloc_table(void) {
+	struct page* page = page_alloc_page(MM_ZONE_NORMAL);
+	if (!page)
+		return NULL;
+	memset(page_hhdm_virtual(page), 0, PAGE_SIZE);
+	return page;
+}
+
+static void free_table_physical(physaddr_t physical) {
+	struct page* page;
+	int err = get_page_from_address(physical, &page);
+	if (unlikely(err)) {
+		if (err == -EACCES)
+			bug("Use after free");
+		else if (unlikely(err == -ENOMEM))
+			bug("Page not backed by physical memory?"); /* Should never ever happen */
+		else
+			panic("Unhandled error calling get_page_from_address() in function %s(): %d", __func__, err);
+	}
+	release_page(page); /* Release get_page_from_address() ref */
+	release_page(page); /* Release page table ref */
+}
+
 pte_t* arch_pagetable_new(void) {
-	pte_t* ret = hhdm_virtual(alloc_page(MM_ZONE_NORMAL));
+	pte_t* ret = page_hhdm_virtual(page_alloc_page(MM_ZONE_NORMAL));
 	if (ret) {
 		memcpy(ret, current_proc()->mm_struct->pagetable, PAGE_SIZE);
 		memset(ret, 0, PAGE_SIZE / 2); /* Zero user page tables */
@@ -23,7 +46,7 @@ pte_t* arch_pagetable_new(void) {
 }
 
 void arch_pagetable_free(pte_t* table) {
-	free_page(hhdm_physical(table));
+	free_table_physical(hhdm_physical(table));
 }
 
 enum pt_flags {
@@ -87,7 +110,7 @@ static int walk_pagetable(pte_t* pagetable, uintptr_t virtual, bool create, size
 	 * Keeps track of what page tables were allocated and what PTE they are in, 
 	 * so proper cleanup can be done after any allocation failures
 	 */
-	physaddr_t new_tables[3] = { 0, 0, 0 };
+	struct page* new_tables[3] = { NULL, NULL, NULL };
 	pte_t* new_tables_table[3] = { NULL, NULL, NULL };
 
 	for (size_t i = 0; i < ARRAY_SIZE(indexes) - 1; i++) {
@@ -104,23 +127,21 @@ static int walk_pagetable(pte_t* pagetable, uintptr_t virtual, bool create, size
 		if (!(pagetable[indexes[i]] & PT_PRESENT)) {
 			if (!create)
 				return -ENOENT;
-			physaddr_t new = alloc_page(MM_ZONE_NORMAL);
+			struct page* new = alloc_table();
 			if (!new) {
 				/* Clean up all the new page tables that were allocated */
 				for (size_t j = 0; j < ARRAY_SIZE(new_tables); j++) {
 					if (new_tables[j]) {
-						free_page(new_tables[j]);
 						*new_tables_table[j] = 0;
+						release_page(new_tables[j]);
 					}
 				}
 				return -ENOMEM;
 			}
 
-			memset(hhdm_virtual(new), 0, PAGE_SIZE);
-
 			/* Update the PTE, and store the pointers for cleanup on failure */
 			new_tables[i] = new;
-			pagetable[indexes[i]] = new | PT_PRESENT | PT_READ_WRITE;
+			pagetable[indexes[i]] = page_to_physaddr(new) | PT_PRESENT | PT_READ_WRITE;
 			new_tables_table[i] = &pagetable[indexes[i]];
 		} else if (pagetable[indexes[i]] & PT_HUGEPAGE) {
 			if (unlikely(i != 1 && i != 2))
@@ -221,8 +242,8 @@ static void pagetable_cleanup(pte_t* pagetable, uintptr_t virtual) {
 			return;
 
 		physaddr_t physical = value & ~(0xFFF | PT_NX);
-		free_page(physical);
 		tables[level - 1][indexes[level - 1]] = 0;
+		free_table_physical(physical);
 	}
 }
 
@@ -325,11 +346,10 @@ void arch_pagetable_init(void) {
 	pte_t* l4 = hhdm_virtual(arch_x86_64_ctl3_read());
 	for (int i = 256; i < 512; i++) {
 		if (!(l4[i] & PT_PRESENT)) {
-			physaddr_t pte = alloc_page(MM_ZONE_NORMAL);
-			if (!pte)
+			struct page* page = alloc_table();
+			if (!page)
 				out_of_memory();
-			memset(hhdm_virtual(pte), 0, PAGE_SIZE);
-			l4[i] = pte | PT_PRESENT | PT_READ_WRITE;
+			l4[i] = page_to_physaddr(page) | PT_PRESENT | PT_READ_WRITE;
 		}
 		l4[i] |= PT_AVL_NOFREE;
 	}
