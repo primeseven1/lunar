@@ -6,30 +6,25 @@
 #include "internal.h"
 
 int alloc_stack(void** bottom, void** top) {
-	int err = 0;
+	struct page* pages = alloc_pages(MM_ZONE_NORMAL, get_order(THREAD_STACK_SIZE));
+	if (!pages)
+		return -ENOMEM;
 
 	struct page* page_array[(THREAD_STACK_SIZE >> PAGE_SHIFT) + 1];
 	page_array[0] = NULL;
-	for (size_t i = 1; i < ARRAY_SIZE(page_array); i++) {
-		page_array[i] = alloc_page(MM_ZONE_NORMAL);
-		if (!page_array[i]) {
-			err = -ENOMEM;
-			break;
-		}
+	for (size_t i = 1; i < ARRAY_SIZE(page_array); i++)
+		page_array[i] = pages + i - 1;
+
+	int err = 0;
+	u8* mapping = vm_map(NULL, page_array, ARRAY_SIZE(page_array), PGPROT_READ | PGPROT_WRITE, VMM_STACK);
+	if (!IS_PTR_ERR(mapping)) {
+		*bottom = mapping;
+		*top = mapping + THREAD_STACK_SIZE + PAGE_SIZE;
+	} else {
+		err = PTR_ERR(mapping);
 	}
 
-	if (err == 0) {
-		u8* mapping = vm_map(NULL, page_array, ARRAY_SIZE(page_array), PGPROT_READ | PGPROT_WRITE, VMM_STACK);
-		if (!IS_PTR_ERR(mapping)) {
-			*bottom = mapping;
-			*top = mapping + THREAD_STACK_SIZE + PAGE_SIZE;
-		} else {
-			err = PTR_ERR(mapping);
-		}
-	}
-
-	for (size_t i = 1; i < ARRAY_SIZE(page_array) && page_array[i]; i++)
-		release_page(page_array[i]);
+	release_page(pages);
 	return err;
 }
 
