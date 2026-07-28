@@ -11,7 +11,7 @@ int alloc_stack(void** bottom, void** top) {
 	struct page* page_array[(THREAD_STACK_SIZE >> PAGE_SHIFT) + 1];
 	page_array[0] = NULL;
 	for (size_t i = 1; i < ARRAY_SIZE(page_array); i++) {
-		page_array[i] = page_alloc_page(MM_ZONE_NORMAL);
+		page_array[i] = alloc_page(MM_ZONE_NORMAL);
 		if (!page_array[i]) {
 			err = -ENOMEM;
 			break;

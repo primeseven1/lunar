@@ -12,7 +12,7 @@
 #define SLAB_AFTER_CUTOFF_OBJ_COUNT 16
 
 static inline void* slab_alloc_struct(mm_t mm_flags, size_t size, struct page** out) {
-	struct page* page = page_alloc_pages(mm_flags, get_order(size));
+	struct page* page = alloc_pages(mm_flags, get_order(size));
 	if (!page)
 		return NULL;
 
@@ -223,7 +223,7 @@ struct slab_cache* slab_cache_create(size_t obj_size, size_t align,
 		return NULL;
 
 	struct slab_cache* cache;
-	struct page* cache_page = page_alloc_pages(MM_ZONE_NORMAL | (mm_flags & MM_ATOMIC), get_order(sizeof(*cache)));
+	struct page* cache_page = alloc_pages(MM_ZONE_NORMAL | (mm_flags & MM_ATOMIC), get_order(sizeof(*cache)));
 	if (!cache_page)
 		return NULL;
 

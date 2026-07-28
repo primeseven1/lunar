@@ -108,17 +108,6 @@ int get_page_from_address(physaddr_t address, struct page** page);
  */
 void mm_get_free_pages(size_t* total_page_count, size_t* free_page_count);
 
-physaddr_t alloc_pages(mm_t mm_flags, unsigned int order);
-void free_pages(physaddr_t addr, unsigned int order);
-static inline physaddr_t alloc_page(mm_t mm_flags) {
-	return alloc_pages(mm_flags, 0);
-}
-static inline void free_page(physaddr_t addr) {
-	free_pages(addr, 0);
-}
-
-/* page_alloc_pages/page_alloc_page will change to alloc_pages()/alloc_page() */
-
 /**
  * @brief Allocate physical pages
  *
@@ -127,15 +116,15 @@ static inline void free_page(physaddr_t addr) {
  *
  * @return A pointer to the page struct
  */
-struct page* page_alloc_pages(mm_t mm_flags, unsigned int order);
+struct page* alloc_pages(mm_t mm_flags, unsigned int order);
 
 /**
  * @brief Allocate a physical page
  * @param mm_flags The flags for how the allocation should be done
  * @return The pointer to the page struct
  */
-static inline struct page* page_alloc_page(mm_t mm_flags) {
-	return page_alloc_pages(mm_flags, 0);
+static inline struct page* alloc_page(mm_t mm_flags) {
+	return alloc_pages(mm_flags, 0);
 }
 
 /**

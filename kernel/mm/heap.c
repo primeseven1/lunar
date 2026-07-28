@@ -60,7 +60,7 @@ void* kmalloc(size_t size, mm_t mm_flags) {
 	if (cache)
 		ai = slab_cache_alloc(cache);
 	if (!ai) {
-		page = page_alloc_pages(mm_flags, get_order(total_size));
+		page = alloc_pages(mm_flags, get_order(total_size));
 		if (!page)
 			return NULL;
 		cache = NULL;

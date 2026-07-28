@@ -2,6 +2,7 @@
 #include <lunar/mm.h>
 #include <lunar/printk.h>
 #include <lunar/percpu.h>
+#include <lunar/sched.h>
 #include <lunar/trace.h>
 #include <lunar/irq.h>
 #include "internal.h"
@@ -165,6 +166,35 @@ struct mm* current_mm(void) {
 	struct mm* ret = current_cpu()->mm_struct;
 	local_irq_restore(flags);
 	return ret;
+}
+
+struct mm* mm_create(void) {
+	struct mm* mm = kmalloc(sizeof(*mm), MM_ZONE_NORMAL);
+	if (!mm)
+		return NULL;
+	mm->pagetable = arch_pagetable_new();
+	if (!mm->pagetable)
+		return NULL;
+
+	list_head_init(&mm->vma_list);
+	mm->mmap = (struct vmm_range){ .start = 0, .end = 0, .grows_down = false, .max_size = 0 };
+	mm->stack = (struct vmm_range){ .start = 0, .end = 0, .grows_down = false, .max_size = 0 };
+	mm->brk = (struct vmm_range){ .start = 0, .end = 0, .grows_down = false, .max_size = 0 };
+	mutex_init(&mm->mutex);
+	return mm;
+}
+
+void mm_destroy(struct mm* mm) {
+	arch_pagetable_free(mm->pagetable);
+	kfree(mm);
+}
+
+void mm_switch_context(struct mm* mm) {
+	unsigned long irq_flags = local_irq_save();
+	current_cpu()->mm_struct = mm;
+	current_thread()->mm_struct = mm;
+	arch_pagetable_switch(mm->pagetable);
+	local_irq_restore(irq_flags);
 }
 
 /* Check for bad flag combinations */
@@ -419,7 +449,7 @@ void* vmalloc(size_t size) {
 	if (!node)
 		goto out;
 	for (size_t i = 0; i < page_count; i++) {
-		pages[i] = page_alloc_page(MM_ZONE_NORMAL);
+		pages[i] = alloc_page(MM_ZONE_NORMAL);
 		if (!pages[i])
 			goto out;
 	}

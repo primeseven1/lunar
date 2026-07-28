@@ -807,7 +807,7 @@ void out_of_memory(void) {
 	panic("Out of memory");
 }
 
-physaddr_t alloc_pages(mm_t mm_flags, unsigned int order) {
+static physaddr_t _alloc_pages(mm_t mm_flags, unsigned int order) {
 	if (order > MAX_ORDER) {
 		dump_stack();
 		printk(PRINTK_ERR "mm: %s(mm_flags: %u, order: %u) failed: bad order\n", __func__, mm_flags, order);
@@ -862,7 +862,7 @@ physaddr_t alloc_pages(mm_t mm_flags, unsigned int order) {
 	return ret;
 }
 
-void free_pages(physaddr_t addr, unsigned int order) {
+static void _free_pages(physaddr_t addr, unsigned int order) {
 	int err = -EINVAL;
 	if (order <= MAX_ORDER && addr % PAGE_SIZE == 0 && addr >= PAGE_SIZE) {
 		size_t alloc_size = PAGE_SIZE << order;
@@ -1108,8 +1108,8 @@ int get_page_from_address(physaddr_t address, struct page** page) {
 	return err;
 }
 
-struct page* page_alloc_pages(mm_t mm_flags, unsigned int order) {
-	physaddr_t address = alloc_pages(mm_flags, order);
+struct page* alloc_pages(mm_t mm_flags, unsigned int order) {
+	physaddr_t address = _alloc_pages(mm_flags, order);
 	if (!address)
 		return NULL;
 
@@ -1154,7 +1154,7 @@ static void page_inactive(struct page* page) {
 	for (size_t i = 1; i < 1ul << order; i++)
 		page_head_set(&page[i], &page[i]);
 
-	free_pages(address, order);
+	_free_pages(address, order);
 }
 
 void hold_page(struct page* page) {

@@ -41,7 +41,7 @@ static void cmdline_init(void) {
 		return;
 
 	/* Create a writable copy, this will be tokenized and made read only */
-	struct page* page = page_alloc_page(MM_ZONE_NORMAL);
+	struct page* page = alloc_page(MM_ZONE_NORMAL);
 	if (!page)
 		return;
 	char* cmdline_copy = vm_map(NULL, &page, 1, PGPROT_READ | PGPROT_WRITE, 0);

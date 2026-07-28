@@ -61,7 +61,7 @@ static inline void set_cpu(struct cpu* cpu) {
 static struct cpu bsp_cpu;
 
 void arch_x86_64_percpu_ap_init(struct arch_limine_mp_info* cpu_info) {
-	struct page* page = page_alloc_pages(MM_ZONE_NORMAL | MM_NOFAIL, get_order(sizeof(struct cpu)));
+	struct page* page = alloc_pages(MM_ZONE_NORMAL | MM_NOFAIL, get_order(sizeof(struct cpu)));
 
 	struct cpu* cpu = page_hhdm_virtual(page);
 	memset(cpu, 0, sizeof(*cpu));

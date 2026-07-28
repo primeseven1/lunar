@@ -14,7 +14,7 @@
 #define PUD_SIZE (1ul << PUD_SHIFT)
 
 static struct page* alloc_table(void) {
-	struct page* page = page_alloc_page(MM_ZONE_NORMAL);
+	struct page* page = alloc_page(MM_ZONE_NORMAL);
 	if (!page)
 		return NULL;
 	memset(page_hhdm_virtual(page), 0, PAGE_SIZE);
@@ -37,7 +37,7 @@ static void free_table_physical(physaddr_t physical) {
 }
 
 pte_t* arch_pagetable_new(void) {
-	pte_t* ret = page_hhdm_virtual(page_alloc_page(MM_ZONE_NORMAL));
+	pte_t* ret = page_hhdm_virtual(alloc_page(MM_ZONE_NORMAL));
 	if (ret) {
 		memcpy(ret, current_proc()->mm_struct->pagetable, PAGE_SIZE);
 		memset(ret, 0, PAGE_SIZE / 2); /* Zero user page tables */
