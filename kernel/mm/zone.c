@@ -1071,7 +1071,7 @@ static inline size_t get_pfn_from_address(physaddr_t address) {
 	return (ret >= page_count) ? SIZE_MAX : ret;
 }
 
-static inline size_t get_pfn_from_page(struct page* page) {
+static inline size_t get_pfn_from_page(const struct page* page) {
 	if (page < page_array || page >= page_array + page_count)
 		return SIZE_MAX;
 	return page - page_array;
@@ -1125,7 +1125,7 @@ struct page* page_alloc_pages(mm_t mm_flags, unsigned int order) {
 	return page;
 }
 
-void* page_hhdm_virtual(struct page* page) {
+void* page_hhdm_virtual(const struct page* page) {
 	void* ret = NULL;
 	size_t pfn = get_pfn_from_page(page);
 	if (pfn != SIZE_MAX) {

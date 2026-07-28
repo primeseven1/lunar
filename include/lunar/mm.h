@@ -108,7 +108,6 @@ int get_page_from_address(physaddr_t address, struct page** page);
  */
 void mm_get_free_pages(size_t* total_page_count, size_t* free_page_count);
 
-/* page_alloc_pages()/page_alloc_page() will get renamed to alloc_pages()/alloc_page() */
 physaddr_t alloc_pages(mm_t mm_flags, unsigned int order);
 void free_pages(physaddr_t addr, unsigned int order);
 static inline physaddr_t alloc_page(mm_t mm_flags) {
@@ -144,7 +143,7 @@ static inline struct page* page_alloc_page(mm_t mm_flags) {
  * @param page The page to get the head of
  * @return The head of the page
  */
-static inline struct page* page_head(struct page* page) {
+static inline struct page* page_head(const struct page* page) {
 	return atomic_load(&page->buddy.head);
 }
 
@@ -153,7 +152,7 @@ static inline struct page* page_head(struct page* page) {
  * @param page The page
  * @return A HHDM virtual address
  */
-void* page_hhdm_virtual(struct page* page);
+void* page_hhdm_virtual(const struct page* page);
 
 /**
  * @brief Increment the refcount on a page
@@ -177,5 +176,14 @@ bool try_hold_page(struct page* page);
  * @param page The page to release
  */
 void release_page(struct page* page);
+
+/**
+ * @brief Get the physical address of a page
+ * @param page The page to get the address of
+ * @return The physical address of the page
+ */
+static inline physaddr_t page_to_physaddr(const struct page* page) {
+	return hhdm_physical(page_hhdm_virtual(page));
+}
 
 void out_of_memory(void);

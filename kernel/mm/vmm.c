@@ -72,7 +72,7 @@ static int map_page(struct tlb_batch* batch, uintptr_t virtual, const struct map
 
 	if (arg->use_page) {
 		page = arg->un.page;
-		physical = hhdm_physical(page_hhdm_virtual(page));
+		physical = page_to_physaddr(page);
 		hold_page(page);
 	} else {
 		physical = arg->un.physaddr;
