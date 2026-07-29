@@ -1,5 +1,0 @@
-menu "Input"
-
-source "drivers/input/i8042/Kconfig"
-
-endmenu
