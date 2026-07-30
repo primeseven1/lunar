@@ -6,9 +6,7 @@
 #include <lunar/convert.h>
 #include <lunar/timekeeper.h>
 #include <lunar/ringbuffer.h>
-#include <lunar/printk.h>
 #include <lunar/panic.h>
-#include <lunar/slab.h>
 #include <lunar/init.h>
 #include <lunar/term.h>
 #include <lunar/kthread.h>
@@ -17,7 +15,7 @@
 #include <arch/irq_flags.h>
 
 #define PRINTK_MAX_LEN 256
-#define PRINTK_TIME_LEN 24
+#define PRINTK_TIME_LEN 32
 
 struct printk_record {
 	int level;
@@ -29,18 +27,24 @@ static struct ringbuffer printk_rb;
 static SPINLOCK_DEFINE(printk_rb_lock);
 static SEMAPHORE_DEFINE(printk_rb_sem, 0);
 
+static atomic(bool) late = atomic_init(false);
+static SPINLOCK_DEFINE(early_lock);
+
 static void add_message_to_ringbuffer(int level, const char* msg) {
-	struct printk_record hdr = { .level = level, .timestamp = time_fromboot(), .len = strlen(msg) };
+	const struct printk_record hdr = { .level = level, .timestamp = time_fromboot(), .len = strlen(msg) };
 
 	unsigned long irq_flags;
 	spinlock_acquire_irq_save(&printk_rb_lock, &irq_flags);
 
-	size_t need = sizeof(hdr) + hdr.len;
+	/* Discard old messages until there is room */
+	const size_t need = sizeof(hdr) + hdr.len;
 	while (ringbuffer_freespace(&printk_rb) < need) {
 		struct printk_record old;
 		ringbuffer_read(&printk_rb, &old, sizeof(old));
 		ringbuffer_read(&printk_rb, NULL, old.len);
 	}
+
+	/* Now write the message */
 	ringbuffer_write(&printk_rb, &hdr, sizeof(hdr));
 	ringbuffer_write(&printk_rb, msg, hdr.len);
 
@@ -50,7 +54,7 @@ static void add_message_to_ringbuffer(int level, const char* msg) {
 static atomic(int) current_level = atomic_init(CONFIG_PRINTK_LEVEL);
 
 void printk_set_level(int level) {
-	if (level >= 0 && level <= PRINTK_MAX_N)
+	if (level >= PRINTK_MIN_N && level <= PRINTK_MAX_N)
 		atomic_store_explicit(&current_level, level, ATOMIC_RELAXED);
 }
 
@@ -86,66 +90,79 @@ static void print_message(int level, const char* msg) {
 		term_write(msg, strlen(msg));
 }
 
-static inline void printk_format_time(int level, struct timespec* ts, char* buf, size_t bufsize) {
-	const char* color = printk_level_color_string(level);
-	long usec = ts->tv_nsec / 1000;
-	snprintf(buf, bufsize, "%s[%5lld.%06ld]\033[0m ", color, (long long)ts->tv_sec, usec);
+static void write_time(const struct printk_record* record, char** buf, size_t* bufsize) {
+	const char* color = printk_level_color_string(record->level);
+	long usec = record->timestamp.tv_nsec / 1000;
+	snprintf(*buf, *bufsize, "%s[%5lld.%06ld]\033[0m ", color, (long long)record->timestamp.tv_sec, usec);
+	size_t count = strlen(*buf);
+	*buf += count;
+	*bufsize -= count;
 }
 
-static char* printk_read(struct printk_record* record) {
-	const size_t size = PRINTK_MAX_LEN + PRINTK_TIME_LEN + 2;
-	char* buf = kzalloc(size, MM_ZONE_NORMAL);
-	if (!buf)
-		return NULL;
+/* Writes a printk message from a ringbuffer, and discards whatever can't be written */
+static void write_message(const struct printk_record* record, char** buf, size_t* bufsize) {
+	size_t read_count = 0;
+	if (likely(*bufsize > 0)) {
+		read_count = record->len;
+		if (read_count > *bufsize - 1)
+			read_count = *bufsize - 1;
 
-	char* ret = buf;
-	bool fail = false;
+		bug(ringbuffer_read(&printk_rb, *buf, read_count) != read_count);
+		(*buf)[read_count] = '\0';
+
+		*buf += read_count;
+		*bufsize -= read_count;
+	}
+
+	const size_t discard_count = record->len - read_count;
+	if (discard_count)
+		ringbuffer_read(&printk_rb, NULL, discard_count);
+}
+
+static int printk_read(char* buf, size_t bufsize, struct printk_record* out_record) {
+	int ret = 0;
 
 	unsigned long irq_flags;
 	spinlock_acquire_irq_save(&printk_rb_lock, &irq_flags);
 
-	if (ringbuffer_datacount(&printk_rb) < sizeof(*record)) {
-		fail = true;
-		goto out;
+	size_t count = ringbuffer_read(&printk_rb, out_record, sizeof(*out_record));
+	if (count != 0) {
+		if (unlikely(atomic_load(&late) == false)) {
+			/* If this path is hit, it probably (definitely) means we're in a kernel panic and need to be careful about how this ringbuffer is accessed */
+			if (count != sizeof(*out_record))
+				ret = -ENODATA;
+			else if (ringbuffer_datacount(&printk_rb) < out_record->len)
+				ret = -ENODATA;
+		}
+		if (likely(ret == 0)) {
+			bug(count != sizeof(*out_record));
+			write_time(out_record, &buf, &bufsize);
+			write_message(out_record, &buf, &bufsize);
+		}
+	} else {
+		ret = -ENODATA;
 	}
 
-	ringbuffer_read(&printk_rb, record, sizeof(*record));
-	const size_t read_count = record->len > PRINTK_MAX_LEN ? PRINTK_MAX_LEN : record->len;
-	const size_t rest = record->len - read_count;
-
-	printk_format_time(record->level, &record->timestamp, buf, size);
-	const size_t timecnt = strlen(buf);
-	bug(timecnt != PRINTK_TIME_LEN);
-	buf += timecnt;
-
-	ringbuffer_read(&printk_rb, buf, read_count);
-	if (rest)
-		ringbuffer_read(&printk_rb, NULL, rest);
-out:
 	spinlock_release_irq_restore(&printk_rb_lock, &irq_flags);
-	if (fail) {
-		kfree(ret);
-		ret = NULL;
-	}
 	return ret;
 }
 
-static int dump_message(void) {
+static int dump_message(char* buf, size_t bufsize) {
 	struct printk_record record;
-	char* msg = printk_read(&record);
-	if (!msg)
-		return -ENODATA;
-	print_message(record.level, msg);
-	kfree(msg);
+	int err = printk_read(buf, bufsize, &record);
+	if (err)
+		return err;
+
+	print_message(record.level, buf);
 	return 0;
 }
 
-/* TODO: Have this function sleep instead of just spinning until a new message shows up */
 static int printk_kthread(void* arg) {
 	(void)arg;
+	char msg_buf[PRINTK_MAX_LEN + PRINTK_TIME_LEN + 1];
 	while (1) {
 		semaphore_wait(&printk_rb_sem, 0);
-		dump_message();
+		dump_message(msg_buf, sizeof(msg_buf));
 	}
 
 	return 0;
@@ -165,16 +182,34 @@ int printk_set_hook(void (*hook)(int, int, const char*)) {
 	return err;
 }
 
-static atomic(bool) late = atomic_init(false);
-static SPINLOCK_DEFINE(early_lock);
-
 void printk_disable_ringbuffer_and_flush(void) {
+	/*
+	 * If a panic happens while writing to the ringbuffer (eg. Because of an NMI), this needs to happen
+	 * to prevent a deadlock
+	 */
 	spinlock_release(&early_lock);
 	spinlock_release(&printk_rb_lock);
+
+	char msg_buf[PRINTK_MAX_LEN + PRINTK_TIME_LEN + 1];
 	if (atomic_exchange(&late, false) == true) {
-		while (dump_message() == 0)
+		while (dump_message(msg_buf, sizeof(msg_buf)) == 0)
 			/* Nothing */;
 	}
+}
+
+static void do_early_printk(int level, const char* message) {
+	char timebuf[PRINTK_TIME_LEN + 1];
+
+	const struct printk_record record = { .level = level, .timestamp = time_fromboot(), .len = 0 };
+	char* tmp = timebuf;
+	size_t tmp2 = sizeof(timebuf);
+	write_time(&record, &tmp, &tmp2);
+
+	unsigned long irq_flags;
+	spinlock_acquire_irq_save(&early_lock, &irq_flags);
+	print_message(level, timebuf);
+	print_message(level, message);
+	spinlock_release_irq_restore(&early_lock, &irq_flags);
 }
 
 int vprintk(const char* fmt, va_list va) {
@@ -194,20 +229,14 @@ int vprintk(const char* fmt, va_list va) {
 	}
 	if (level > PRINTK_MAX_N)
 		level = PRINTK_MAX_N;
+	else if (level < PRINTK_MIN_N)
+		level = PRINTK_MIN_N;
 
 	if (likely(atomic_load(&late))) {
 		add_message_to_ringbuffer(level, buf);
 		semaphore_signal(&printk_rb_sem);
 	} else {
-		char timebuf[PRINTK_TIME_LEN + 1];
-		struct timespec ts = time_fromboot();
-		printk_format_time(level, &ts, timebuf, sizeof(timebuf));
-
-		unsigned long irq_flags;
-		spinlock_acquire_irq_save(&early_lock, &irq_flags);
-		print_message(level, timebuf);
-		print_message(level, buf);
-		spinlock_release_irq_restore(&early_lock, &irq_flags);
+		do_early_printk(level, buf);
 	}
 
 	return len;
@@ -224,11 +253,13 @@ int printk(const char* fmt, ...) {
 
 static void printk_init(void) {
 	const char* loglevel_cmdline = cmdline_get("loglevel");
+	if (!loglevel_cmdline)
+		return;
 
 	unsigned long long loglevel;
 	int err = kstrtoull(loglevel_cmdline, 0, &loglevel);
 	if (err == 0) {
-		if (loglevel > PRINTK_MAX_N)
+		if (loglevel > PRINTK_MAX_N || loglevel < PRINTK_MIN_N)
 			printk(PRINTK_ERR "printk: Invalid loglevel %llu\n", loglevel);
 		else
 			printk_set_level(loglevel);

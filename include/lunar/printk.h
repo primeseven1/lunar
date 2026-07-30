@@ -9,6 +9,7 @@
 #define PRINTK_ERR_N '\003'
 #define PRINTK_CRIT_N '\002'
 #define PRINTK_EMERG_N '\001'
+#define PRINTK_MIN_N PRINTK_EMERG_N
 #define PRINTK_MAX_N PRINTK_DBG_N
 
 #define PRINTK_DBG "\001\006"
