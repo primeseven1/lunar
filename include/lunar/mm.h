@@ -27,7 +27,7 @@ struct vmm_range {
 struct mm {
 	pte_t* pagetable;
 	struct list_head vma_list; /* struct vma */
-	struct vmm_range mmap, stack, brk;
+	struct vmm_range segment, brk, mmap, stack;
 	mutex_t mutex;
 };
 

@@ -155,9 +155,10 @@ static void vma_unmap_force(struct mm* mm, uintptr_t virtual, size_t size) {
 static struct mm kernel_mm_struct = {
 	.pagetable = NULL,
 	.vma_list = LIST_HEAD_INITIALIZER(kernel_mm_struct.vma_list),
-	.mmap = { .start = KERNEL_SPACE_START, .end = KERNEL_SPACE_END, .grows_down = false, .max_size = 0 },
-	.stack = { .start = KERNEL_SPACE_START, .end = KERNEL_SPACE_END, .grows_down = false, .max_size = 0 },
-	.brk = { .start = 0, .end = 0, .grows_down = false, .max_size = 0 },
+	.segment = { .start = KERNEL_SPACE_START, .end = KERNEL_SPACE_END, .grows_down = false, .max_size = KERNEL_SPACE_END - KERNEL_SPACE_START },
+	.brk = { .start = KERNEL_SPACE_START, .end = KERNEL_SPACE_END, .grows_down = false, .max_size = KERNEL_SPACE_END - KERNEL_SPACE_START },
+	.mmap = { .start = KERNEL_SPACE_START, .end = KERNEL_SPACE_END, .grows_down = false, .max_size = KERNEL_SPACE_END - KERNEL_SPACE_START },
+	.stack = { .start = KERNEL_SPACE_START, .end = KERNEL_SPACE_END, .grows_down = false, .max_size = KERNEL_SPACE_END - KERNEL_SPACE_START },
 	.mutex = MUTEX_INITIALIZER(kernel_mm_struct.mutex)
 };
 
@@ -172,15 +173,19 @@ struct mm* mm_create(void) {
 	struct mm* mm = kmalloc(sizeof(*mm), MM_ZONE_NORMAL);
 	if (!mm)
 		return NULL;
+
 	mm->pagetable = arch_pagetable_new();
 	if (!mm->pagetable)
 		return NULL;
 
 	list_head_init(&mm->vma_list);
-	mm->mmap = (struct vmm_range){ .start = 0, .end = 0, .grows_down = false, .max_size = 0 };
-	mm->stack = (struct vmm_range){ .start = 0, .end = 0, .grows_down = false, .max_size = 0 };
-	mm->brk = (struct vmm_range){ .start = 0, .end = 0, .grows_down = false, .max_size = 0 };
+	const struct vmm_range zero_range = { .start = 0, .end = 0, .grows_down = false, .max_size = 0 };
+	mm->segment = zero_range;
+	mm->brk = zero_range;
+	mm->mmap = zero_range;
+	mm->stack = zero_range;
 	mutex_init(&mm->mutex);
+
 	return mm;
 }
 
