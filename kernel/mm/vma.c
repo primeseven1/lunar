@@ -125,10 +125,10 @@ int vma_map(struct mm* mm, uintptr_t hint, size_t size, pgprot_t prot, int vmm_f
 		prev = iter;
 	}
 
-	if (vmm_flags & VMM_FIXED && addr != hint) {
+	if ((vmm_flags & VMM_FIXED) && (addr != hint)) {
 		vma_free(vma);
 		return -EEXIST;
-	} else if (addr >= range->end) {
+	} else if ((addr >= range->end) && !(vmm_flags & VMM_FIXED)) {
 		vma_free(vma);
 		return range_grow(range, size);
 	}
