@@ -6,11 +6,11 @@
 #include <x86_64/idt.h>
 
 static const struct arch_x86_64_segment_descriptor base[5] = {
-	{ .limit_low = 0x0000, .base_low = 0, .base_middle = 0, .access = 0x00, .flags = 0x00, .base_high = 0 },
-	{ .limit_low = 0xFFFF, .base_low = 0, .base_middle = 0, .access = 0x9B, .flags = 0xAF, .base_high = 0 },
-	{ .limit_low = 0xFFFF, .base_low = 0, .base_middle = 0, .access = 0x93, .flags = 0xCF, .base_high = 0 },
-	{ .limit_low = 0xFFFF, .base_low = 0, .base_middle = 0, .access = 0xFB, .flags = 0xAF, .base_high = 0 },
-	{ .limit_low = 0xFFFF, .base_low = 0, .base_middle = 0, .access = 0xF3, .flags = 0xCF, .base_high = 0 },
+	{ .limit_low = 0x0000, .base_low = 0, .base_middle = 0, .access = 0x00, .flags = 0x00, .base_high = 0 }, /* null */
+	{ .limit_low = 0xFFFF, .base_low = 0, .base_middle = 0, .access = 0x9B, .flags = 0xAF, .base_high = 0 }, /* kernel code */
+	{ .limit_low = 0xFFFF, .base_low = 0, .base_middle = 0, .access = 0x93, .flags = 0xCF, .base_high = 0 }, /* kernel data */
+	{ .limit_low = 0xFFFF, .base_low = 0, .base_middle = 0, .access = 0xF3, .flags = 0xCF, .base_high = 0 }, /* user data */
+	{ .limit_low = 0xFFFF, .base_low = 0, .base_middle = 0, .access = 0xFB, .flags = 0xAF, .base_high = 0 } /* user code */
 };
 
 void arch_x86_64_gdt_init(void) {
