@@ -16,16 +16,14 @@ static inline void fxrstor(struct arch_x86_64_fxsave_context* region) {
 }
 
 static void save_extended(struct arch_context_extended* region) {
-	region->gsbase = (void*)(uintptr_t)arch_x86_64_rdmsr(ARCH_X86_64_MSR_GS_BASE);
-	region->krnlgsbase = (void*)(uintptr_t)arch_x86_64_rdmsr(ARCH_X86_64_MSR_KERNEL_GS_BASE);
-	region->fsbase = (void*)(uintptr_t)arch_x86_64_rdmsr(ARCH_X86_64_MSR_FS_BASE);
+	region->user_gsbase = (void*)(uintptr_t)arch_x86_64_rdmsr(ARCH_X86_64_MSR_KERNEL_GS_BASE);
+	region->user_fsbase = (void*)(uintptr_t)arch_x86_64_rdmsr(ARCH_X86_64_MSR_FS_BASE);
 	fxsave(region->fxsave_region);
 }
 
 static void restore_extended(struct arch_context_extended* region) {
-	arch_x86_64_wrmsr(ARCH_X86_64_MSR_GS_BASE, (uintptr_t)region->gsbase);
-	arch_x86_64_wrmsr(ARCH_X86_64_MSR_KERNEL_GS_BASE, (uintptr_t)region->krnlgsbase);
-	arch_x86_64_wrmsr(ARCH_X86_64_MSR_FS_BASE, (uintptr_t)region->fsbase);
+	arch_x86_64_wrmsr(ARCH_X86_64_MSR_KERNEL_GS_BASE, (uintptr_t)region->user_gsbase);
+	arch_x86_64_wrmsr(ARCH_X86_64_MSR_FS_BASE, (uintptr_t)region->user_fsbase);
 	fxrstor(region->fxsave_region);
 }
 
@@ -58,8 +56,8 @@ int arch_context_init(struct context* context) {
 		return -ENOMEM;
 
 	context->arch_extended_context.fxsave_region = r;
-	context->arch_extended_context.gsbase = NULL;
-	context->arch_extended_context.fsbase = NULL;
+	context->arch_extended_context.user_gsbase = NULL;
+	context->arch_extended_context.user_fsbase = NULL;
 	memset(&context->arch_context, 0, sizeof(context->arch_context));
 
 	return 0;
@@ -72,7 +70,6 @@ void arch_context_destroy(struct context* ctx) {
 void arch_thread_prepare_execution(struct thread* thread, const struct thread_entry_point* entry_point) {
 	struct context* const ctx = &thread->context;
 	struct thread_stack* const stack = &thread->stack;
-	struct cpu* target_cpu = atomic_load(&thread->topology.cpu);
 
 	uintptr_t entry, stack_top, stack_off;
 	u64 cs, ds;
@@ -84,7 +81,6 @@ void arch_thread_prepare_execution(struct thread* thread, const struct thread_en
 		stack_off = (uintptr_t)stack->user_ptr_off;
 		cs = ARCH_X86_64_SEGMENT_USER_CODE | ARCH_X86_64_SEGMENT_CPL3;
 		ds = ARCH_X86_64_SEGMENT_USER_DATA | ARCH_X86_64_SEGMENT_CPL3;
-		ctx->arch_extended_context.krnlgsbase = target_cpu;
 	} else {
 		bug(entry_point->user_entry != NULL);
 		bug(stack->user_stack_top != NULL);
@@ -93,7 +89,6 @@ void arch_thread_prepare_execution(struct thread* thread, const struct thread_en
 		stack_off = (uintptr_t)stack->kernel_ptr_off;
 		cs = ARCH_X86_64_SEGMENT_KERNEL_CODE | ARCH_X86_64_SEGMENT_CPL0;
 		ds = ARCH_X86_64_SEGMENT_KERNEL_DATA | ARCH_X86_64_SEGMENT_CPL0;
-		ctx->arch_extended_context.gsbase = target_cpu;
 	}
 
 	/* Now set up the interrupt frame */

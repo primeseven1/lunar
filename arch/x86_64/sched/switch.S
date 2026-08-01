@@ -53,7 +53,7 @@ ASM_FUNCTION_START(context_switch_generic, ASM_LINKAGE_GLOBAL):
 	movq %r14, CTX_R14(%rdi)
 	movq %r15, CTX_R15(%rdi)
 	movq %rsp, CTX_RSP(%rdi)
-	leaq 1f(%rip), %rax
+	leaq 2f(%rip), %rax
 	movq %rax, CTX_RIP(%rdi)
 	pushfq
 	popq %rdx
@@ -80,7 +80,14 @@ ASM_FUNCTION_START(context_switch_generic, ASM_LINKAGE_GLOBAL):
 	movq CTX_R15(%rsi), %r15
 	leaq CTX_RIP(%rsi), %rsp /* Interrupt frame */
 	movq CTX_RSI(%rsi), %rsi
-	iretq
+
+	/* If returning to CPL3, swapgs */
+	cmpq $ARCH_X86_64_SEGMENT_KERNEL_CODE, 8(%rsp)
+	je 1f
+	swapgs
+	lfence
 1:
+	iretq
+2:
 	ret
 ASM_FUNCTION_END(context_switch_generic)

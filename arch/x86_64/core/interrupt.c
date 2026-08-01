@@ -76,7 +76,7 @@ void arch_x86_64_idt_init(void) {
 }
 
 static inline bool is_cpu_bad(void) {
-	return !arch_x86_64_rdmsr(ARCH_X86_64_MSR_GS_BASE);
+	return arch_x86_64_rdmsr(ARCH_X86_64_MSR_GS_BASE) < KERNEL_SPACE_START;
 }
 
 static inline void swapgs(void) {
