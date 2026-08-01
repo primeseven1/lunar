@@ -72,6 +72,7 @@ void arch_context_destroy(struct context* ctx) {
 void arch_thread_prepare_execution(struct thread* thread, const struct thread_entry_point* entry_point) {
 	struct context* const ctx = &thread->context;
 	struct thread_stack* const stack = &thread->stack;
+	struct cpu* target_cpu = atomic_load(&thread->topology.cpu);
 
 	uintptr_t entry, stack_top, stack_off;
 	u64 cs, ds;
@@ -83,6 +84,7 @@ void arch_thread_prepare_execution(struct thread* thread, const struct thread_en
 		stack_off = (uintptr_t)stack->user_ptr_off;
 		cs = ARCH_X86_64_SEGMENT_USER_CODE | ARCH_X86_64_SEGMENT_CPL3;
 		ds = ARCH_X86_64_SEGMENT_USER_DATA | ARCH_X86_64_SEGMENT_CPL3;
+		ctx->arch_extended_context.krnlgsbase = target_cpu;
 	} else {
 		bug(entry_point->user_entry != NULL);
 		bug(stack->user_stack_top != NULL);
@@ -91,7 +93,7 @@ void arch_thread_prepare_execution(struct thread* thread, const struct thread_en
 		stack_off = (uintptr_t)stack->kernel_ptr_off;
 		cs = ARCH_X86_64_SEGMENT_KERNEL_CODE | ARCH_X86_64_SEGMENT_CPL0;
 		ds = ARCH_X86_64_SEGMENT_KERNEL_DATA | ARCH_X86_64_SEGMENT_CPL0;
-		ctx->arch_extended_context.gsbase = atomic_load(&thread->topology.cpu);
+		ctx->arch_extended_context.gsbase = target_cpu;
 	}
 
 	/* Now set up the interrupt frame */
