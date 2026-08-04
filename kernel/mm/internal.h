@@ -59,10 +59,9 @@ int vma_unmap(struct mm* mm, uintptr_t address, size_t size);
 
 struct tlb_batch {
 	pte_t* pagetable;
-	uintptr_t first_page_virtual;
-	uintptr_t last_page_virtual;
-	size_t page_count;
-	struct page* pages[TLB_BATCH_PAGE_COUNT];
+	uintptr_t first_page_virtual, last_page_virtual;
+	size_t page_count; /* Number of pages in the pages array */
+	struct page* pages[TLB_BATCH_PAGE_COUNT]; /* Since multiple addresses may map to the same page, we cannot use a list here */
 };
 
 /**
@@ -94,5 +93,3 @@ void tlb_batch_flush(struct tlb_batch* batch);
  * @param page The page to release after flushing (optional)
  */
 void tlb_batch_add(struct tlb_batch* batch, uintptr_t virtual, struct page* page);
-
-void tlb_invalidate(uintptr_t address, size_t size);

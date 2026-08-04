@@ -139,7 +139,7 @@ static inline struct page* page_head(const struct page* page) {
 /**
  * @brief Get the virtual address from a page struct
  * @param page The page
- * @return A HHDM virtual address
+ * @return A HHDM virtual address, returns NULL if page is NULL
  */
 void* page_hhdm_virtual(const struct page* page);
 

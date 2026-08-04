@@ -60,7 +60,7 @@ static void invalidate_others(uintptr_t address, size_t page_count) {
 	mutex_release(&shootdown_mtx);
 }
 
-void tlb_invalidate(uintptr_t address, size_t page_count) {
+static inline void tlb_invalidate(uintptr_t address, size_t page_count) {
 	invalidate_local(address, page_count);
 	invalidate_others(address, page_count);
 }
