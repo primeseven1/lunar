@@ -5,6 +5,7 @@
 #include <lunar/limine.h>
 #include <lunar/init.h>
 #include <lunar/proc.h>
+#include <lunar/printk.h>
 
 #include <arch/page.h>
 #include <x86_64/asm/ctl.h>
@@ -12,6 +13,7 @@
 
 #define PUD_SHIFT 30
 #define PUD_SIZE (1ul << PUD_SHIFT)
+#define PTE_COUNT (PAGE_SIZE / sizeof(pte_t))
 
 static struct page* alloc_table(void) {
 	struct page* page = alloc_page(MM_ZONE_NORMAL);
@@ -32,8 +34,9 @@ static void free_table_physical(physaddr_t physical) {
 		else
 			panic("Unhandled error calling get_page_from_address() in function %s(): %d", __func__, err);
 	}
+
 	release_page(page); /* Release get_page_from_address() ref */
-	release_page(page); /* Release page table ref */
+	release_page(page); /* Now release the page table ref */
 }
 
 pte_t* arch_pagetable_new(void) {
@@ -43,10 +46,6 @@ pte_t* arch_pagetable_new(void) {
 		memset(ret, 0, PAGE_SIZE / 2); /* Zero user page tables */
 	}
 	return ret;
-}
-
-void arch_pagetable_free(pte_t* table) {
-	free_table_physical(hhdm_physical(table));
 }
 
 enum pt_flags {
@@ -60,10 +59,36 @@ enum pt_flags {
 	PT_4K_PAT = (1 << 7),
 	PT_HUGEPAGE = (1 << 7),
 	PT_GLOBAL = (1 << 8),
-	PT_AVL_NOFREE = (1 << 9),
 	PT_HUGEPAGE_PAT = (1 << 12),
 	PT_NX = (1ul << 63)
 };
+
+/* Depth is the level of the table (3 = PML4, 2 = PDPT, 1 = PD, 0 = PT), leaf frames are not freed */
+static void destroy_depth(pte_t* table, int depth) {
+	if (depth == 0)
+		return;
+
+	const int count = (depth == 3) ? PTE_COUNT / 2 : PTE_COUNT;
+	for (int i = 0; i < count; i++) {
+		const pte_t entry = table[i];
+		if (!(entry & PT_PRESENT))
+			continue;
+		if (entry & PT_HUGEPAGE) {
+			if (unlikely(depth != 1 && depth != 2))
+				bug("Hugepage flag set on invalid PTE");
+			continue;
+		}
+
+		const physaddr_t address = entry & ~(0xFFF | PT_NX);
+		destroy_depth(hhdm_virtual(address), depth - 1);
+		free_table_physical(address);
+	}
+}
+
+void arch_pagetable_free(pte_t* table) {
+	destroy_depth(table, 3);
+	free_table_physical(hhdm_physical(table));
+}
 
 static inline pte_t* table_virtual(pte_t entry) {
 	entry &= ~(0xFFF | PT_NX);
@@ -100,24 +125,24 @@ static unsigned long pgprot_to_pt(pgprot_t prot) {
 	return pt_flags;
 }
 
-static int walk_pagetable(pte_t* pagetable, uintptr_t virtual, bool create, size_t* page_size, pte_t** ret) {
+static int walk_pagetable(pte_t* pagetable, uintptr_t virtual, bool create, bool user, size_t* page_size, pte_t** ret) {
 	*ret = NULL;
 
 	unsigned int indexes[4];
 	pagetable_get_indexes(virtual, indexes);
 
-	/* 
-	 * Keeps track of what page tables were allocated and what PTE they are in, 
-	 * so proper cleanup can be done after any allocation failures
-	 */
 	struct page* new_tables[3] = { NULL, NULL, NULL };
-	pte_t* new_tables_table[3] = { NULL, NULL, NULL };
+	size_t new_count = 0;
+	pte_t* graft_pte = NULL;
+	pte_t graft_value = 0;
+
+	int err = 0;
 
 	for (size_t i = 0; i < ARRAY_SIZE(indexes) - 1; i++) {
 		/* Check to see if we want either a 1GiB or 2MiB page */
 		if ((*page_size == PUD_SIZE && i == 1) || (*page_size == PMD_SIZE && i == 2)) {
 			*ret = &pagetable[indexes[i]];
-			return 0;
+			goto out;
 		}
 
 		/* 
@@ -125,24 +150,27 @@ static int walk_pagetable(pte_t* pagetable, uintptr_t virtual, bool create, size
 		 * Otherwise, handle the case where it could be a hugepage
 		 */
 		if (!(pagetable[indexes[i]] & PT_PRESENT)) {
-			if (!create)
-				return -ENOENT;
+			if (!create) {
+				err = -ENOENT;
+				goto out;
+			}
 			struct page* new = alloc_table();
 			if (!new) {
-				/* Clean up all the new page tables that were allocated */
-				for (size_t j = 0; j < ARRAY_SIZE(new_tables); j++) {
-					if (new_tables[j]) {
-						*new_tables_table[j] = 0;
-						release_page(new_tables[j]);
-					}
-				}
-				return -ENOMEM;
+				err = -ENOMEM;
+				goto out;
+			}
+			new_tables[new_count++] = new;
+
+			pte_t value = page_to_physaddr(new) | PT_PRESENT | PT_READ_WRITE | (user ? PT_USER_SUPERVISOR : 0);
+			if (graft_pte) {
+				pagetable[indexes[i]] = value;
+			} else {
+				graft_pte = &pagetable[indexes[i]];
+				graft_value = value;
 			}
 
-			/* Update the PTE, and store the pointers for cleanup on failure */
-			new_tables[i] = new;
-			pagetable[indexes[i]] = page_to_physaddr(new) | PT_PRESENT | PT_READ_WRITE;
-			new_tables_table[i] = &pagetable[indexes[i]];
+			pagetable = page_hhdm_virtual(new);
+			continue;
 		} else if (pagetable[indexes[i]] & PT_HUGEPAGE) {
 			if (unlikely(i != 1 && i != 2))
 				bug("Hugepage flag set on invalid PTE");
@@ -154,15 +182,23 @@ static int walk_pagetable(pte_t* pagetable, uintptr_t virtual, bool create, size
 			 * If *page_size is zero, then write the page size so that way the caller knows 
 			 * if it needs it for some reason.
 			 */
-			size_t _page_size = i == 1 ? PUD_SIZE : PMD_SIZE;
+			size_t _page_size = (i == 1) ? PUD_SIZE : PMD_SIZE;
 			if (_page_size != *page_size) {
-				if (*page_size != 0)
-					return -EEXIST;
+				if (*page_size != 0) {
+					err = -EEXIST;
+					goto out;
+				}
 				*page_size = _page_size;
 			}
 
 			*ret = &pagetable[indexes[i]];
-			return 0;
+			goto out;
+		}
+
+		if (user && !(pagetable[indexes[i]] & PT_USER_SUPERVISOR)) {
+			err = -EFAULT;
+			printk(PRINTK_WARN "mm: Attempted to make user space mapping near kernel space mapping\n");
+			goto out;
 		}
 
 		pagetable = table_virtual(pagetable[indexes[i]]);
@@ -170,7 +206,15 @@ static int walk_pagetable(pte_t* pagetable, uintptr_t virtual, bool create, size
 
 	*page_size = PAGE_SIZE;
 	*ret = &pagetable[indexes[3]];
-	return 0;
+out:
+	if (err == 0) {
+		if (graft_pte)
+			*graft_pte = graft_value; /* Link into the live tree all at once */
+	} else {
+		while (new_count--)
+			release_page(new_tables[new_count]);
+	}
+	return err;
 }
 
 int arch_pagetable_map(pte_t* pagetable, uintptr_t virtual, physaddr_t physical, bool hugetlb, pgprot_t prot) {
@@ -180,11 +224,12 @@ int arch_pagetable_map(pte_t* pagetable, uintptr_t virtual, physaddr_t physical,
 
 	size_t page_size = hugetlb ? PMD_SIZE : PAGE_SIZE;
 	if ((uintptr_t)virtual & (page_size - 1) || physical & (page_size - 1) || 
-			!is_virtual_canonical(virtual) || !physical)
+			!is_virtual_canonical(virtual) || !physical ||
+			(prot & ~PGPROT_MASK) || (prot & PGPROT_PWT && prot & PGPROT_PCD))
 		return -EINVAL;
 
 	pte_t* pte;
-	int err = walk_pagetable(pagetable, virtual, true, &page_size, &pte);
+	int err = walk_pagetable(pagetable, virtual, true, !!(prot & PGPROT_USER), &page_size, &pte);
 	if (err)
 		return err;
 
@@ -204,7 +249,7 @@ int arch_pagetable_update(pte_t* pagetable, uintptr_t virtual, physaddr_t physic
 
 	pte_t* pte;
 	size_t page_size = 0;
-	int err = walk_pagetable(pagetable, virtual, false, &page_size, &pte);
+	int err = walk_pagetable(pagetable, virtual, false, !!(prot & PGPROT_USER), &page_size, &pte);
 	if (err)
 		return err;
 
@@ -218,42 +263,14 @@ int arch_pagetable_update(pte_t* pagetable, uintptr_t virtual, physaddr_t physic
 	return 0;
 }
 
-static void pagetable_cleanup(pte_t* pagetable, uintptr_t virtual) {
-	unsigned int indexes[4];
-	pagetable_get_indexes(virtual, indexes);
-
-	pte_t* tables[4] = { pagetable, NULL, NULL, NULL };
-	for (unsigned int i = 0; i < ARRAY_SIZE(tables) - 1; i++) {
-		pte_t entry = tables[i][indexes[i]];
-		if (!(entry & PT_PRESENT) || entry & PT_HUGEPAGE)
-			return;
-		tables[i + 1] = table_virtual(entry);
-	}
-
-	for (unsigned int level = 3; level > 0; level--) {
-		pte_t* table = tables[level];
-		for (unsigned int i = 0; i < 512; i++) {
-			if (table[i])
-				return;
-		}
-
-		pte_t value = tables[level - 1][indexes[level - 1]];
-		if (value & PT_AVL_NOFREE)
-			return;
-
-		physaddr_t physical = value & ~(0xFFF | PT_NX);
-		tables[level - 1][indexes[level - 1]] = 0;
-		free_table_physical(physical);
-	}
-}
-
+/* TODO: Because this function does not free page tables, this breaks hugepage support. This will need to be resolved elsewhere, but is not a priority since the VMM does not support hugepages (yet) */
 int arch_pagetable_unmap(pte_t* pagetable, uintptr_t virtual) {
 	if (!is_virtual_canonical(virtual))
 		return -EINVAL;
 
 	pte_t* pte;
 	size_t page_size = 0;
-	int err = walk_pagetable(pagetable, virtual, false, &page_size, &pte);
+	int err = walk_pagetable(pagetable, virtual, false, false, &page_size, &pte);
 	if (err)
 		return err;
 	if ((uintptr_t)virtual & (page_size - 1))
@@ -263,8 +280,6 @@ int arch_pagetable_unmap(pte_t* pagetable, uintptr_t virtual) {
 		return -ENOENT;
 
 	*pte = 0;
-	pagetable_cleanup(pagetable, virtual);
-
 	return 0;
 }
 
@@ -274,7 +289,7 @@ physaddr_t arch_pagetable_get_physical(pte_t* pagetable, uintptr_t virtual) {
 
 	pte_t* pte;
 	size_t page_size = 0;
-	int err = walk_pagetable(pagetable, virtual, false, &page_size, &pte);
+	int err = walk_pagetable(pagetable, virtual, false, false, &page_size, &pte);
 	if (err)
 		return 0;
 
@@ -342,16 +357,15 @@ void arch_pagetable_init(void) {
 	bool level4 = ecx & (1 << 16) ? !(arch_x86_64_ctl4_read() & ARCH_X86_64_CTL4_LA57) : true;
 	bug(!level4); /* Either the wrong paging mode was selected, or something bad happened */
 
-	/* Mark things like HHDM page tables as nofree */
+	/* Allocate all higher half L4 tables */
 	pte_t* l4 = hhdm_virtual(arch_x86_64_ctl3_read());
-	for (int i = 256; i < 512; i++) {
+	for (size_t i = PTE_COUNT / 2; i < PTE_COUNT; i++) {
 		if (!(l4[i] & PT_PRESENT)) {
 			struct page* page = alloc_table();
 			if (!page)
 				out_of_memory();
 			l4[i] = page_to_physaddr(page) | PT_PRESENT | PT_READ_WRITE;
 		}
-		l4[i] |= PT_AVL_NOFREE;
 	}
 
 	/* Page table changed, flush just in case */
