@@ -81,11 +81,61 @@ int vm_unmap(void* virtual, size_t page_count, int flags);
  */
 void vm_unmap_force(void* virtual, size_t page_count, int flags);
 
+/**
+ * @brief Map pages into user space
+ *
+ * @param hint Hint on where to place the mapping
+ * @param pages The pages to map
+ * @param page_count Number of pages in the array
+ * @param prot Page protection flags
+ * @param flags VMM_* flags
+ *
+ * @return -errno on failure, otherwise it returns the pointer
+ */
 void __user* vm_map_user(void __user* hint, struct page** pages, size_t page_count, pgprot_t prot, int flags);
+
+/**
+ * @brief Protect user pages
+ *
+ * @param virtual The virtual address to protect
+ * @param pages The number of pages
+ * @param prot Page protection flags
+ * @param flags VMM_* flags
+ *
+ * @return -errno on failure, 0 on success
+ */
 int vm_protect_user(void __user* virtual, size_t page_count, pgprot_t prot, int flags);
+
+/**
+ * @brief Unmap user pages
+ *
+ * @param virtual The virtual address to unmap
+ * @param page_count Number of pages to unmap
+ * @param flags VMM_* flags
+ *
+ * @return -errno on failure, 0 on success
+ */
 int vm_unmap_user(void __user* virtual, size_t page_count, int flags);
 
+/**
+ * @brief Map I/O memory
+ *
+ * @param physical The physical address, can be misaligned
+ * @param size Size of the mapping
+ * @param cache Caching mode for the pages
+ *
+ * @return A pointer to the memory including the alignment, or -errno
+ */
 void __iomem* iomap(physaddr_t physical, size_t size, pgprot_t cache);
+
+/**
+ * @brief Unmap I/O memory
+ *
+ * @param virtual The virtual address
+ * @param size The size to unmap
+ *
+ * @return 0 on success, -errno on failure
+ */
 int iounmap(void __iomem* virtual, size_t size);
 
 /**

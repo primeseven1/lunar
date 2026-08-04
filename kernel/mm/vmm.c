@@ -372,26 +372,24 @@ int vm_unmap(void* virtual, size_t page_count, int flags) {
 void __user* vm_map_user(void __user* hint, struct page** pages, size_t page_count, pgprot_t prot, int flags) {
 	struct mm* mm = current_mm();
 	if (mm == &kernel_mm_struct)
-		return (void __user*)ERR_PTR(-EINVAL);
+		return ERR_PTR_AS(void __user*, -ESRCH);
 
 	uintptr_t ret;
 	int err = __vm_map(mm, (uintptr_t)hint, pages, page_count, prot, flags, &ret);
-	return (err == 0) ? (void __user*)ret : (void __user*)ERR_PTR(err);
+	return (err == 0) ? (void __user*)ret : ERR_PTR_AS(void __user*, err);
 }
 
 int vm_protect_user(void __user* virtual, size_t page_count, pgprot_t prot, int flags) {
 	struct mm* mm = current_mm();
 	if (mm == &kernel_mm_struct)
-		return -EINVAL;
-
+		return -ESRCH;
 	return __vm_protect(mm, (uintptr_t)virtual, page_count, prot, flags);
 }
 
 int vm_unmap_user(void __user* virtual, size_t page_count, int flags) {
 	struct mm* mm = current_mm();
 	if (mm == &kernel_mm_struct)
-		return -EINVAL;
-
+		return -ESRCH;
 	return __vm_unmap(mm, (uintptr_t)virtual, page_count, flags);
 }
 
@@ -404,7 +402,7 @@ void __iomem* iomap(physaddr_t physical, size_t size, pgprot_t cache) {
 	uintptr_t ret;
 	int err = __vm_map_physical(0, physical, size >> PAGE_SHIFT, PGPROT_READ | PGPROT_WRITE | cache, VMM_IOMEM, &ret);
 	if (err)
-		return (void __iomem*)ERR_PTR(err);
+		return ERR_PTR_AS(void __iomem*, err);
 	return (u8 __iomem*)ret + page_offset;
 }
 

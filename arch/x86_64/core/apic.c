@@ -402,7 +402,7 @@ static int ioapic_init(void) {
 			goto err;
 		}
 		ioapics[i].address = iomap(entry->address, PAGE_SIZE, PGPROT_PCD);
-		if (!ioapics[i].address) {
+		if (unlikely(IS_PTR_ERR(ioapics[i].address))) {
 			err = UACPI_STATUS_MAPPING_FAILED;
 			goto err;
 		}
@@ -479,7 +479,7 @@ static int apic_x1_bsp_init(void) {
 
 	physaddr_t lapic_physical = ROUND_DOWN(arch_x86_64_rdmsr(ARCH_X86_64_MSR_APIC_BASE), PAGE_SIZE);
 	lapic_address = iomap(lapic_physical, PAGE_SIZE, PGPROT_PCD);
-	if (unlikely(!lapic_address))
+	if (unlikely(IS_PTR_ERR(lapic_address)))
 		return -ENOMEM;
 
 	ioapic_mask_all();

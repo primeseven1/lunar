@@ -69,8 +69,8 @@ static int init(struct timekeeper* self, struct timekeeper_source** out) {
 		return -ENXIO;
 	physaddr_t address = hpet->address.address;
 	hpet_virtual = iomap(address, PAGE_SIZE, PGPROT_PCD);
-	if (!hpet_virtual)
-		return -ENOMEM;
+	if (IS_PTR_ERR(hpet_virtual))
+		return PTR_ERR(hpet_virtual);
 
 	/* After this point, we need cleanup on error */
 	int err;
