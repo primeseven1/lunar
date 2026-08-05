@@ -449,16 +449,16 @@ static int _alloc_block(struct mem_area* area, unsigned int layer, unsigned long
 	layer = tmp2;
 
 	/* Allocate the smaller blocks below the layer we allocated on */
-	unsigned long times = 2;
+	unsigned long count = 2;
 	while (++layer < area->layer_count) {
 		block_count = 1ul << layer;
 		block <<= 1;
-		for (unsigned long i = 0; i < times; i++) {
+		for (unsigned long i = 0; i < count; i++) {
 			bug(!__is_block_free(area->pages.free_list, block_count, block + i));
 			__alloc_block(area->pages.free_list, block_count, block + i);
-			atomic_sub_fetch_explicit(&area->free_blocks[layer], 1, ATOMIC_RELAXED);
 		}
-		times <<= 1;
+		atomic_sub_fetch_explicit(&area->free_blocks[layer], count, ATOMIC_RELAXED);
+		count <<= 1;
 	}
 
 	return 0;
@@ -512,8 +512,8 @@ static int _free_block(struct mem_area* area, unsigned int layer, unsigned long 
 		for (unsigned long i = 0; i < count; i++) {
 			bug(__is_block_free(area->pages.free_list, block_count, block + i));
 			__free_block(area->pages.free_list, block_count, block + i);
-			atomic_add_fetch_explicit(&area->free_blocks[layer], 1, ATOMIC_RELAXED);
 		}
+		atomic_add_fetch_explicit(&area->free_blocks[layer], count, ATOMIC_RELAXED);
 		count <<= 1;
 	}
 
@@ -539,12 +539,12 @@ struct zone {
 static struct mem_area* select_mem_area(struct zone* zone, unsigned int order,
 		unsigned int* layer, unsigned long* block, bool atomic, unsigned long* irq_flags) {
 	const int max_retries = 3;
-
 	int retries = 0;
 	unsigned long i = 0;
 	while (retries < max_retries) {
 		struct mem_area* best = NULL;
-		unsigned int l;
+		unsigned int best_layer = 0;
+		unsigned int best_index = 0;
 		for (; i < zone->area_count; i++) {
 			struct mem_area* a = &zone->areas[i];
 			if (a->pages.atomic != atomic)
@@ -552,38 +552,39 @@ static struct mem_area* select_mem_area(struct zone* zone, unsigned int order,
 			if (unlikely(a->layer_count <= order))
 				continue;
 
-			l = a->layer_count - order - 1;
+			const unsigned int l = a->layer_count - order - 1;
 			if (!atomic_load_explicit(&a->free_blocks[l], ATOMIC_RELAXED))
 				continue;
 
-			unsigned int crefs = atomic_load(&a->alloc_refcnt);
-			if (crefs == 0) {
+			const unsigned int crefs = atomic_load(&a->alloc_refcnt);
+			const bool take_now = (crefs == 0 || retries > 0);
+			if (take_now || !best || crefs < atomic_load(&best->alloc_refcnt)) {
 				best = a;
-				break;
-			} else if (retries == 0) {
-				if (!best || crefs < atomic_load(&best->alloc_refcnt))
-					best = a;
-			} else {
-				best = a;
-				break;
+				best_layer = l;
+				best_index = i;
+				if (take_now)
+					break;
 			}
 		}
 
-		if (likely(best)) {
-			atomic_add_fetch(&best->alloc_refcnt, 1);
-			mem_area_lock(best, irq_flags);
-			if (atomic_load_explicit(&best->free_blocks[l], ATOMIC_RELAXED)) {
-				*layer = l;
-				*block = find_first_free(best->pages.free_list, l);
-				bug(*block == ULONG_MAX); /* This means the accounting logic is fucked up if this triggers */
-				return best;
-			}
-			mem_area_unlock(best, irq_flags);
-			atomic_sub_fetch(&best->alloc_refcnt, 1);
-		} else {
+		if (unlikely(!best)) {
 			i = 0;
 			retries++;
+			continue;
 		}
+
+		atomic_add_fetch(&best->alloc_refcnt, 1);
+		mem_area_lock(best, irq_flags);
+		if (atomic_load_explicit(&best->free_blocks[best_layer], ATOMIC_RELAXED)) {
+			*layer = best_layer;
+			*block = find_first_free(best->pages.free_list, best_layer);
+			bug(*block == ULONG_MAX); /* This means the accounting logic is fucked up if this triggers */
+			return best;
+		}
+		mem_area_unlock(best, irq_flags);
+		atomic_sub_fetch(&best->alloc_refcnt, 1);
+
+		i = best_index + 1;
 	}
 
 	return NULL;
