@@ -10,6 +10,12 @@ struct vma {
 };
 
 /**
+ * @brief Free all VMA's in a list
+ * @param list The start of the list
+ */
+void vma_destroy(struct list_head* list);
+
+/**
  * @brief Find a VMA
  *
  * @param mm The mm struct

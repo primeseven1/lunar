@@ -6,6 +6,7 @@
 #include <lunar/init.h>
 #include <lunar/proc.h>
 #include <lunar/printk.h>
+#include <lunar/vmm.h>
 
 #include <arch/page.h>
 #include <x86_64/asm/ctl.h>
@@ -39,12 +40,13 @@ static void free_table_physical(physaddr_t physical) {
 	release_page(page); /* Now release the page table ref */
 }
 
+static pte_t pagetable_template[PTE_COUNT];
+static_assert(sizeof(pagetable_template) == PAGE_SIZE);
+
 pte_t* arch_pagetable_new(void) {
 	pte_t* ret = page_hhdm_virtual(alloc_page(MM_ZONE_NORMAL));
-	if (ret) {
-		memcpy(ret, current_proc()->mm_struct->pagetable, PAGE_SIZE);
-		memset(ret, 0, PAGE_SIZE / 2); /* Zero user page tables */
-	}
+	if (ret)
+		memcpy(ret, pagetable_template, sizeof(pagetable_template));
 	return ret;
 }
 
@@ -63,25 +65,24 @@ enum pt_flags {
 	PT_NX = (1ul << 63)
 };
 
-/* Depth is the level of the table (3 = PML4, 2 = PDPT, 1 = PD, 0 = PT), leaf frames are not freed */
+/* Depth is the level of the table (3 = PML4, 2 = PDPT, 1 = PD, 0 = PT) */
 static void destroy_depth(pte_t* table, int depth) {
-	if (depth == 0)
-		return;
-
 	const int count = (depth == 3) ? PTE_COUNT / 2 : PTE_COUNT;
 	for (int i = 0; i < count; i++) {
 		const pte_t entry = table[i];
-		if (!(entry & PT_PRESENT))
+		if (!entry)
 			continue;
-		if (entry & PT_HUGEPAGE) {
-			if (unlikely(depth != 1 && depth != 2))
-				bug("Hugepage flag set on invalid PTE");
-			continue;
+		if (depth == 0) {
+			vm_pagetable_teardown_leaf(entry & ~(0xFFF | PT_NX));
+		} else if (entry & PT_HUGEPAGE) {
+			bug(depth != 1 && depth != 2);
+			const physaddr_t huge_mask = (depth == 2) ? PUD_SIZE - 1 : PMD_SIZE - 1;
+			vm_pagetable_teardown_leaf(entry & ~(huge_mask | PT_NX));
+		} else if (entry & PT_PRESENT) {
+			const physaddr_t address = entry & ~(0xFFF | PT_NX);
+			destroy_depth(hhdm_virtual(address), depth - 1);
+			free_table_physical(address);
 		}
-
-		const physaddr_t address = entry & ~(0xFFF | PT_NX);
-		destroy_depth(hhdm_virtual(address), depth - 1);
-		free_table_physical(address);
 	}
 }
 
@@ -172,8 +173,7 @@ static int walk_pagetable(pte_t* pagetable, uintptr_t virtual, bool create, bool
 			pagetable = page_hhdm_virtual(new);
 			continue;
 		} else if (pagetable[indexes[i]] & PT_HUGEPAGE) {
-			if (unlikely(i != 1 && i != 2))
-				bug("Hugepage flag set on invalid PTE");
+			bug(i != 1 && i != 2); /* Make sure the hugepage bit is not set at an invalid level */
 
 			/* 
 			 * Make sure we're not returning a PTE that points to another page table, 
@@ -197,7 +197,7 @@ static int walk_pagetable(pte_t* pagetable, uintptr_t virtual, bool create, bool
 
 		if (user && !(pagetable[indexes[i]] & PT_USER_SUPERVISOR)) {
 			err = -EFAULT;
-			printk(PRINTK_WARN "mm: Attempted to make user space mapping near kernel space mapping\n");
+			printk(PRINTK_WARN "pagetable: Attempted to make user space mapping near kernel space mapping\n");
 			goto out;
 		}
 
@@ -359,14 +359,22 @@ void arch_pagetable_init(void) {
 
 	/* Allocate all higher half L4 tables */
 	pte_t* l4 = hhdm_virtual(arch_x86_64_ctl3_read());
-	for (size_t i = PTE_COUNT / 2; i < PTE_COUNT; i++) {
+	size_t i = 0;
+	for (; i < PTE_COUNT / 2; i++) {
+		if (unlikely(l4[i] != 0)) {
+			printk(PRINTK_WARN "pagetable: Lower half page table entry %zu not zero\n", i);
+			l4[i] = 0;
+		}
+	}
+	for (; i < PTE_COUNT; i++) {
 		if (!(l4[i] & PT_PRESENT)) {
 			struct page* page = alloc_table();
-			if (!page)
+			if (unlikely(!page))
 				out_of_memory();
 			l4[i] = page_to_physaddr(page) | PT_PRESENT | PT_READ_WRITE;
 		}
 	}
+	memcpy(pagetable_template, l4, sizeof(pagetable_template));
 
 	/* Page table changed, flush just in case */
 	arch_x86_64_ctl3_write(arch_x86_64_ctl3_read());

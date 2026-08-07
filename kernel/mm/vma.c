@@ -21,6 +21,14 @@ static void vma_free(struct vma* vma) {
 	slab_cache_free(vma_cache, vma);
 }
 
+void vma_destroy(struct list_head* list) {
+	struct vma* pos, *tmp;
+	list_for_each_entry_safe(pos, tmp, list, link) {
+		list_remove(&pos->link);
+		vma_free(pos);
+	}
+}
+
 struct vma* vma_find(struct mm* mm, uintptr_t address) {
 	struct list_node* pos;
 	list_for_each(pos, &mm->vma_list) {
@@ -313,8 +321,9 @@ int vma_unmap(struct mm* mm, uintptr_t address, size_t size) {
 }
 
 static void vma_init(void) {
-	vma_cache = slab_cache_create(sizeof(struct vma), alignof(struct vma),
-			MM_ZONE_NORMAL | MM_NOFAIL, vma_ctor, NULL);
+	vma_cache = slab_cache_create(sizeof(struct vma), alignof(struct vma), MM_ZONE_NORMAL, vma_ctor, NULL);
+	if (unlikely(!vma_cache))
+		out_of_memory();
 }
 
 INIT_TASK_DECLARE(zones_init_task);

@@ -19,6 +19,16 @@
 struct mm* current_mm(void);
 
 /**
+ * @brief Called during page table teardown when destroying a page table
+ *
+ * Whenever the page table walker encounters a leaf mapping, the function calls this function to
+ * release the page.
+ *
+ * @param address The address to tear down
+ */
+void vm_pagetable_teardown_leaf(physaddr_t address);
+
+/**
  * @brief Map pages into kernel space
  *
  * If a page is NULL in the page array, it becomes a guard page with no permisions.

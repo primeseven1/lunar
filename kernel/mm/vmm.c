@@ -22,6 +22,16 @@ static int hold_page_address(physaddr_t physical, struct page** page, int flags)
 	return err;
 }
 
+static struct page* get_page_release_lookup_ref(physaddr_t physical) {
+	struct page* page = NULL;
+	int err = get_page_from_address(physical, &page);
+	if (err != 0)
+		bug(err == -EACCES); /* Mapped with zero refs, very bad thing!! :D */
+	else
+		release_page(page); /* Release lookup ref */
+	return page;
+}
+
 /* Unmap a page, with an optional page argument to release the page without a lookup */
 static void unmap_page(struct tlb_batch* batch, struct page* page, uintptr_t virtual) {
 	physaddr_t physical = arch_pagetable_get_physical(batch->pagetable, virtual);
@@ -29,13 +39,8 @@ static void unmap_page(struct tlb_batch* batch, struct page* page, uintptr_t vir
 		return;
 
 	bug(arch_pagetable_unmap(batch->pagetable, virtual) != 0);
-	if (!page) {
-		int err = get_page_from_address(physical, &page);
-		if (err != 0)
-			bug(err == -EACCES); /* Mapped with zero refs, very bad thing!! :D */
-		else
-			release_page(page); /* Drop lookup ref */
-	}
+	if (!page)
+		page = get_page_release_lookup_ref(physical);
 
 	tlb_batch_add(batch, virtual, page);
 }
@@ -128,6 +133,12 @@ static int map_pages(struct tlb_batch* batch, uintptr_t virtual, const struct ma
 	return 0;
 }
 
+void vm_pagetable_teardown_leaf(physaddr_t address) {
+	struct page* page = get_page_release_lookup_ref(address);
+	if (page)
+		release_page(page);
+}
+
 static void protect_pages(struct tlb_batch* batch, uintptr_t virtual, size_t count, pgprot_t prot) {
 	for (size_t i = 0; i < count; i++) {
 		const uintptr_t page_virtual = virtual + i * PAGE_SIZE;
@@ -191,6 +202,7 @@ struct mm* mm_create(void) {
 
 void mm_destroy(struct mm* mm) {
 	arch_pagetable_free(mm->pagetable);
+	vma_destroy(&mm->vma_list);
 	kfree(mm);
 }
 
