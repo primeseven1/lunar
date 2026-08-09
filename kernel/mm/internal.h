@@ -51,6 +51,18 @@ int vma_map(struct mm* mm, uintptr_t hint, size_t size, pgprot_t prot, int vmm_f
 int vma_protect(struct mm* mm, uintptr_t address, size_t size, pgprot_t prot);
 
 /**
+ * @brief Change the VMM flags on a virtual address range
+ *
+ * @param mm The mm struct to use
+ * @param address The address to protect
+ * @param size The number of bytes to protect
+ * @param vmm_flags New VMM flags
+ *
+ * @return -errno on failure
+ */
+int vma_change_flags(struct mm* mm, uintptr_t address, size_t size, int vmm_flags);
+
+/**
  * @brief Unmap a virtual address range
  *
  * @param mm The mm struct to use

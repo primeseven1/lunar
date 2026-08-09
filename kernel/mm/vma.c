@@ -165,7 +165,7 @@ int vma_map(struct mm* mm, uintptr_t hint, size_t size, pgprot_t prot, int vmm_f
 	return 0;
 }
 
-int vma_protect(struct mm* mm, uintptr_t address, size_t size, pgprot_t prot) {
+static int vma_update(struct mm* mm, uintptr_t address, size_t size, pgprot_t prot, int vmm_flags, bool update_prot, bool update_flags) {
 	if (!address || size == 0 || address % PAGE_SIZE)
 		return -EINVAL;
 
@@ -197,6 +197,9 @@ int vma_protect(struct mm* mm, uintptr_t address, size_t size, pgprot_t prot) {
 	}
 	if (expected < end)
 		return -ENOENT;
+
+	if (unlikely(!update_prot && !update_flags))
+		return 0;
 
 	bool need_start_split = address > v->start;
 	bool need_end_split = end < u->top;
@@ -238,11 +241,15 @@ int vma_protect(struct mm* mm, uintptr_t address, size_t size, pgprot_t prot) {
 	/* Apply protection flags */
 	struct vma* adj;
 	list_for_each_entry(adj, &mm->vma_list, link) {
-		if (adj->start >= address && adj->start < end)
-			adj->prot = prot;
+		if (adj->start >= address && adj->start < end) {
+			if (update_prot)
+				adj->prot = prot;
+			if (update_flags)
+				adj->vmm_flags = vmm_flags;
+		}
 	}
 
-	/* Merge adjecent VMA's with the same protection flags */
+	/* Merge adjecent VMA's with the same flags */
 	struct vma* current = list_first_entry(&mm->vma_list, struct vma, link);
 	while (!list_is_last(&mm->vma_list, &current->link)) {
 		struct vma* next = list_next_entry(current, link);
@@ -255,6 +262,14 @@ int vma_protect(struct mm* mm, uintptr_t address, size_t size, pgprot_t prot) {
 		current = next;
 	}
 	return 0;
+}
+
+int vma_protect(struct mm* mm, uintptr_t address, size_t size, pgprot_t prot) {
+	return vma_update(mm, address, size, prot, 0, true, false);
+}
+
+int vma_change_flags(struct mm* mm, uintptr_t address, size_t size, int vmm_flags) {
+	return vma_update(mm, address, size, PGPROT_NONE, vmm_flags, false, true);
 }
 
 int vma_unmap(struct mm* mm, uintptr_t address, size_t size) {
