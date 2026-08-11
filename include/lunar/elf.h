@@ -9,8 +9,34 @@
 #define ELF_ET_EXEC 2
 #define ELF_ET_DYN 3
 #define ELF_ET_CORE 4
+
+/* Elf header e_version and e_ident.version */
 #define ELF_EV_NONE 0
 #define ELF_EV_CURRENT 1
+
+/* Elf header e_ident._ident size */
+#define ELF_EI_NIDENT 16
+
+/* Elf header e_ident.mag */
+#define ELF_MAG0 0x7f
+#define ELF_MAG1 'E'
+#define ELF_MAG2 'L'
+#define ELF_MAG3 'F'
+#define ELF_MAG "\177ELF"
+#define ELF_SELFMAG 4
+
+/* Elf header e_ident.class */
+#define ELF_CLASS_NONE 0
+#define ELF_CLASS_32 1
+#define ELF_CLASS_64 2
+
+/* Elf header e_ident.data */
+#define ELF_DATA_NONE 0
+#define ELF_DATA_2LSB 1
+#define ELF_DATA_2MSB 2
+
+/* Elf header e_ident.osabi */
+#define ELF_OSABI_SYSTEMV 0
 
 /* Section header sh_type */
 #define ELF_SHT_NULL 0
@@ -55,7 +81,13 @@
 #define ELF_PF_R (1 << 2)
 
 struct elf64_ehdr {
-	unsigned char e_ident[16];
+	union {
+		unsigned char _ident[ELF_EI_NIDENT];
+		struct {
+			unsigned char mag[ELF_SELFMAG];
+			u8 class, data, version, osabi, osabi_version;
+		};
+	} e_ident;
 	u16 e_type;
 	u16 e_machine;
 	u32 e_version;
@@ -104,8 +136,9 @@ struct elf64_phdr {
 	u64 p_align;
 };
 
-static inline bool elf_validate(const struct elf64_ehdr* ehdr) {
-	char magic[] = { 0x7f, 'E', 'L', 'F', '\0' };
-	int cmp = __builtin_memcmp(ehdr->e_ident, magic, __builtin_strlen(magic));
-	return (cmp == 0 && ehdr->e_version == ELF_EV_CURRENT && ehdr->e_machine == ARCH_ELF_EM_ARCHITECTURE);
-}
+/**
+ * @brief Check if an elf header is valid
+ * @param header The header to check
+ * @return If the header is good, returns true, otherwise false
+ */
+bool elf64_header_ok(const struct elf64_ehdr* ehdr);

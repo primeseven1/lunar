@@ -101,7 +101,7 @@ static void stack_tracer_init(void) {
 		return;
 	}
 	struct elf64_ehdr* ehdr = response->executable_file->address;
-	if (unlikely(!elf_validate(ehdr))) {
+	if (unlikely(!elf64_header_ok(ehdr))) {
 		printk("core: %s failed: Invalid ELF\n", __func__);
 		return;
 	}
