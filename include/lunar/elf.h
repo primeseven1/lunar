@@ -1,6 +1,6 @@
 #pragma once
 
-#include <lunar/types.h>
+#include <lunar/vfs.h>
 #include <arch/elf.h>
 
 /* Elf header e_type */
@@ -80,6 +80,15 @@
 #define ELF_PF_W (1 << 1)
 #define ELF_PF_R (1 << 2)
 
+#define ELF_AT_NULL 0
+#define ELF_AT_PHDR 3
+#define ELF_AT_PHENT 4
+#define ELF_AT_PHNUM 5
+#define ELF_AT_PAGESZ 6
+#define ELF_AT_ENTRY 9
+#define ELF_AT_SECURE 23
+#define ELF_AT_EXECFN 31
+
 struct elf64_ehdr {
 	union {
 		unsigned char _ident[ELF_EI_NIDENT];
@@ -136,9 +145,39 @@ struct elf64_phdr {
 	u64 p_align;
 };
 
+struct elf64_auxv {
+	u64 type;
+	u64 value;
+};
+
+struct elf64_auxv_list {
+	struct elf64_auxv phdr;
+	struct elf64_auxv phnum;
+	struct elf64_auxv phent;
+	struct elf64_auxv entry;
+	struct elf64_auxv execfn;
+	struct elf64_auxv secure;
+	struct elf64_auxv pagesz;
+	struct elf64_auxv null;
+};
+
 /**
  * @brief Check if an elf header is valid
  * @param header The header to check
  * @return If the header is good, returns true, otherwise false
  */
 bool elf64_header_ok(const struct elf64_ehdr* ehdr);
+
+/**
+ * @brief Load an ELF file into memory
+ *
+ * @param[in] vnode The vnode to load from
+ * @param[out] auxv_list Populated while loading the binary
+ *
+ * @retval -EACCES @vnode is not a regular file
+ * @retval -ENOMEM Out of memory
+ * @retval -EEXIST Can mean overlapping headers
+ * @retval -ESRCH Using the kernel mm struct
+ * @return On success, returns 0, otherwise -errno
+ */
+int elf_load(struct vnode* vnode, struct elf64_auxv_list* auxv_list);
