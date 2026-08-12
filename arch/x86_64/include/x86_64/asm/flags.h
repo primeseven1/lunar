@@ -22,6 +22,13 @@
 #define ARCH_X86_64_RFLAGS_VIP (1 << 20) /* Virtual interrupt pending */
 #define ARCH_X86_64_RFLAGS_ID (1 << 21) /* Able to use CPUID instruction */
 
+/* The bits to clear on syscall entry */
+#define ARCH_X86_64_RFLAGS_SYSCALL_SF_MASK \
+	(ARCH_X86_64_RFLAGS_CF | ARCH_X86_64_RFLAGS_PF | ARCH_X86_64_RFLAGS_AF | ARCH_X86_64_RFLAGS_ZF | \
+	 ARCH_X86_64_RFLAGS_SF | ARCH_X86_64_RFLAGS_TF | ARCH_X86_64_RFLAGS_IF | ARCH_X86_64_RFLAGS_DF | \
+	 ARCH_X86_64_RFLAGS_OF | ARCH_X86_64_RFLAGS_IOPL | ARCH_X86_64_RFLAGS_NT | ARCH_X86_64_RFLAGS_RF | \
+	 ARCH_X86_64_RFLAGS_AC | ARCH_X86_64_RFLAGS_ID)
+
 #ifndef __ASSEMBLER__
 
 static inline unsigned long arch_x86_64_read_rflags(void) {
