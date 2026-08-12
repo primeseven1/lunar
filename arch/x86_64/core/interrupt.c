@@ -8,6 +8,7 @@
 #include <arch/asm/linkage.h>
 #include <x86_64/idt.h>
 #include <x86_64/fault.h>
+#include <x86_64/asm/flags.h>
 #include <x86_64/asm/msr.h>
 #include <x86_64/asm/segment.h>
 
@@ -15,7 +16,6 @@
 
 #define EXCEPTION_COUNT 32
 #define ISR_FLAG_EXCEPTION (1 << 0)
-#define RFLAGS_IF (1 << 9)
 
 extern const uintptr_t isr_table[ARCH_X86_64_IDT_ENTRY_COUNT];
 static struct arch_x86_64_idt idt;
@@ -92,7 +92,7 @@ static void handle_exception(struct isr* isr, struct arch_context* ctx) {
 
 	if (unlikely(!isr->arch_specific.ehandler))
 		panic("Exception %u occurred, but has no handler", isr->arch_specific.id);
-	if ((unlikely(!(ctx->rflags & RFLAGS_IF) || current_thread()->preempt_count)) && !weird_interrupt)
+	if ((unlikely(!(ctx->rflags & ARCH_X86_64_RFLAGS_IF) || current_thread()->preempt_count)) && !weird_interrupt)
 		panic("Trap %u occurred in atomic context", isr->arch_specific.id);
 
 	/* Don't re-enable interrupts if in an NMI/MCE/DF */
@@ -171,13 +171,7 @@ int arch_unregister_isr(struct isr* isr) {
 }
 
 unsigned long arch_local_irq_read(void) {
-	unsigned long flags;
-	__asm__("pushfq\n\t"
-			"popq %0"
-			: "=r"(flags)
-			:
-			: "memory");
-	return (flags & RFLAGS_IF) ? ARCH_IRQ_ENABLED : ARCH_IRQ_DISABLED;
+	return (arch_x86_64_read_rflags() & ARCH_X86_64_RFLAGS_IF) ? ARCH_IRQ_ENABLED : ARCH_IRQ_DISABLED;
 }
 
 void arch_local_irq_restore(unsigned long flags) {
