@@ -54,7 +54,8 @@ LDFLAGS += -L$(RTLIB_DIR)
 
 .PHONY: all version menuconfig clean
 
-all: version $(OUTPUT)
+all: version
+	$(MAKE) $(OUTPUT)
 
 version:
 	@scripts/cc-ver.sh $(CC) $(CC_MIN_MAJOR) $(CC_MIN_MINOR)
