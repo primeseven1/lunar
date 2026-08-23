@@ -1,16 +1,18 @@
 #pragma once
 
+#define NULL ((void*)0)
+#define BIGGEST_ALIGNMENT __BIGGEST_ALIGNMENT__
+
 #define static_assert(e, ...) _Static_assert(e, #__VA_ARGS__)
 #define offsetof(t, m) __builtin_offsetof(t, m)
 #define typeof(e) __typeof__(e)
 #define alignof(t) _Alignof(t)
+#define container_of(ptr, type, member) ((type*)((char*)(ptr) - offsetof(type, member)))
+#define sizeof_field(type, member) sizeof(((type*)0)->member)
 
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
 #define ROUND_DOWN(v, n) ((v) - ((v) % (n)))
 #define ROUND_UP(v, n) ROUND_DOWN((v) + (n) - 1, n)
-
-#define BIGGEST_ALIGNMENT __BIGGEST_ALIGNMENT__
-#define NULL ((void*)0)
 
 /**
  * @brief Round a value up to a power of two

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <lunar/types.h>
+#include <lunar/common.h>
 
 struct list_node {
 	struct list_node* prev, *next;
@@ -70,22 +71,21 @@ static inline bool list_empty(const struct list_head* head) {
 	return head->node.next == &head->node;
 }
 
-#define container_of(ptr, type, member) ((type*)((char*)(ptr) - offsetof(type, member)))
-#define list_for_each(pos, head) for (pos = (head)->node.next; pos != &(head)->node; pos = pos->next)
-#define list_for_each_safe(pos, n, head) for (pos = (head)->node.next, n = pos->next; pos != &(head)->node; pos = n, n = pos->next)
 #define list_entry(ptr, type, member) container_of(ptr, type, member)
+#define list_for_each(pos, head) for ((pos) = (head)->node.next; (pos) != &(head)->node; (pos) = (pos)->next)
+#define list_for_each_safe(pos, n, head) for ((pos) = (head)->node.next, (n) = (pos)->next; (pos) != &(head)->node; (pos) = (n), (n) = (pos)->next)
 #define list_for_each_entry(pos, head, member) \
-	for (pos = list_entry((head)->node.next, typeof(*pos), member); \
-			&pos->member != &(head)->node; \
-			pos = list_entry(pos->member.next, typeof(*pos), member))
+	for ((pos) = list_entry((head)->node.next, typeof(*(pos)), member); \
+			&(pos)->member != &(head)->node; \
+			(pos) = list_entry((pos)->member.next, typeof(*(pos)), member))
 #define list_for_each_entry_safe(pos, n, head, member) \
-	for (pos = list_entry((head)->node.next, typeof(*pos), member), \
-			n = list_entry(pos->member.next, typeof(*pos), member); \
-			&pos->member != &(head)->node; \
-			pos = n, \
-			n = list_entry(n->member.next, typeof(*pos), member))
-#define list_for_each_cont(pos, head) for (; pos != &(head)->node; pos = pos->next)
+	for ((pos) = list_entry((head)->node.next, typeof(*(pos)), member), \
+			(n) = list_entry((pos)->member.next, typeof(*(pos)), member); \
+			&(pos)->member != &(head)->node; \
+			(pos) = (n), \
+			(n) = list_entry((n)->member.next, typeof(*(pos)), member))
+#define list_for_each_cont(pos, head) for (; (pos) != &(head)->node; (pos) = (pos)->next)
 #define list_for_each_entry_cont(pos, head, member) \
-	for (; &pos->member != &(head)->node; pos = list_entry(pos->member.next, typeof(*pos), member))
+	for (; &(pos)->member != &(head)->node; (pos) = list_entry((pos)->member.next, typeof(*(pos)), member))
 #define list_first_entry(head, type, member) list_entry((head)->node.next, type, member)
 #define list_next_entry(pos, member) list_entry((pos)->member.next, typeof(*(pos)), member)
