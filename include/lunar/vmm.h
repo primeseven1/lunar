@@ -13,6 +13,11 @@
 #define VMM_STACK (1 << 7) /* The mapping is for a stack */
 #define VMM_IOMEM (1 << 8) /* The mapping is for MMIO */
 
+#define VMM_ALL (VMM_ALLOC | VMM_FIXED | VMM_NOREPLACE | VMM_HUGETLB | VMM_HUGETLB_2MB | VMM_HUGETLB_1GB | VMM_SEALED | VMM_STACK | VMM_IOMEM)
+
+#define VMM_HUGETLB_2MB_SIZE 0x200000
+#define VMM_HUGETLB_1GB_SIZE 0x40000000
+
 /**
  * @brief Get the CPU's MM struct
  * @return The pointer to the MM struct

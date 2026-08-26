@@ -155,7 +155,7 @@ static void protect_pages(struct tlb_batch* batch, uintptr_t virtual, size_t cou
 static void vma_unmap_force(struct mm* mm, uintptr_t virtual, size_t size) {
 	int err;
 	do {
-		err = vma_unmap(mm, virtual, size);
+		err = vma_unmap(mm, virtual, size, 0);
 		if (err == -ENOMEM)
 			out_of_memory();
 	} while (err == -ENOMEM);
@@ -259,7 +259,7 @@ static int __vm_map(struct mm* mm, uintptr_t hint, struct page** pages, size_t p
 		if (pages[i])
 			continue;
 		const uintptr_t page_virtual = virtual + i * PAGE_SIZE;
-		err = vma_protect(mm, page_virtual, PAGE_SIZE, PGPROT_NONE);
+		err = vma_update(mm, page_virtual, PAGE_SIZE, PGPROT_NONE, 0);
 		if (err) {
 			vma_unmap_force(mm, virtual, vma_size);
 			goto out;
@@ -327,7 +327,6 @@ static int __vm_map_physical(uintptr_t hint, physaddr_t physical, size_t page_co
 }
 
 static int __vm_protect(struct mm* mm, uintptr_t virtual, size_t page_count, pgprot_t prot, int flags) {
-	(void)flags;
 	if (!virtual || virtual % PAGE_SIZE != 0)
 		return -EINVAL;
 	if (page_count == 0)
@@ -339,7 +338,7 @@ static int __vm_protect(struct mm* mm, uintptr_t virtual, size_t page_count, pgp
 
 	mutex_acquire(&mm->mutex);
 
-	int err = vma_protect(mm, virtual, vma_size, prot);
+	int err = vma_update(mm, virtual, vma_size, prot, flags);
 	if (err == 0) {
 		struct tlb_batch tlb_batch;
 		tlb_batch_init(&tlb_batch, mm->pagetable);
@@ -352,7 +351,6 @@ static int __vm_protect(struct mm* mm, uintptr_t virtual, size_t page_count, pgp
 }
 
 static int __vm_unmap(struct mm* mm, uintptr_t virtual, size_t page_count, int flags) {
-	(void)flags;
 	if (virtual == 0 || virtual % PAGE_SIZE != 0)
 		return -EINVAL;
 	if (page_count == 0)
@@ -364,7 +362,7 @@ static int __vm_unmap(struct mm* mm, uintptr_t virtual, size_t page_count, int f
 
 	mutex_acquire(&mm->mutex);
 
-	int err = vma_unmap(mm, virtual, vma_size);
+	int err = vma_unmap(mm, virtual, vma_size, flags);
 	if (err == 0) {
 		struct tlb_batch tlb_batch;
 		tlb_batch_init(&tlb_batch, mm->pagetable);

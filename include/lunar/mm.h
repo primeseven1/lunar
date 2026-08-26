@@ -2,6 +2,7 @@
 
 #include <lunar/types.h>
 #include <lunar/list.h>
+#include <lunar/rbtree.h>
 #include <lunar/mutex.h>
 #include <arch/page.h>
 
@@ -27,6 +28,7 @@ struct vmm_range {
 struct mm {
 	pte_t* pagetable;
 	struct list_head vma_list; /* struct vma */
+	struct rbtree vma_rbtree;
 	struct vmm_range segment, brk, mmap, stack;
 	mutex_t mutex;
 };
