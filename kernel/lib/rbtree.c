@@ -266,6 +266,8 @@ void rbtree_remove(struct rbtree* rbtree, struct rbtree_node* node) {
 
 	if (color == RBTREE_COLOR_BLACK)
 		rbtree_remove_fixup(rbtree, child, parent);
+
+	rbtree_node_init(node);
 }
 
 static inline struct rbtree_node* descend(struct rbtree* rbtree, int direction) {

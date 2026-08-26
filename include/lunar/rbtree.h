@@ -23,12 +23,15 @@ struct rbtree {
 };
 
 #define RBTREE_DEFINE(n) struct rbtree n = { .root = NULL }
-#define RBTREE_CLEAR_NODE(n) ((n)->_parent_color = (uintptr_t)(n))
 #define RBTREE_IS_EMPTY(r) ((r)->root == NULL)
 #define RBTREE_IS_NODE_EMPTY(n) ((n)->_parent_color == (uintptr_t)(n))
 
 static inline void rbtree_init(struct rbtree* rbtree) {
 	rbtree->root = NULL;
+}
+
+static inline void rbtree_node_init(struct rbtree_node* node) {
+	node->_parent_color = (uintptr_t)node;
 }
 
 /**
@@ -57,8 +60,6 @@ void rbtree_insert_fixup(struct rbtree* rbtree, struct rbtree_node* node);
 
 /**
  * @brief Remove a node from the tree and rebalance
- *
- * This node's links are left stale. Use the RB_CLEAR_NODE macro to clear the links.
  *
  * @param rbtree The tree the node belongs to
  * @param node The node to remove

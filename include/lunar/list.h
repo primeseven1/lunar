@@ -63,6 +63,10 @@ static inline void list_remove(struct list_node* node) {
 	node->next = NULL;
 }
 
+static inline bool list_is_first(const struct list_head* head, const struct list_node* node) {
+	return node->prev == &head->node;
+}
+
 static inline bool list_is_last(const struct list_head* head, const struct list_node* node) {
 	return node->next == &head->node;
 }
@@ -89,3 +93,4 @@ static inline bool list_empty(const struct list_head* head) {
 	for (; &(pos)->member != &(head)->node; (pos) = list_entry((pos)->member.next, typeof(*(pos)), member))
 #define list_first_entry(head, type, member) list_entry((head)->node.next, type, member)
 #define list_next_entry(pos, member) list_entry((pos)->member.next, typeof(*(pos)), member)
+#define list_prev_entry(pos, member) list_entry((pos)->member.prev, typeof(*(pos)), member)
