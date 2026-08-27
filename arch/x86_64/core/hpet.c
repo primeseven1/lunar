@@ -68,7 +68,7 @@ static int init(struct timekeeper* self, struct timekeeper_source** out) {
 	if (hpet->address.address_space_id != ACPI_AS_ID_SYS_MEM)
 		return -ENXIO;
 	physaddr_t address = hpet->address.address;
-	hpet_virtual = iomap(address, PAGE_SIZE, PGPROT_PCD);
+	hpet_virtual = iomap(address, PAGE_SIZE, PGPROT_UC);
 	if (IS_PTR_ERR(hpet_virtual))
 		return PTR_ERR(hpet_virtual);
 

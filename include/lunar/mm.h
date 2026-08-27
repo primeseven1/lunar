@@ -4,7 +4,7 @@
 #include <lunar/list.h>
 #include <lunar/rbtree.h>
 #include <lunar/mutex.h>
-#include <arch/page.h>
+#include <lunar/page.h>
 
 struct vma;
 

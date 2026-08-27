@@ -6,14 +6,15 @@
 #define VMM_ALLOC (1 << 0) /* Allocate pages automatically for the mapping, do NOT use if you need contiguous memory */
 #define VMM_FIXED (1 << 1) /* Address hints are no longer hints */
 #define VMM_NOREPLACE (1 << 2) /* Do not replace mappings when using VMM_FIXED, instead return -EEXIST when this occurs */
-#define VMM_HUGETLB (1 << 3) /* Use hugepages (unsupported right now, do not use) */
-#define VMM_HUGETLB_2MB (1 << 4) /* Use with VMM_HUGETLB to use 2MB hugepages */
-#define VMM_HUGETLB_1GB (1 << 5) /* Use with VMM_HUGETLB to use 1GB mappings (unsupported, do not use) */
+#define VMM_HUGETLB (1 << 3) /* Use hugepages */
+#define VMM_HUGETLB_2MB (0b01 << 4)
+#define VMM_HUGETLB_1GB (0b10 << 4)
 #define VMM_SEALED (1 << 6) /* Do not allow changes to a mapping, throughout the life of the program */
 #define VMM_STACK (1 << 7) /* The mapping is for a stack */
 #define VMM_IOMEM (1 << 8) /* The mapping is for MMIO */
 
-#define VMM_ALL (VMM_ALLOC | VMM_FIXED | VMM_NOREPLACE | VMM_HUGETLB | VMM_HUGETLB_2MB | VMM_HUGETLB_1GB | VMM_SEALED | VMM_STACK | VMM_IOMEM)
+#define VMM_HUGETLB_SIZE_MASK (VMM_HUGETLB_2MB | VMM_HUGETLB_1GB)
+#define VMM_ALL_MASK (VMM_ALLOC | VMM_FIXED | VMM_NOREPLACE | VMM_HUGETLB | VMM_HUGETLB_SIZE_MASK | VMM_SEALED | VMM_STACK | VMM_IOMEM)
 
 #define VMM_HUGETLB_2MB_SIZE 0x200000
 #define VMM_HUGETLB_1GB_SIZE 0x40000000

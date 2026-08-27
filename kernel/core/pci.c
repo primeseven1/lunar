@@ -285,7 +285,7 @@ static void pci_init(void) {
 		e->len = len;
 
 		e->physical = a->address;
-		e->virtual = iomap(e->physical, len, PGPROT_PCD);
+		e->virtual = iomap(e->physical, len, PGPROT_UC);
 		if (IS_PTR_ERR(e->virtual))
 			goto cleanup;
 	}

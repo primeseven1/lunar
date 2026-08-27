@@ -7,14 +7,17 @@
 #include <lunar/proc.h>
 #include <lunar/printk.h>
 #include <lunar/vmm.h>
+#include <lunar/page.h>
 
-#include <arch/page.h>
 #include <x86_64/asm/ctl.h>
 #include <x86_64/asm/cpuid.h>
+#include <x86_64/asm/msr.h>
 
-#define PUD_SHIFT 30
-#define PUD_SIZE (1ul << PUD_SHIFT)
-#define PTE_COUNT (PAGE_SIZE / sizeof(pte_t))
+#include "internal.h"
+
+#define PTE_COUNT (PAGE_SIZE / sizeof(arch_pte_t))
+
+static bool supports_nx;
 
 static struct page* alloc_table(void) {
 	struct page* page = alloc_page(MM_ZONE_NORMAL);
@@ -40,36 +43,21 @@ static void free_table_physical(physaddr_t physical) {
 	release_page(page); /* Now release the page table ref */
 }
 
-static pte_t pagetable_template[PTE_COUNT];
+static arch_pte_t pagetable_template[PTE_COUNT];
 static_assert(sizeof(pagetable_template) == PAGE_SIZE);
 
-pte_t* arch_pagetable_new(void) {
-	pte_t* ret = page_hhdm_virtual(alloc_page(MM_ZONE_NORMAL));
+arch_pte_t* arch_pagetable_new(void) {
+	arch_pte_t* ret = page_hhdm_virtual(alloc_page(MM_ZONE_NORMAL));
 	if (ret)
 		memcpy(ret, pagetable_template, sizeof(pagetable_template));
 	return ret;
 }
 
-enum pt_flags {
-	PT_PRESENT = (1 << 0),
-	PT_READ_WRITE = (1 << 1),
-	PT_USER_SUPERVISOR = (1 << 2),
-	PT_WRITETHROUGH = (1 << 3),
-	PT_CACHE_DISABLE = (1 << 4),
-	PT_ACCESSED = (1 << 5),
-	PT_DIRTY = (1 << 6),
-	PT_4K_PAT = (1 << 7),
-	PT_HUGEPAGE = (1 << 7),
-	PT_GLOBAL = (1 << 8),
-	PT_HUGEPAGE_PAT = (1 << 12),
-	PT_NX = (1ul << 63)
-};
-
 /* Depth is the level of the table (3 = PML4, 2 = PDPT, 1 = PD, 0 = PT) */
-static void destroy_depth(pte_t* table, int depth) {
+static void destroy_depth(arch_pte_t* table, int depth) {
 	const int count = (depth == 3) ? PTE_COUNT / 2 : PTE_COUNT;
 	for (int i = 0; i < count; i++) {
-		const pte_t entry = table[i];
+		const arch_pte_t entry = table[i];
 		if (!entry)
 			continue;
 		if (depth == 0) {
@@ -86,12 +74,12 @@ static void destroy_depth(pte_t* table, int depth) {
 	}
 }
 
-void arch_pagetable_free(pte_t* table) {
+void arch_pagetable_free(arch_pte_t* table) {
 	destroy_depth(table, 3);
 	free_table_physical(hhdm_physical(table));
 }
 
-static inline pte_t* table_virtual(pte_t entry) {
+static inline arch_pte_t* table_virtual(arch_pte_t entry) {
 	entry &= ~(0xFFF | PT_NX);
 	return hhdm_virtual((physaddr_t)entry);
 }
@@ -100,42 +88,69 @@ static inline bool is_virtual_canonical(uintptr_t virtual) {
 	return ((virtual >> 47 == 0) || (virtual >> 47 == 0x1FFFF));
 }
 
-static inline void pagetable_get_indexes(uintptr_t virtual, unsigned int* indexes) {
+static inline void pagetable_get_indexes(uintptr_t virtual, unsigned int* indexes, size_t index_arr_size) {
+	bug(index_arr_size != 4);
 	indexes[0] = virtual >> 39 & 0x01FF;
 	indexes[1] = virtual >> 30 & 0x01FF;
 	indexes[2] = virtual >> 21 & 0x01FF;
 	indexes[3] = virtual >> 12 & 0x01FF;
 }
 
-static unsigned long pgprot_to_pt(pgprot_t prot) {
-	unsigned long pt_flags = 0;
-	if (prot & PGPROT_READ)
+static enum pt_flags arch_pte_flags_to_pt_flags(arch_pte_flags_t pte_flags) {
+	enum pt_flags pt_flags = PT_NONE;
+	if (pte_flags & ARCH_PTE_FLAG_READ)
 		pt_flags |= PT_PRESENT;
-	if (prot & PGPROT_WRITE)
+	if (pte_flags & ARCH_PTE_FLAG_WRITE)
 		pt_flags |= PT_READ_WRITE;
-	if (prot & PGPROT_USER)
+	if (pte_flags & ARCH_PTE_FLAG_USER)
 		pt_flags |= PT_USER_SUPERVISOR;
-	if (!(prot & PGPROT_EXEC))
+	if (supports_nx && !(pte_flags & ARCH_PTE_FLAG_EXEC))
 		pt_flags |= PT_NX;
 
-	if (prot & PGPROT_PWT)
+	if (pte_flags & ARCH_PTE_FLAG_WT)
 		pt_flags |= PT_WRITETHROUGH;
-	else if (prot & PGPROT_PCD)
+	else if (pte_flags & ARCH_PTE_FLAG_UC)
 		pt_flags |= PT_CACHE_DISABLE;
+
+	if (pte_flags & ARCH_PTE_FLAG_HUGETLB_2MB)
+		pt_flags |= PT_HUGEPAGE;
 
 	return pt_flags;
 }
 
-static int walk_pagetable(pte_t* pagetable, uintptr_t virtual, bool create, bool user, size_t* page_size, pte_t** ret) {
+static inline bool args_ok(uintptr_t virtual, physaddr_t physical, arch_pte_flags_t pte_flags, size_t page_size) {
+	arch_pte_flags_t both_hugetlb_sizes = ARCH_PTE_FLAG_HUGETLB_2MB | ARCH_PTE_FLAG_HUGETLB_1GB;
+	if ((pte_flags & both_hugetlb_sizes) == both_hugetlb_sizes)
+		return false;
+
+	if (virtual % page_size || physical % page_size) /* Here we don't need to check for valid page sizes, since this file controls it */
+		return false;
+	if (!is_virtual_canonical(virtual))
+		return false;
+
+	const arch_pte_flags_t cache_mask = ARCH_PTE_FLAG_WT | ARCH_PTE_FLAG_UC | ARCH_PTE_FLAG_WC;
+	switch (pte_flags & cache_mask) {
+	case 0: /* Write-back */
+	case ARCH_PTE_FLAG_WT:
+	case ARCH_PTE_FLAG_UC:
+	case ARCH_PTE_FLAG_WC: /* Only one cache flag is set */
+		break;
+	default: /* More than one cache flag is set */
+		return false;
+	}
+	return true;
+}
+
+static int walk_pagetable(arch_pte_t* pagetable, uintptr_t virtual, bool create, bool user, size_t* page_size, arch_pte_t** ret) {
 	*ret = NULL;
 
 	unsigned int indexes[4];
-	pagetable_get_indexes(virtual, indexes);
+	pagetable_get_indexes(virtual, indexes, ARRAY_SIZE(indexes));
 
 	struct page* new_tables[3] = { NULL, NULL, NULL };
 	size_t new_count = 0;
-	pte_t* graft_pte = NULL;
-	pte_t graft_value = 0;
+	arch_pte_t* graft_pte = NULL;
+	arch_pte_t graft_value = 0;
 
 	int err = 0;
 
@@ -162,7 +177,7 @@ static int walk_pagetable(pte_t* pagetable, uintptr_t virtual, bool create, bool
 			}
 			new_tables[new_count++] = new;
 
-			pte_t value = page_to_physaddr(new) | PT_PRESENT | PT_READ_WRITE | (user ? PT_USER_SUPERVISOR : 0);
+			arch_pte_t value = page_to_physaddr(new) | PT_PRESENT | PT_READ_WRITE | (user ? PT_USER_SUPERVISOR : 0);
 			if (graft_pte) {
 				pagetable[indexes[i]] = value;
 			} else {
@@ -217,63 +232,87 @@ out:
 	return err;
 }
 
-int arch_pagetable_map(pte_t* pagetable, uintptr_t virtual, physaddr_t physical, bool hugetlb, pgprot_t prot) {
-	unsigned long pt_flags = pgprot_to_pt(prot);
-	if (hugetlb)
-		pt_flags |= PT_HUGEPAGE;
+static enum pat_type get_pat_type_from_pte_flags(arch_pte_flags_t pte_flags) {
+	if (pte_flags & ARCH_PTE_FLAG_WT)
+		return PAT_TYPE_WT;
+	if (pte_flags & ARCH_PTE_FLAG_UC)
+		return PAT_TYPE_UC_MINUS; /* mtrr can override */
+	if (pte_flags & ARCH_PTE_FLAG_WC)
+		return PAT_TYPE_WC;
+	return PAT_TYPE_WB;
+}
 
-	size_t page_size = hugetlb ? PMD_SIZE : PAGE_SIZE;
-	if ((uintptr_t)virtual & (page_size - 1) || physical & (page_size - 1) || 
-			!is_virtual_canonical(virtual) || !physical ||
-			(prot & ~PGPROT_MASK) || (prot & PGPROT_PWT && prot & PGPROT_PCD))
+/* This is okay to call before args_ok() */
+static inline size_t get_page_size(arch_pte_flags_t pte_flags) {
+	if (pte_flags & ARCH_PTE_FLAG_HUGETLB_2MB)
+		return PMD_SIZE;
+	else if (pte_flags & ARCH_PTE_FLAG_HUGETLB_1GB)
+		return PUD_SIZE;
+	return PAGE_SIZE;
+}
+
+int arch_pagetable_map(arch_pte_t* pagetable, uintptr_t virtual, physaddr_t physical, arch_pte_flags_t pte_flags) {
+	size_t page_size = get_page_size(pte_flags);
+	if (!args_ok(virtual, physical, pte_flags, page_size))
 		return -EINVAL;
 
-	pte_t* pte;
-	int err = walk_pagetable(pagetable, virtual, true, !!(prot & PGPROT_USER), &page_size, &pte);
+	enum pt_flags pat_flags;
+	int err = pat_type_to_pt_flags(get_pat_type_from_pte_flags(pte_flags), page_size != PAGE_SIZE, &pat_flags);
+	if (err)
+		return err;
+
+	arch_pte_t* pte;
+	err = walk_pagetable(pagetable, virtual, true, !!(pte_flags & ARCH_PTE_FLAG_USER), &page_size, &pte);
 	if (err)
 		return err;
 
 	if (*pte)
 		return -EEXIST;
 
+	enum pt_flags pt_flags = arch_pte_flags_to_pt_flags(pte_flags) | pat_flags;
+	if (!physical)
+		pt_flags |= PT_NULL_MAPPING;
 	*pte = physical | pt_flags;
 	return 0;
 }
 
-int arch_pagetable_update(pte_t* pagetable, uintptr_t virtual, physaddr_t physical, bool hugetlb, pgprot_t prot) {
-	if (!is_virtual_canonical(virtual) || !physical ||
-			(prot & ~PGPROT_MASK) || (prot & PGPROT_PWT && prot & PGPROT_PCD))
+int arch_pagetable_update(arch_pte_t* pagetable, uintptr_t virtual, physaddr_t physical, arch_pte_flags_t pte_flags) {
+	const size_t expected_page_size = get_page_size(pte_flags);
+	if (!args_ok(virtual, physical, pte_flags, expected_page_size))
 		return -EINVAL;
 
-	unsigned long pt_flags = pgprot_to_pt(prot);
-
-	pte_t* pte;
+	arch_pte_t* pte;
 	size_t page_size = 0;
-	int err = walk_pagetable(pagetable, virtual, false, !!(prot & PGPROT_USER), &page_size, &pte);
+	int err = walk_pagetable(pagetable, virtual, false, !!(pte_flags & ARCH_PTE_FLAG_USER), &page_size, &pte);
 	if (err)
 		return err;
 
-	if ((hugetlb && page_size != PMD_SIZE) ||
-			(!(hugetlb) && page_size != PAGE_SIZE))
+	if (expected_page_size != page_size)
 		return -EFAULT;
-	if ((uintptr_t)virtual & (page_size - 1) || physical & (page_size - 1))
-		return -EINVAL;
 
+	enum pt_flags pat_flags;
+	err = pat_type_to_pt_flags(get_pat_type_from_pte_flags(pte_flags), expected_page_size != PAGE_SIZE, &pat_flags);
+	if (err)
+		return err;
+
+	enum pt_flags pt_flags = arch_pte_flags_to_pt_flags(pte_flags) | pat_flags;
+	if (!physical)
+		pt_flags |= PT_NULL_MAPPING;
 	*pte = physical | pt_flags;
 	return 0;
 }
 
 /* TODO: Because this function does not free page tables, this breaks hugepage support. This will need to be resolved elsewhere, but is not a priority since the VMM does not support hugepages (yet) */
-int arch_pagetable_unmap(pte_t* pagetable, uintptr_t virtual) {
+int arch_pagetable_unmap(arch_pte_t* pagetable, uintptr_t virtual) {
 	if (!is_virtual_canonical(virtual))
 		return -EINVAL;
 
-	pte_t* pte;
+	arch_pte_t* pte;
 	size_t page_size = 0;
 	int err = walk_pagetable(pagetable, virtual, false, false, &page_size, &pte);
 	if (err)
 		return err;
-	if ((uintptr_t)virtual & (page_size - 1))
+	if ((uintptr_t)virtual % page_size)
 		return -EINVAL;
 
 	if (!(*pte))
@@ -283,51 +322,46 @@ int arch_pagetable_unmap(pte_t* pagetable, uintptr_t virtual) {
 	return 0;
 }
 
-physaddr_t arch_pagetable_get_physical(pte_t* pagetable, uintptr_t virtual) {
+int arch_pagetable_get_physical(arch_pte_t* pagetable, uintptr_t virtual, physaddr_t* out) {
 	if (!is_virtual_canonical(virtual))
-		return 0;
+		return -EINVAL;
 
-	pte_t* pte;
+	arch_pte_t* pte;
 	size_t page_size = 0;
 	int err = walk_pagetable(pagetable, virtual, false, false, &page_size, &pte);
 	if (err)
-		return 0;
+		return err;
 
 	if (!(*pte))
-		return 0;
+		return -ENOENT;
 
-	return (*pte & ~(0xFFF | PT_NX)) + ((uintptr_t)virtual & (page_size - 1));
+	*out = (*pte & ~((page_size - 1) | PT_NX)) + ((uintptr_t)virtual & (page_size - 1));
+	return 0;
 }
 
-pte_t* arch_pagetable_get_cpu_current(void) {
+arch_pte_t* arch_pagetable_get_cpu_current(void) {
 	return hhdm_virtual(arch_x86_64_ctl3_read());
 }
 
-void arch_pagetable_switch(pte_t* pagetable) {
+void arch_pagetable_switch(arch_pte_t* pagetable) {
 	arch_x86_64_ctl3_write(hhdm_physical(pagetable));
 }
 
-size_t arch_pagetable_iterate_range(pte_t* pagetable, uintptr_t virtual, uintptr_t* next) {
+size_t arch_pagetable_iterate_range(arch_pte_t* pagetable, uintptr_t virtual, uintptr_t* next) {
 	if (!is_virtual_canonical(virtual)) {
-		*next = KERNEL_SPACE_START;
+		*next = ARCH_KERNEL_SPACE_START;
 		return 0;
 	}
 
 	unsigned int indexes[4];
-	pagetable_get_indexes(virtual, indexes);
+	pagetable_get_indexes(virtual, indexes, ARRAY_SIZE(indexes));
 
 	static const size_t span[4] = { 1ull << 39, 1ull << 30, 1ull << 21, 1ull << 12 };
 	for (int level = 0; level < 4; level++) {
-		pte_t entry = pagetable[indexes[level]];
+		arch_pte_t entry = pagetable[indexes[level]];
 		bool leaf = (level == 3 || ((level == 1 || level == 2) && (entry & PT_HUGEPAGE)));
 		if (leaf) {
 			*next = virtual + span[level];
-			/*
-			 * Indicates an invalid state, physical address 0 can't be mapped, and the page is non-accessible.
-			 * The bootloader is able to map to physical address zero, but the loader should set it to present.
-			 * If this triggers in early boot when creating the HHDM VMA ranges, something needs to change.
-			 */
-			bug(entry == PT_HUGEPAGE);
 			return entry ? span[level] : 0;
 		}
 		if (!(entry & PT_PRESENT)) {
@@ -340,6 +374,11 @@ size_t arch_pagetable_iterate_range(pte_t* pagetable, uintptr_t virtual, uintptr
 	bug("unreachable");
 }
 
+/* Hugepage support is broken because intermediate page tables are not freed on unmap. 1GB will be supported but it needs to be checked for */
+bool arch_supports_page_size(size_t page_size) {
+	return page_size == PAGE_SIZE;
+}
+
 static struct limine_paging_mode_request __limine_request paging_mode = {
 	.request.id = LIMINE_PAGING_MODE_REQUEST,
 	.request.revision = 1,
@@ -349,16 +388,39 @@ static struct limine_paging_mode_request __limine_request paging_mode = {
 	.response = NULL
 };
 
+static physaddr_t bsp_bootloader_pagetable = 0;
+
+static inline bool enable_nxe_and_get_previous_state(void) {
+	u64 efer = arch_x86_64_rdmsr(ARCH_X86_64_MSR_EFER);
+	bool enabled = efer & ARCH_X86_64_MSR_EFER_NXE;
+	if (unlikely(!enabled))
+		arch_x86_64_wrmsr(ARCH_X86_64_MSR_EFER, efer | ARCH_X86_64_MSR_EFER_NXE);
+	return enabled;
+}
+
 void arch_pagetable_init(void) {
 	u32 ecx, _unused;
 	arch_x86_64_cpuid(0x07, 0, &_unused, &_unused, &ecx, &_unused);
 
-	/* bit 16 being set means the CPU supports level 5 paging */
+	/*
+	 * Check if the CPU supports level 5 page tables. If so, check if it's enabled in CR4.
+	 * Even though the bootloader is very unlikely to make a mistake like this, checking this prevents
+	 * a triple fault in the event that it does.
+	 */
 	bool level4 = ecx & (1 << 16) ? !(arch_x86_64_ctl4_read() & ARCH_X86_64_CTL4_LA57) : true;
-	bug(!level4); /* Either the wrong paging mode was selected, or something bad happened */
+	if (unlikely(!level4))
+		panic("Bootloader chose wrong paging mode!");
+
+	u32 edx;
+	arch_x86_64_cpuid(CPUID_EXT_LEAF_FEATURE_BITS, 0, &_unused, &_unused, &_unused, &edx);
+	supports_nx = !!(edx & (1 << 20));
+	if (supports_nx && !enable_nxe_and_get_previous_state()) /* TODO: Make non-executable sections have the NX bit when enable_nxe returns false */
+		printk(PRINTK_WARN "pagetable: NX bit supported but not enabled by the bootloader\n");
+
+	pat_init();
 
 	/* Allocate all higher half L4 tables */
-	pte_t* l4 = hhdm_virtual(arch_x86_64_ctl3_read());
+	arch_pte_t* l4 = hhdm_virtual(arch_x86_64_ctl3_read());
 	size_t i = 0;
 	for (; i < PTE_COUNT / 2; i++) {
 		if (unlikely(l4[i] != 0)) {
@@ -375,7 +437,17 @@ void arch_pagetable_init(void) {
 		}
 	}
 	memcpy(pagetable_template, l4, sizeof(pagetable_template));
+	bsp_bootloader_pagetable = hhdm_physical(l4);
 
 	/* Page table changed, flush just in case */
 	arch_x86_64_ctl3_write(arch_x86_64_ctl3_read());
+}
+
+void arch_pagetable_ap_init(void) {
+	const physaddr_t current_pagetable = arch_x86_64_ctl3_read();
+	if (unlikely(bsp_bootloader_pagetable != current_pagetable)) /* If this is true, chances are the CPU already faulted before this could even run */
+		panic("AP page table is not the same as the BSP");
+	if (supports_nx)
+		enable_nxe_and_get_previous_state();
+	pat_ap_init();
 }

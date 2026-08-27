@@ -8,6 +8,42 @@
 #include <lunar/usercopy.h>
 #include "internal.h"
 
+static arch_pte_flags_t get_arch_pte_flags(pgprot_t prot, int vmm_flags) {
+	arch_pte_flags_t pte_flags = ARCH_PTE_FLAG_NONE;
+	const pgprot_t caching_mode = prot & PGPROT_CACHE_MASK;
+	if (caching_mode == PGPROT_UC)
+		pte_flags |= ARCH_PTE_FLAG_UC;
+	else if (caching_mode == PGPROT_WT)
+		pte_flags |= ARCH_PTE_FLAG_WT;
+	else if (caching_mode == PGPROT_WC)
+		pte_flags |= ARCH_PTE_FLAG_WC;
+
+	if (vmm_flags & VMM_HUGETLB) {
+		int size = vmm_flags & VMM_HUGETLB_SIZE_MASK;
+		switch (size) {
+		case VMM_HUGETLB_2MB:
+			pte_flags |= ARCH_PTE_FLAG_HUGETLB_2MB;
+			break;
+		case VMM_HUGETLB_1GB:
+			pte_flags |= ARCH_PTE_FLAG_HUGETLB_1GB;
+			break;
+		default:
+			bug("Invalid page size flag"); /* Already checked earlier, should not happen */
+		}
+	}
+
+	if (prot & PGPROT_READ)
+		pte_flags |= ARCH_PTE_FLAG_READ;
+	if (prot & PGPROT_WRITE)
+		pte_flags |= ARCH_PTE_FLAG_WRITE;
+	if (prot & PGPROT_USER)
+		pte_flags |= ARCH_PTE_FLAG_USER;
+	if (prot & PGPROT_EXEC)
+		pte_flags |= ARCH_PTE_FLAG_EXEC;
+
+	return pte_flags;
+}
+
 /* Look up a page by address and add a reference to it if it exists */
 static int hold_page_address(physaddr_t physical, struct page** page, int flags) {
 	struct page* tmp;
@@ -35,8 +71,9 @@ static struct page* get_page_release_lookup_ref(physaddr_t physical) {
 
 /* Unmap a page, with an optional page argument to release the page without a lookup */
 static void unmap_page(struct tlb_batch* batch, struct page* page, uintptr_t virtual) {
-	physaddr_t physical = arch_pagetable_get_physical(batch->pagetable, virtual);
-	if (!physical)
+	physaddr_t physical;
+	const int err = arch_pagetable_get_physical(batch->pagetable, virtual, &physical);
+	if (err)
 		return;
 
 	bug(arch_pagetable_unmap(batch->pagetable, virtual) != 0);
@@ -73,7 +110,7 @@ struct map_pages_arg {
  * Map a page, either a direct physical address or a struct page*, if mapping a physical address,
  * it attempts to hold the page associated with the address if it exists
  */
-static int map_page(struct tlb_batch* batch, uintptr_t virtual, const struct map_page_arg* arg, pgprot_t prot, int flags) {
+static int map_page(struct tlb_batch* batch, uintptr_t virtual, const struct map_page_arg* arg, arch_pte_flags_t pte_flags, int flags) {
 	struct page* page;
 	physaddr_t physical;
 
@@ -94,7 +131,7 @@ static int map_page(struct tlb_batch* batch, uintptr_t virtual, const struct map
 		}
 	}
 
-	const int err = arch_pagetable_map(batch->pagetable, virtual, physical, false, prot);
+	const int err = arch_pagetable_map(batch->pagetable, virtual, physical, pte_flags);
 	if (err) {
 		if (page)
 			release_page(page);
@@ -107,6 +144,7 @@ static int map_page(struct tlb_batch* batch, uintptr_t virtual, const struct map
 }
 
 static int map_pages(struct tlb_batch* batch, uintptr_t virtual, const struct map_pages_arg* arg, pgprot_t prot, int flags) {
+	const arch_pte_flags_t pte_flags = get_arch_pte_flags(prot, flags);
 	for (size_t mapped_pages = 0; mapped_pages < arg->page_count; mapped_pages++) {
 		struct map_page_arg map_page_arg;
 		map_page_arg.use_page = arg->use_pages;
@@ -118,7 +156,7 @@ static int map_pages(struct tlb_batch* batch, uintptr_t virtual, const struct ma
 			map_page_arg.un.physaddr = arg->un.physaddr + mapped_pages * PAGE_SIZE;
 		}
 
-		const int err = map_page(batch, virtual + mapped_pages * PAGE_SIZE, &map_page_arg, prot, flags);
+		const int err = map_page(batch, virtual + mapped_pages * PAGE_SIZE, &map_page_arg, pte_flags, flags);
 		if (err) {
 			for (size_t i = 0; i < mapped_pages; i++) {
 				const uintptr_t page_virtual = virtual + i * PAGE_SIZE;
@@ -140,14 +178,16 @@ void vm_pagetable_teardown_leaf(physaddr_t address) {
 		release_page(page);
 }
 
-static void protect_pages(struct tlb_batch* batch, uintptr_t virtual, size_t count, pgprot_t prot) {
+static void protect_pages(struct tlb_batch* batch, uintptr_t virtual, size_t count, pgprot_t prot, int flags) {
+	const arch_pte_flags_t pte_flags = get_arch_pte_flags(prot, flags);
 	for (size_t i = 0; i < count; i++) {
 		const uintptr_t page_virtual = virtual + i * PAGE_SIZE;
-		const physaddr_t physical = arch_pagetable_get_physical(batch->pagetable, page_virtual);
-		if (!physical)
+		physaddr_t physical;
+		const int err = arch_pagetable_get_physical(batch->pagetable, page_virtual, &physical);
+		if (err)
 			continue;
 
-		bug(arch_pagetable_update(batch->pagetable, page_virtual, physical, false, prot) != 0);
+		bug(arch_pagetable_update(batch->pagetable, page_virtual, physical, pte_flags) != 0);
 		tlb_batch_add(batch, page_virtual, NULL);
 	}
 }
@@ -215,17 +255,11 @@ void mm_switch_context(struct mm* mm) {
 	local_irq_restore(irq_flags);
 }
 
-/* Check for bad flag combinations */
 static int check_vm_map_args(uintptr_t hint, size_t page_count, int flags) {
 	if ((page_count == 0) || (flags & VMM_SEALED) || ((flags & VMM_FIXED) && (hint % PAGE_SIZE != 0)))
 		return -EINVAL;
-	if (flags & VMM_HUGETLB) {
-		if (flags & VMM_HUGETLB_1GB)
-			return -ENOTSUP;
+	if (flags & VMM_HUGETLB)
 		return -ENOSYS;
-	} else if (flags & (VMM_HUGETLB_2MB | VMM_HUGETLB_1GB)) {
-		return -EINVAL;
-	}
 	return 0;
 }
 
@@ -327,10 +361,8 @@ static int __vm_map_physical(uintptr_t hint, physaddr_t physical, size_t page_co
 }
 
 static int __vm_protect(struct mm* mm, uintptr_t virtual, size_t page_count, pgprot_t prot, int flags) {
-	if (!virtual || virtual % PAGE_SIZE != 0)
+	if (virtual % PAGE_SIZE != 0 || page_count == 0 || flags != 0)
 		return -EINVAL;
-	if (page_count == 0)
-		return 0;
 
 	size_t vma_size;
 	if (__builtin_mul_overflow(page_count, PAGE_SIZE, &vma_size))
@@ -338,11 +370,11 @@ static int __vm_protect(struct mm* mm, uintptr_t virtual, size_t page_count, pgp
 
 	mutex_acquire(&mm->mutex);
 
-	int err = vma_update(mm, virtual, vma_size, prot, flags);
+	const int err = vma_update(mm, virtual, vma_size, prot, flags);
 	if (err == 0) {
 		struct tlb_batch tlb_batch;
 		tlb_batch_init(&tlb_batch, mm->pagetable);
-		protect_pages(&tlb_batch, virtual, page_count, prot);
+		protect_pages(&tlb_batch, virtual, page_count, prot, flags);
 		tlb_batch_flush(&tlb_batch);
 	}
 
@@ -351,10 +383,8 @@ static int __vm_protect(struct mm* mm, uintptr_t virtual, size_t page_count, pgp
 }
 
 static int __vm_unmap(struct mm* mm, uintptr_t virtual, size_t page_count, int flags) {
-	if (virtual == 0 || virtual % PAGE_SIZE != 0)
+	if (virtual % PAGE_SIZE || page_count == 0 || flags != 0)
 		return -EINVAL;
-	if (page_count == 0)
-		return 0;
 
 	size_t vma_size;
 	if (__builtin_mul_overflow(page_count, PAGE_SIZE, &vma_size))
@@ -362,7 +392,7 @@ static int __vm_unmap(struct mm* mm, uintptr_t virtual, size_t page_count, int f
 
 	mutex_acquire(&mm->mutex);
 
-	int err = vma_unmap(mm, virtual, vma_size, flags);
+	const int err = vma_unmap(mm, virtual, vma_size, flags);
 	if (err == 0) {
 		struct tlb_batch tlb_batch;
 		tlb_batch_init(&tlb_batch, mm->pagetable);
@@ -471,14 +501,15 @@ int vm_unmap_user(void __user* virtual, size_t page_count, int flags) {
 	return __vm_unmap(mm, (uintptr_t)virtual, page_count, flags);
 }
 
-void __iomem* iomap(physaddr_t physical, size_t size, pgprot_t cache) {
-	cache &= PGPROT_PWT | PGPROT_PCD;
+void __iomem* iomap(physaddr_t physical, size_t size, pgprot_t caching_mode) {
+	if ((caching_mode & ~PGPROT_CACHE_MASK) || caching_mode == PGPROT_WB)
+		return ERR_PTR_AS(void __iomem*, -EINVAL);
 
 	const size_t page_offset = physical % PAGE_SIZE;
 	size = ROUND_UP(size + page_offset, PAGE_SIZE);
 
 	uintptr_t ret;
-	int err = __vm_map_physical(0, physical, size >> PAGE_SHIFT, PGPROT_READ | PGPROT_WRITE | cache, VMM_IOMEM, &ret);
+	int err = __vm_map_physical(0, physical, size >> PAGE_SHIFT, PGPROT_READ | PGPROT_WRITE | caching_mode, VMM_IOMEM, &ret);
 	if (err)
 		return ERR_PTR_AS(void __iomem*, err);
 	return (u8 __iomem*)ret + page_offset;
@@ -653,6 +684,7 @@ static void vmm_init(void) {
 }
 
 static void vmm_ap_init(void) {
+	arch_pagetable_ap_init();
 	struct cpu* cpu = current_cpu();
 	cpu->mm_struct = &kernel_mm_struct;
 	arch_pagetable_switch(cpu->mm_struct->pagetable);

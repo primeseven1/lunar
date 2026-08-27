@@ -271,14 +271,17 @@ out:
 	return 0;
 }
 
-static inline size_t get_page_size(int vmm_flags) {
-	if (vmm_flags & VMM_HUGETLB) {
-		if (vmm_flags & VMM_HUGETLB_1GB)
-			return VMM_HUGETLB_1GB_SIZE;
-		else
-			return VMM_HUGETLB_2MB_SIZE;
+static size_t get_page_size(int vmm_flags) {
+	if (!(vmm_flags & VMM_HUGETLB))
+		return PAGE_SIZE;
+	int size = vmm_flags & VMM_HUGETLB_SIZE_MASK;
+	switch(size) {
+	case VMM_HUGETLB_2MB:
+		return VMM_HUGETLB_2MB_SIZE;
+	case VMM_HUGETLB_1GB:
+		return VMM_HUGETLB_1GB_SIZE;
 	}
-	return PAGE_SIZE;
+	return 0;
 }
 
 static int _vma_unmap(struct mm* mm, uintptr_t address, uintptr_t end, struct vm_range_info* info) {
@@ -301,12 +304,14 @@ static int _vma_unmap(struct mm* mm, uintptr_t address, uintptr_t end, struct vm
 }
 
 int vma_map(struct mm* mm, uintptr_t hint, size_t size, pgprot_t prot, int vmm_flags, uintptr_t* out) {
-	if (size == 0 || (vmm_flags & ~VMM_ALL) || ((vmm_flags & VMM_NOREPLACE) && !(vmm_flags & VMM_FIXED)))
+	if (size == 0 || (vmm_flags & ~VMM_ALL_MASK) || ((vmm_flags & VMM_NOREPLACE) && !(vmm_flags & VMM_FIXED)))
 		return -EINVAL;
 
 	const size_t page_size = get_page_size(vmm_flags);
 	if (page_size == 0)
 		return -EINVAL;
+	if (!arch_supports_page_size(page_size))
+		return -ENOTSUP;
 	if (!align_size_up(size, page_size, &size))
 		return -ERANGE;
 

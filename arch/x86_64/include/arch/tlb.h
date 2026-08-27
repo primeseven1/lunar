@@ -1,7 +1,7 @@
 #pragma once
 
 #include <lunar/types.h>
-#include <arch/page.h>
+#include <lunar/page.h>
 #include <x86_64/asm/ctl.h>
 
 static inline void arch_x86_64_invlpg(uintptr_t virtual) {
