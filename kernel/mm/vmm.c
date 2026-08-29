@@ -70,13 +70,13 @@ static struct page* get_page_release_lookup_ref(physaddr_t physical) {
 }
 
 /* Unmap a page, with an optional page argument to release the page without a lookup */
-static void unmap_page(struct tlb_batch* batch, struct page* page, uintptr_t virtual) {
+static void unmap_page(struct tlb_batch* batch, struct page* page, uintptr_t virtual, size_t* page_size) {
 	physaddr_t physical;
 	const int err = arch_pagetable_get_physical(batch->pagetable, virtual, &physical);
 	if (err)
 		return;
 
-	bug(arch_pagetable_unmap(batch->pagetable, virtual) != 0);
+	bug(arch_pagetable_unmap(batch->pagetable, virtual, page_size) != 0);
 	if (!page)
 		page = get_page_release_lookup_ref(physical);
 
@@ -85,8 +85,11 @@ static void unmap_page(struct tlb_batch* batch, struct page* page, uintptr_t vir
 
 /* Unmap several pages, does NOT optimize lookup */
 static inline void unmap_pages(struct tlb_batch* batch, uintptr_t virtual, size_t count) {
-	for (size_t i = 0; i < count; i++)
-		unmap_page(batch, NULL, virtual + i * PAGE_SIZE);
+	size_t page_size = 0;
+	for (size_t i = 0; i < count; i++) {
+		unmap_page(batch, NULL, virtual + i * PAGE_SIZE, &page_size);
+		bug(page_size != PAGE_SIZE); /* TODO: Don't do this once hugepages are actually supported */
+	}
 }
 
 struct map_page_arg {
@@ -158,12 +161,14 @@ static int map_pages(struct tlb_batch* batch, uintptr_t virtual, const struct ma
 
 		const int err = map_page(batch, virtual + mapped_pages * PAGE_SIZE, &map_page_arg, pte_flags, flags);
 		if (err) {
+			size_t page_size;
 			for (size_t i = 0; i < mapped_pages; i++) {
 				const uintptr_t page_virtual = virtual + i * PAGE_SIZE;
 				if (arg->use_pages)
-					unmap_page(batch, arg->un.pages[i], page_virtual);
+					unmap_page(batch, arg->un.pages[i], page_virtual, &page_size);
 				else
-					unmap_page(batch, NULL, page_virtual);
+					unmap_page(batch, NULL, page_virtual, &page_size);
+				bug(page_size != PAGE_SIZE); /* TODO: Maybe figure out a different way */
 			}
 			return err;
 		}

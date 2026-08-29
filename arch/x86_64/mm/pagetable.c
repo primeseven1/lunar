@@ -288,7 +288,7 @@ int arch_pagetable_update(arch_pte_t* pagetable, uintptr_t virtual, physaddr_t p
 		return err;
 
 	if (expected_page_size != page_size)
-		return -EFAULT;
+		return -EEXIST;
 
 	enum pt_flags pat_flags;
 	err = pat_type_to_pt_flags(get_pat_type_from_pte_flags(pte_flags), expected_page_size != PAGE_SIZE, &pat_flags);
@@ -303,17 +303,26 @@ int arch_pagetable_update(arch_pte_t* pagetable, uintptr_t virtual, physaddr_t p
 }
 
 /* TODO: Because this function does not free page tables, this breaks hugepage support. This will need to be resolved elsewhere, but is not a priority since the VMM does not support hugepages (yet) */
-int arch_pagetable_unmap(arch_pte_t* pagetable, uintptr_t virtual) {
+int arch_pagetable_unmap(arch_pte_t* pagetable, uintptr_t virtual, size_t* page_size) {
 	if (!is_virtual_canonical(virtual))
 		return -EINVAL;
 
+	/*
+	 * We won't check the alignment of the pointer if *page_size == 0 with the PTE entry.
+	 * The caller is expected to handle this case, and we help the caller do that by writing the size
+	 * unmapped back to *page_size.
+	 */
+	size_t align = *page_size != 0 ? *page_size : PAGE_SIZE;
+	if (!arch_supports_page_size(align))
+		return -EOPNOTSUPP;
+	if (virtual % align)
+		return -EINVAL;
+
+	/* walk_pagetable() will write the page size of the entry at *page_size if zero. Otherwise -EEXIST is returned if page sizes do not match */
 	arch_pte_t* pte;
-	size_t page_size = 0;
-	int err = walk_pagetable(pagetable, virtual, false, false, &page_size, &pte);
+	int err = walk_pagetable(pagetable, virtual, false, false, page_size, &pte);
 	if (err)
 		return err;
-	if ((uintptr_t)virtual % page_size)
-		return -EINVAL;
 
 	if (!(*pte))
 		return -ENOENT;
