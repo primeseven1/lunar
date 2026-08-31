@@ -16,6 +16,7 @@ struct page {
 		atomic(struct page*) head;
 		atomic(unsigned int) order;
 	} buddy;
+	struct list_node pagetable_tlb_batch_link;
 	atomic(long) refcnt;
 };
 
@@ -26,7 +27,7 @@ struct vmm_range {
 };
 
 struct mm {
-	pte_t* pagetable;
+	arch_pte_t* pagetable;
 	struct list_head vma_list; /* struct vma */
 	struct rbtree vma_rbtree;
 	struct vmm_range segment, brk, mmap, stack;

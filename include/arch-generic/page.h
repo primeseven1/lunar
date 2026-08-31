@@ -2,6 +2,8 @@
 
 #include <arch/pte_types.h>
 
+struct tlb_batch;
+
 /**
  * @brief Initialize page tables on the bootstrap processor
  */
@@ -30,7 +32,7 @@ void arch_pagetable_free(arch_pte_t* table);
 /**
  * @brief Add a PTE into a page table
  *
- * @param pagetable The page table to use
+ * @param tlb_batch The TLB batch to use
  * @param virtual The virtual address to map
  * @param physical The physical address to map
  * @param pte_flags The PTE flags to apply to the PTE
@@ -41,14 +43,14 @@ void arch_pagetable_free(arch_pte_t* table);
  * @retval -ENOMEM Out of memory (like failing to allocate a page table)
  * @return 0 on success, -errno on failure. This function may return more errno's than the ones documented.
  */
-int arch_pagetable_map(arch_pte_t* pagetable, uintptr_t virtual, physaddr_t physical, arch_pte_flags_t pte_flags);
+int arch_pagetable_map(struct tlb_batch* tlb_batch, uintptr_t virtual, physaddr_t physical, arch_pte_flags_t pte_flags);
 
 /**
  * @brief Update a PTE
  *
  * Nearly identical to arch_pagetable_map(), but doesn't allocate new page tables
  *
- * @param pagetable The page table to use
+ * @param tlb_batch The TLB batch to use 
  * @param virtual The virtual address to update
  * @param physical The physical address to map
  * @param pte_flags The PTE flags to apply to the PTE
@@ -59,7 +61,7 @@ int arch_pagetable_map(arch_pte_t* pagetable, uintptr_t virtual, physaddr_t phys
  * @retval -EOPNOTSUPP Same as arch_pagetable_map(), operation is recognized but not supported (like when requesting a page size not supported by the processor)
  * @return 0 On success, -errno on failure.
  */
-int arch_pagetable_update(arch_pte_t* pagetable, uintptr_t virtual, physaddr_t physical, arch_pte_flags_t pte_flags);
+int arch_pagetable_update(struct tlb_batch* tlb_batch, uintptr_t virtual, physaddr_t physical, arch_pte_flags_t pte_flags);
 
 /**
  * @brief Remove a PTE
@@ -68,7 +70,7 @@ int arch_pagetable_update(arch_pte_t* pagetable, uintptr_t virtual, physaddr_t p
  * In this case, the size of the page being unmapped is written back to *page_size. Virtual address must
  * still be aligned by PAGE_SIZE, but does not need to be aligned by the page size of the PTE if *page_size is zero.
  *
- * @param[in] pagetable The page table to use
+ * @param[in] tlb_batch The TLB batch to use
  * @param[in] virtual The virtual address to unmap
  * @param[in,out] page_size Requested page size to unmap, or zero.
  *
@@ -78,7 +80,7 @@ int arch_pagetable_update(arch_pte_t* pagetable, uintptr_t virtual, physaddr_t p
  * @retval -EEXIST *page_size does not equal the page size of the PTE.
  * @return 0 on success, -errno on failure.
  */
-int arch_pagetable_unmap(arch_pte_t* pagetable, uintptr_t virtual, size_t* page_size);
+int arch_pagetable_unmap(struct tlb_batch* tlb_batch, uintptr_t virtual, size_t* page_size);
 
 /**
  * @brief Get the physical address of a PTE

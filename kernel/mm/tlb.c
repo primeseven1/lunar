@@ -1,9 +1,10 @@
 #include <lunar/irq.h>
 #include <lunar/proc.h>
 #include <lunar/vmm.h>
-#include <arch/processor.h>
+#include <lunar/tlb.h>
+
 #include <arch/tlb.h>
-#include "internal.h"
+#include <arch/processor.h>
 
 #define TLB_FULL_INVALIDATE_THRESHOLD_PAGE_COUNT 32
 
@@ -69,21 +70,32 @@ static inline void __tlb_batch_init(struct tlb_batch* batch) {
 	batch->first_page_virtual = UINTPTR_MAX;
 	batch->last_page_virtual = 0;
 	batch->page_count = 0;
+	list_head_init(&batch->page_tables_list);
 }
 
-void tlb_batch_init(struct tlb_batch* batch, pte_t* pagetable) {
+void tlb_batch_init(struct tlb_batch* batch, arch_pte_t* pagetable) {
 	batch->pagetable = pagetable;
 	__tlb_batch_init(batch);
 }
 
 void tlb_batch_flush(struct tlb_batch* batch) {
-	if (batch->first_page_virtual <= batch->last_page_virtual) {
+	if (!list_empty(&batch->page_tables_list)) {
+		tlb_invalidate(0, SIZE_MAX); /* Doing a full invalidate makes sure that paging structures aren't cached */
+	} else if (batch->first_page_virtual <= batch->last_page_virtual) {
 		size_t page_count = ((batch->last_page_virtual - batch->first_page_virtual) >> PAGE_SHIFT) + 1;
 		tlb_invalidate(batch->first_page_virtual, page_count);
 	}
 
+	/* Release leaf page table entries */
 	for (size_t i = 0; i < batch->page_count; i++)
 		release_page(batch->pages[i]);
+
+	/* Now free page tables */
+	struct page* pos, *n;
+	list_for_each_entry_safe(pos, n, &batch->page_tables_list, pagetable_tlb_batch_link) {
+		list_remove(&pos->pagetable_tlb_batch_link);
+		release_page(pos);
+	}
 
 	__tlb_batch_init(batch);
 }
@@ -99,6 +111,11 @@ void tlb_batch_add(struct tlb_batch* batch, uintptr_t virtual, struct page* page
 
 	if (page)
 		batch->pages[batch->page_count++] = page;
+}
+
+void tlb_batch_add_page_table(struct tlb_batch* batch, struct page* page) {
+	bug(list_node_linked(&page->pagetable_tlb_batch_link) == true);
+	list_add(&batch->page_tables_list, &page->pagetable_tlb_batch_link);
 }
 
 void tlb_shootdown_init(void) {

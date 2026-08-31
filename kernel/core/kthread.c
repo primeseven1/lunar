@@ -61,7 +61,7 @@ struct thread* kthread_create(int flags, int (*threadfn)(void*), void* arg, cons
 
 	err = hashtable_insert(kthread_table, &thread, sizeof(struct thread*), &kt);
 	if (err) {
-		vm_unmap_force(kt.stack_bottom, (THREAD_STACK_SIZE >> PAGE_SHIFT) + 1, 0);
+		free_thread_stack(thread);
 		THREAD_RELEASE(thread); /* Remove the ref that alloc_thread() gives */
 		free_thread(thread);
 		thread = NULL;

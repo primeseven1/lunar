@@ -23,33 +23,30 @@ const char* cmdline_get(const char* arg) {
 
 static void cmdline_init(void) {
 	const struct limine_executable_file_response* response = g_limine_executable_file_request.response;
-	if (!response)
+	if (unlikely(!response || !response->executable_file))
 		return;
 	const char* cmdline = response->executable_file->string;
-	if (!cmdline)
+	if (unlikely(!cmdline))
 		return;
 
 	size_t cmdline_size = strlen(cmdline);
 	if (cmdline_size++ == 0)
 		return;
-	if (cmdline_size > PAGE_SIZE)
+	if (cmdline_size > PAGE_SIZE) {
+		printk(PRINTK_WARN "cmdline: Kernel command line is longer than a page\n");
 		cmdline_size = PAGE_SIZE;
+	}
 
-	/* Hastable with 10 nodes is probably more than enough */
+	/* Estimating ~10 arguments, should be more than enough */
 	cmdline_hashtable = hashtable_create(10, sizeof(char*));
 	if (!cmdline_hashtable)
 		return;
 
-	/* Create a writable copy, this will be tokenized and made read only */
-	struct page* page = alloc_page(MM_ZONE_NORMAL);
-	if (!page)
-		return;
-	char* cmdline_copy = vm_map(NULL, &page, 1, PGPROT_READ | PGPROT_WRITE, 0);
+	char* cmdline_copy = vm_map(NULL, cmdline_size, PGPROT_READ | PGPROT_WRITE, 0, NULL);
 	if (IS_PTR_ERR(cmdline_copy))
 		return;
-
-	char* const cmdline_base = cmdline_copy;
-	strlcpy(cmdline_copy, cmdline, PAGE_SIZE);
+	strlcpy(cmdline_copy, cmdline, cmdline_size);
+	char* const cmdline_mmap_base = cmdline_copy;
 
 	int err = 0;
 	char* save_outer = NULL;
@@ -66,9 +63,9 @@ static void cmdline_init(void) {
 	}
 
 	printk(PRINTK_INFO "cmdline: %s\n", cmdline);
-	err = vm_protect(cmdline_base, 1, PGPROT_READ, 0);
-	if (err)
-		printk("cmdline: Failed to make command line read only: %d\n", err);
+	err = vm_protect(cmdline_mmap_base, cmdline_size, PGPROT_READ, VMM_SEALED);
+	if (unlikely(err))
+		printk(PRINTK_ERR "cmdline: Failed to make command line read only: %d\n", err);
 }
 
 INIT_TASK_DECLARE(vmm_init_task, heap_init_task);

@@ -16,7 +16,7 @@ int alloc_stack(void** bottom, void** top) {
 		page_array[i] = pages + i - 1;
 
 	int err = 0;
-	u8* mapping = vm_map(NULL, page_array, ARRAY_SIZE(page_array), PGPROT_READ | PGPROT_WRITE, VMM_STACK);
+	u8* mapping = vm_map_pages(NULL, page_array, ARRAY_SIZE(page_array), PGPROT_READ | PGPROT_WRITE, VMM_STACK);
 	if (!IS_PTR_ERR(mapping)) {
 		*bottom = mapping;
 		*top = mapping + THREAD_STACK_SIZE + PAGE_SIZE;
@@ -29,7 +29,7 @@ int alloc_stack(void** bottom, void** top) {
 }
 
 void free_stack(void* bottom) {
-	vm_unmap_force(bottom, (THREAD_STACK_SIZE + PAGE_SIZE) >> PAGE_SHIFT, 0);
+	vm_unmap_force(bottom, THREAD_STACK_SIZE + PAGE_SIZE, 0);
 }
 
 int alloc_thread_stack(struct thread* thread, size_t off, void** bottom, void** top) {

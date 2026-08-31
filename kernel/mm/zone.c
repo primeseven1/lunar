@@ -1193,8 +1193,10 @@ static void create_page_array(physaddr_t last_ram) {
 		struct page* page = &page_array[i];
 		if (!entry || !mmap_entry_usable_strict(entry))
 			page->flags |= PAGE_FLAG_RESERVED;
+
 		page_head_set(page, page);
 		atomic_store(&page->buddy.order, 0);
+		list_node_init(&page->pagetable_tlb_batch_link);
 		atomic_store(&page->refcnt, 0);
 	}
 }

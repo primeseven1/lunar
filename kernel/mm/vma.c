@@ -27,13 +27,13 @@ static inline void vma_free(struct vm_area* vma) {
 		slab_cache_free(vma_cache, vma);
 }
 
-static inline struct vm_area* vma_next(struct mm* mm, struct vm_area* vma) {
+struct vm_area* vma_next(struct mm* mm, struct vm_area* vma) {
 	if (list_is_last(&mm->vma_list, &vma->list_link))
 		return NULL;
 	return list_next_entry(vma, list_link);
 }
 
-static inline struct vm_area* vma_prev(struct mm* mm, struct vm_area* vma) {
+struct vm_area* vma_prev(struct mm* mm, struct vm_area* vma) {
 	if (list_is_first(&mm->vma_list, &vma->list_link))
 		return NULL;
 	return list_prev_entry(vma, list_link);
@@ -271,19 +271,6 @@ out:
 	return 0;
 }
 
-static size_t get_page_size(int vmm_flags) {
-	if (!(vmm_flags & VMM_HUGETLB))
-		return PAGE_SIZE;
-	int size = vmm_flags & VMM_HUGETLB_SIZE_MASK;
-	switch(size) {
-	case VMM_HUGETLB_2MB:
-		return VMM_HUGETLB_2MB_SIZE;
-	case VMM_HUGETLB_1GB:
-		return VMM_HUGETLB_1GB_SIZE;
-	}
-	return 0;
-}
-
 static int _vma_unmap(struct mm* mm, uintptr_t address, uintptr_t end, struct vm_range_info* info) {
 	if (!info->first)
 		return 0;
@@ -307,11 +294,11 @@ int vma_map(struct mm* mm, uintptr_t hint, size_t size, pgprot_t prot, int vmm_f
 	if (size == 0 || (vmm_flags & ~VMM_ALL_MASK) || ((vmm_flags & VMM_NOREPLACE) && !(vmm_flags & VMM_FIXED)))
 		return -EINVAL;
 
-	const size_t page_size = get_page_size(vmm_flags);
+	const size_t page_size = vm_get_page_size_from_flags(vmm_flags);
 	if (page_size == 0)
 		return -EINVAL;
 	if (!arch_supports_page_size(page_size))
-		return -ENOTSUP;
+		return -EOPNOTSUPP;
 	if (!align_size_up(size, page_size, &size))
 		return -ERANGE;
 
@@ -384,9 +371,7 @@ int vma_map(struct mm* mm, uintptr_t hint, size_t size, pgprot_t prot, int vmm_f
 }
 
 int vma_update(struct mm* mm, uintptr_t address, size_t size, pgprot_t prot, int vmm_flags) {
-	if (address % PAGE_SIZE || size == 0)
-		return -EINVAL;
-	if (vmm_flags & (VMM_ALLOC | VMM_FIXED | VMM_NOREPLACE | VMM_HUGETLB | VMM_HUGETLB_2MB | VMM_HUGETLB_1GB | VMM_IOMEM | VMM_STACK))
+	if (address % PAGE_SIZE || size == 0 || (vmm_flags & (VMM_PHYSICAL | VMM_FIXED | VMM_NOREPLACE | VMM_HUGETLB | VMM_HUGETLB_2MB | VMM_HUGETLB_1GB | VMM_IOMEM | VMM_STACK)))
 		return -EINVAL;
 
 	if (!align_size_up(size, PAGE_SIZE, &size))
@@ -401,7 +386,7 @@ int vma_update(struct mm* mm, uintptr_t address, size_t size, pgprot_t prot, int
 	if (err)
 		return err;
 	if (!info.first || info.has_hole)
-		return -ENOMEM;
+		return -ENOENT;
 	if (info.flags_or & VMM_SEALED)
 		return -EPERM;
 

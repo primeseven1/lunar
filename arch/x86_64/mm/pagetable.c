@@ -8,6 +8,7 @@
 #include <lunar/printk.h>
 #include <lunar/vmm.h>
 #include <lunar/page.h>
+#include <lunar/tlb.h>
 
 #include <x86_64/asm/ctl.h>
 #include <x86_64/asm/cpuid.h>
@@ -17,7 +18,8 @@
 
 #define PTE_COUNT (PAGE_SIZE / sizeof(arch_pte_t))
 
-static bool supports_nx;
+static bool supports_nx, supports_pdpe1gb;
+static physaddr_t max_physaddr;
 
 static struct page* alloc_table(void) {
 	struct page* page = alloc_page(MM_ZONE_NORMAL);
@@ -27,7 +29,7 @@ static struct page* alloc_table(void) {
 	return page;
 }
 
-static void free_table_physical(physaddr_t physical) {
+static struct page* table_page(physaddr_t physical) {
 	struct page* page;
 	int err = get_page_from_address(physical, &page);
 	if (unlikely(err)) {
@@ -40,7 +42,10 @@ static void free_table_physical(physaddr_t physical) {
 	}
 
 	release_page(page); /* Release get_page_from_address() ref */
-	release_page(page); /* Now release the page table ref */
+	return page;
+}
+static void free_table_physical(physaddr_t physical) {
+	release_page(table_page(physical));
 }
 
 static arch_pte_t pagetable_template[PTE_COUNT];
@@ -79,9 +84,37 @@ void arch_pagetable_free(arch_pte_t* table) {
 	free_table_physical(hhdm_physical(table));
 }
 
+static inline physaddr_t table_physical(arch_pte_t entry) {
+	return entry & ~(0xFFF | PT_NX);
+}
+
 static inline arch_pte_t* table_virtual(arch_pte_t entry) {
-	entry &= ~(0xFFF | PT_NX);
-	return hhdm_virtual((physaddr_t)entry);
+	return hhdm_virtual(table_physical(entry));
+}
+
+static bool table_is_empty(physaddr_t table, int depth) {
+	const arch_pte_t* table_virtual = hhdm_virtual(table);
+	for (size_t i = 0; i < PTE_COUNT; i++) {
+		const arch_pte_t pte = table_virtual[i];
+		if (!pte)
+			continue;
+		if (depth == 0 || (pte & PT_HUGEPAGE) || !(pte & PT_PRESENT))
+			return false;
+		if (!table_is_empty(table_physical(pte), depth - 1))
+			return false;
+	}
+	return true;
+}
+
+static void free_empty_tables(struct tlb_batch* tlb_batch, physaddr_t physical, int depth) {
+	if (depth > 0) {
+		const arch_pte_t* table = hhdm_virtual(physical);
+		for (size_t i = 0; i < PTE_COUNT; i++) {
+			if (table[i])
+				free_empty_tables(tlb_batch, table_physical(table[i]), depth - 1);
+		}
+	}
+	tlb_batch_add_page_table(tlb_batch, table_page(physical));
 }
 
 static inline bool is_virtual_canonical(uintptr_t virtual) {
@@ -112,7 +145,7 @@ static enum pt_flags arch_pte_flags_to_pt_flags(arch_pte_flags_t pte_flags) {
 	else if (pte_flags & ARCH_PTE_FLAG_UC)
 		pt_flags |= PT_CACHE_DISABLE;
 
-	if (pte_flags & ARCH_PTE_FLAG_HUGETLB_2MB)
+	if (pte_flags & (ARCH_PTE_FLAG_HUGETLB_2MB | ARCH_PTE_FLAG_HUGETLB_1GB))
 		pt_flags |= PT_HUGEPAGE;
 
 	return pt_flags;
@@ -125,7 +158,7 @@ static inline bool args_ok(uintptr_t virtual, physaddr_t physical, arch_pte_flag
 
 	if (virtual % page_size || physical % page_size) /* Here we don't need to check for valid page sizes, since this file controls it */
 		return false;
-	if (!is_virtual_canonical(virtual))
+	if (!is_virtual_canonical(virtual) || physical > max_physaddr)
 		return false;
 
 	const arch_pte_flags_t cache_mask = ARCH_PTE_FLAG_WT | ARCH_PTE_FLAG_UC | ARCH_PTE_FLAG_WC;
@@ -251,10 +284,12 @@ static inline size_t get_page_size(arch_pte_flags_t pte_flags) {
 	return PAGE_SIZE;
 }
 
-int arch_pagetable_map(arch_pte_t* pagetable, uintptr_t virtual, physaddr_t physical, arch_pte_flags_t pte_flags) {
+int arch_pagetable_map(struct tlb_batch* tlb_batch, uintptr_t virtual, physaddr_t physical, arch_pte_flags_t pte_flags) {
 	size_t page_size = get_page_size(pte_flags);
 	if (!args_ok(virtual, physical, pte_flags, page_size))
 		return -EINVAL;
+	if (!arch_supports_page_size(page_size))
+		return -EOPNOTSUPP;
 
 	enum pt_flags pat_flags;
 	int err = pat_type_to_pt_flags(get_pat_type_from_pte_flags(pte_flags), page_size != PAGE_SIZE, &pat_flags);
@@ -262,12 +297,20 @@ int arch_pagetable_map(arch_pte_t* pagetable, uintptr_t virtual, physaddr_t phys
 		return err;
 
 	arch_pte_t* pte;
-	err = walk_pagetable(pagetable, virtual, true, !!(pte_flags & ARCH_PTE_FLAG_USER), &page_size, &pte);
+	err = walk_pagetable(tlb_batch->pagetable, virtual, true, !!(pte_flags & ARCH_PTE_FLAG_USER), &page_size, &pte);
 	if (err)
 		return err;
+	if (*pte) {
+		if (page_size == PAGE_SIZE || (*pte & PT_HUGEPAGE) || !(*pte & PT_PRESENT))
+			return -EEXIST;
 
-	if (*pte)
-		return -EEXIST;
+		const physaddr_t table = table_physical(*pte);
+		const int depth = (page_size == PUD_SIZE) ? 1 : 0;
+		if (!table_is_empty(table, depth))
+			return -EEXIST;
+
+		free_empty_tables(tlb_batch, table, depth);
+	}
 
 	enum pt_flags pt_flags = arch_pte_flags_to_pt_flags(pte_flags) | pat_flags;
 	if (!physical)
@@ -276,14 +319,16 @@ int arch_pagetable_map(arch_pte_t* pagetable, uintptr_t virtual, physaddr_t phys
 	return 0;
 }
 
-int arch_pagetable_update(arch_pte_t* pagetable, uintptr_t virtual, physaddr_t physical, arch_pte_flags_t pte_flags) {
+int arch_pagetable_update(struct tlb_batch* tlb_batch, uintptr_t virtual, physaddr_t physical, arch_pte_flags_t pte_flags) {
 	const size_t expected_page_size = get_page_size(pte_flags);
 	if (!args_ok(virtual, physical, pte_flags, expected_page_size))
 		return -EINVAL;
+	if (!arch_supports_page_size(expected_page_size))
+		return -EOPNOTSUPP;
 
 	arch_pte_t* pte;
 	size_t page_size = 0;
-	int err = walk_pagetable(pagetable, virtual, false, !!(pte_flags & ARCH_PTE_FLAG_USER), &page_size, &pte);
+	int err = walk_pagetable(tlb_batch->pagetable, virtual, false, !!(pte_flags & ARCH_PTE_FLAG_USER), &page_size, &pte);
 	if (err)
 		return err;
 
@@ -302,8 +347,7 @@ int arch_pagetable_update(arch_pte_t* pagetable, uintptr_t virtual, physaddr_t p
 	return 0;
 }
 
-/* TODO: Because this function does not free page tables, this breaks hugepage support. This will need to be resolved elsewhere, but is not a priority since the VMM does not support hugepages (yet) */
-int arch_pagetable_unmap(arch_pte_t* pagetable, uintptr_t virtual, size_t* page_size) {
+int arch_pagetable_unmap(struct tlb_batch* tlb_batch, uintptr_t virtual, size_t* page_size) {
 	if (!is_virtual_canonical(virtual))
 		return -EINVAL;
 
@@ -320,13 +364,14 @@ int arch_pagetable_unmap(arch_pte_t* pagetable, uintptr_t virtual, size_t* page_
 
 	/* walk_pagetable() will write the page size of the entry at *page_size if zero. Otherwise -EEXIST is returned if page sizes do not match */
 	arch_pte_t* pte;
-	int err = walk_pagetable(pagetable, virtual, false, false, page_size, &pte);
+	int err = walk_pagetable(tlb_batch->pagetable, virtual, false, false, page_size, &pte);
 	if (err)
 		return err;
 
 	if (!(*pte))
 		return -ENOENT;
 
+	/* Do not free page tables here. This only needs to be checked when mapping hugepages */
 	*pte = 0;
 	return 0;
 }
@@ -383,9 +428,8 @@ size_t arch_pagetable_iterate_range(arch_pte_t* pagetable, uintptr_t virtual, ui
 	bug("unreachable");
 }
 
-/* Hugepage support is broken because intermediate page tables are not freed on unmap. 1GB will be supported but it needs to be checked for */
 bool arch_supports_page_size(size_t page_size) {
-	return page_size == PAGE_SIZE;
+	return (page_size == PAGE_SIZE || page_size == PMD_SIZE || (page_size == PUD_SIZE && supports_pdpe1gb));
 }
 
 static struct limine_paging_mode_request __limine_request paging_mode = {
@@ -423,8 +467,13 @@ void arch_pagetable_init(void) {
 	u32 edx;
 	arch_x86_64_cpuid(CPUID_EXT_LEAF_FEATURE_BITS, 0, &_unused, &_unused, &_unused, &edx);
 	supports_nx = !!(edx & (1 << 20));
+	supports_pdpe1gb = !!(edx & (1 << 26));
 	if (supports_nx && !enable_nxe_and_get_previous_state()) /* TODO: Make non-executable sections have the NX bit when enable_nxe returns false */
 		printk(PRINTK_WARN "pagetable: NX bit supported but not enabled by the bootloader\n");
+
+	u32 eax;
+	arch_x86_64_cpuid(CPUID_EXT_LEAF_ADDRESS_SIZES, 0, &eax, &_unused, &_unused, &_unused);
+	max_physaddr = (1ull << (eax & 0xFF)) - 1;
 
 	pat_init();
 

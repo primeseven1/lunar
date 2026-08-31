@@ -16,7 +16,6 @@
 #define PMD_SIZE (1ul << PMD_SHIFT)
 #define PUD_SIZE (1ul << PUD_SHIFT)
 
-typedef arch_pte_t pte_t;
 typedef enum {
 	PGPROT_NONE = (1 << 0),
 	PGPROT_READ = (1 << 1),

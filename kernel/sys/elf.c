@@ -80,7 +80,7 @@ static int load_phdr(struct vnode* vnode, struct elf64_phdr* phdr) {
 			first_page_memsz = memsz;
 		first_page_filesz = (first_page_memsz < filesz) ? first_page_memsz : filesz;
 
-		void __user* ptr = vm_map_user(page, NULL, 1, PGPROT_READ | PGPROT_WRITE | PGPROT_USER, VMM_FIXED | VMM_NOREPLACE | VMM_ALLOC);
+		void __user* ptr = vm_map_user(page, PAGE_SIZE, PGPROT_READ | PGPROT_WRITE | PGPROT_USER, VMM_FIXED | VMM_NOREPLACE, NULL);
 		if (IS_PTR_ERR(ptr))
 			return PTR_ERR(ptr);
 
@@ -90,7 +90,7 @@ static int load_phdr(struct vnode* vnode, struct elf64_phdr* phdr) {
 				return err;
 		}
 
-		int err = vm_protect_user(page, 1, prot, 0);
+		int err = vm_protect_user(page, PAGE_SIZE, prot, 0);
 		if (err)
 			return err;
 
@@ -105,13 +105,13 @@ static int load_phdr(struct vnode* vnode, struct elf64_phdr* phdr) {
 		size_t file_page_count = ROUND_UP(filesz, PAGE_SIZE) >> PAGE_SHIFT;
 		size_t file_size_rounded = file_page_count << PAGE_SHIFT;
 
-		void __user* ptr = vm_map_user(mempos, NULL, file_page_count, PGPROT_READ | PGPROT_WRITE | PGPROT_USER, VMM_FIXED | VMM_NOREPLACE | VMM_ALLOC);
+		void __user* ptr = vm_map_user(mempos, file_size_rounded, PGPROT_READ | PGPROT_WRITE | PGPROT_USER, VMM_FIXED | VMM_NOREPLACE, NULL);
 		if (IS_PTR_ERR(ptr))
 			return PTR_ERR(ptr);
 		int err = read_exact_user(vnode, mempos, filesz, fileoff);
 		if (err)
 			return err;
-		err = vm_protect_user(mempos, file_page_count, prot, 0);
+		err = vm_protect_user(mempos, file_size_rounded, prot, 0);
 		if (err)
 			return err;
 
@@ -123,8 +123,7 @@ static int load_phdr(struct vnode* vnode, struct elf64_phdr* phdr) {
 
 	/* BSS section */
 	if (memsz) {
-		size_t pages = ROUND_UP(memsz, PAGE_SIZE) >> PAGE_SHIFT;
-		void __user* ptr = vm_map_user(mempos, NULL, pages, prot, VMM_FIXED | VMM_NOREPLACE | VMM_ALLOC);
+		void __user* ptr = vm_map_user(mempos, memsz, prot, VMM_FIXED | VMM_NOREPLACE, NULL);
 		if (IS_PTR_ERR(ptr))
 			return PTR_ERR(ptr);
 	}
