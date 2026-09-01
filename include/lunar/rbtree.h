@@ -22,7 +22,8 @@ struct rbtree {
 	struct rbtree_node* root;
 };
 
-#define RBTREE_DEFINE(n) struct rbtree n = { .root = NULL }
+#define RBTREE_INITIALIZER { .root = NULL }
+#define RBTREE_DEFINE(n) struct rbtree n = RBTREE_INITIALIZER
 #define RBTREE_IS_EMPTY(r) ((r)->root == NULL)
 #define RBTREE_IS_NODE_EMPTY(n) ((n)->_parent_color == (uintptr_t)(n))
 
