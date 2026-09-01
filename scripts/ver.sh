@@ -6,8 +6,12 @@ check_version() {
 
 	local MAJOR=$(echo "$VERSION_STR" | cut -d. -f1)
 	local MINOR=$(echo "$VERSION_STR" | cut -d. -f2)
-	if [[ -z "$MAJOR" || -z "$MINOR" ]]; then
-		echo "Compiler major or minor is empty"
+	if [[ -z "$MAJOR" ]]; then
+		>&2 echo "$TOOL major version is empty"
+		return 1
+	fi
+	if [[ -z "$MINOR" ]]; then
+		>&2 echo "$TOOL minor version is empty"
 		return 1
 	fi
 
@@ -15,9 +19,11 @@ check_version() {
 		return 0
 	fi
 
-	echo "$TOOL version is too old"
-	echo "Current version: $MAJOR.$MINOR"
-	echo "Required version: $MIN_MAJOR.$MIN_MINOR"
+	{
+		echo "$TOOL version is too old"
+		echo "Current version: $MAJOR.$MINOR"
+		echo "Required version: $MIN_MAJOR.$MIN_MINOR"
+	} >&2
 
 	return 1
 }
