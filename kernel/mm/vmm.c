@@ -251,6 +251,7 @@ static void vma_unmap_force(struct mm* mm, uintptr_t virtual, size_t size) {
 static struct mm kernel_mm_struct = {
 	.pagetable = NULL,
 	.vma_list = LIST_HEAD_INITIALIZER(kernel_mm_struct.vma_list),
+	.vma_rbtree = RBTREE_INITIALIZER,
 	.segment = { .start = KERNEL_SPACE_START, .end = KERNEL_SPACE_END, .grows_down = false, .max_size = KERNEL_SPACE_END - KERNEL_SPACE_START },
 	.brk = { .start = KERNEL_SPACE_START, .end = KERNEL_SPACE_END, .grows_down = false, .max_size = KERNEL_SPACE_END - KERNEL_SPACE_START },
 	.mmap = { .start = KERNEL_SPACE_START, .end = KERNEL_SPACE_END, .grows_down = false, .max_size = KERNEL_SPACE_END - KERNEL_SPACE_START },
@@ -275,6 +276,7 @@ struct mm* mm_create(void) {
 		return NULL;
 
 	list_head_init(&mm->vma_list);
+	rbtree_init(&mm->vma_rbtree);
 	const struct vmm_range zero_range = { .start = 0, .end = 0, .grows_down = false, .max_size = 0 };
 	mm->segment = zero_range;
 	mm->brk = zero_range;
