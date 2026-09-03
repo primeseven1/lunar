@@ -16,10 +16,6 @@ static inline void node_set_color(struct rbtree_node* node, int color) {
 	node->_parent_color = (node->_parent_color & ~((uintptr_t)1 << 0)) | (uintptr_t)color;
 }
 
-static inline void node_set_parent_color(struct rbtree_node* node, struct rbtree_node* parent, int color) {
-	node->_parent_color = (uintptr_t)parent | (uintptr_t)color;
-}
-
 /*
  * Rotate left:				Rotate right:
  *      N                  V               N                V
