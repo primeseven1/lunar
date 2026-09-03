@@ -14,7 +14,8 @@ static struct pat_map_entry pat_map[PAT_TYPE_COUNT] = {
 	[PAT_TYPE_WC] = { .flags = PT_NONE, .use_pat_bit = false, .supported = false },
 	[PAT_TYPE_WT] = { .flags = PT_NONE, .use_pat_bit = false, .supported = false },
 	[PAT_TYPE_WP] = { .flags = PT_NONE, .use_pat_bit = false, .supported = false },
-	[PAT_TYPE_WB] = { .flags = PT_NONE, .use_pat_bit = false, .supported = false }
+	[PAT_TYPE_WB] = { .flags = PT_NONE, .use_pat_bit = false, .supported = false },
+	[PAT_TYPE_UC_MINUS] = { .flags = PT_NONE, .use_pat_bit = false, .supported = false }
 };
 
 static enum pat_type read_pat_entry(u64 pat, unsigned int index) {
@@ -77,11 +78,11 @@ void pat_init(void) {
 		/* PAT is indexed like this: (PAT << 2) | (UC << 1) | (WT) */
 		pat_map[type].supported = true;
 		if (i & (1 << 0))
-			pat_map[i].flags |= PT_WRITETHROUGH;
+			pat_map[type].flags |= PT_WRITETHROUGH;
 		if (i & (1 << 1))
-			pat_map[i].flags |= PT_CACHE_DISABLE;
+			pat_map[type].flags |= PT_CACHE_DISABLE;
 		if (i & (1 << 2))
-			pat_map[i].use_pat_bit = true; /* This bit can change based on if it's a hugepage or not, which is why it's not just OR'd into the flags */
+			pat_map[type].use_pat_bit = true; /* This bit can change based on if it's a hugepage or not, which is why it's not just OR'd into the flags */
 	}
 
 	/*
