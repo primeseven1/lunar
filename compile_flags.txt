@@ -5,6 +5,7 @@
 -I./include
 -I./arch/x86_64/include
 -include ./include/generated/autoconf.h
+-include ./include/generated/version.h
 -ffreestanding
 -fno-stack-protector
 -fno-omit-frame-pointer

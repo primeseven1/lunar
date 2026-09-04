@@ -1,11 +1,12 @@
 -include .config
 
 ARCH := $(patsubst "%",%,$(CONFIG_ARCH))
+VERSION_HEADER := ./include/generated/version.h
 
 ASMFLAGS = -c -MMD -MP -I./include -I./arch/$(ARCH)/include \
-	   -include ./include/generated/autoconf.h
+	   -include ./include/generated/autoconf.h -include $(VERSION_HEADER)
 CFLAGS = -c -MMD -MP -std=c11 -I./include -I./arch/$(ARCH)/include \
-	 -include ./include/generated/autoconf.h \
+	 -include ./include/generated/autoconf.h -include $(VERSION_HEADER) \
 	 -ffreestanding -fno-stack-protector -fno-omit-frame-pointer \
 	 -fno-optimize-sibling-calls -fno-exceptions -fno-asynchronous-unwind-tables \
 	 -Wall -Wextra -Wshadow -Wpointer-arith \
@@ -13,11 +14,22 @@ CFLAGS = -c -MMD -MP -std=c11 -I./include -I./arch/$(ARCH)/include \
 	 -Wstrict-prototypes -Wmissing-prototypes \
 	 -mno-red-zone -mgeneral-regs-only \
 	 -O$(CONFIG_OPTIMIZATION)
-SPARSE_CFLAGS = -D__BIGGEST_ALIGNMENT__=16 # Primarily used to prevent sparse from spitting out a bunch of warnings we don't care about
+SPARSE_CFLAGS = -D__BIGGEST_ALIGNMENT__=16 -D__clang_major__ -D__clang_minor__ -D__clang_patchlevel__ # Sparse will see clang version 1.1.1
 LDFLAGS = -static -nostdlib --no-dynamic-linker \
 	  -ztext -zmax-page-size=0x1000 \
 	  -O$(CONFIG_OPTIMIZATION)
 
+ifeq ($(CONFIG_LLVM), y)
+CC := clang
+LD := ld.lld
+CC_MIN_MAJOR := 14
+CC_MIN_MINOR := 0
+LD_MIN_MAJOR := $(CC_MIN_MAJOR)
+LD_MIN_MINOR := $(CC_MIN_MINOR)
+ASMFLAGS += --target=$(ARCH)-unknown-none-elf
+CFLAGS += -fcolor-diagnostics --target=$(ARCH)-unknown-none-elf
+# TODO: Figure out compiler-rt
+else
 CC := $(ARCH)-elf-gcc
 LD := $(ARCH)-elf-ld
 CC_MIN_MAJOR := 12
@@ -25,7 +37,9 @@ CC_MIN_MINOR := 2
 LD_MIN_MAJOR := 2
 LD_MIN_MINOR := 39
 RTLIB_DIR := $(shell dirname $(shell $(CC) $(CFLAGS) -print-libgcc-file-name))
-RTLIB := gcc
+RTLIB_FLAG := -lgcc
+LDFLAGS += -L$(RTLIB_DIR)
+endif
 
 ifeq ($(CONFIG_DEBUG), y)
 ASMFLAGS += -g
@@ -50,7 +64,6 @@ LDSCRIPT := ./arch/$(ARCH)/kaslr.ld
 else
 LDSCRIPT := ./arch/$(ARCH)/nokaslr.ld
 endif
-LDFLAGS += -L$(RTLIB_DIR)
 
 .PHONY: all version menuconfig clean
 
@@ -60,6 +73,7 @@ all: version
 version:
 	@scripts/cc-ver.sh $(CC) $(CC_MIN_MAJOR) $(CC_MIN_MINOR)
 	@scripts/ld-ver.sh $(LD) $(LD_MIN_MAJOR) $(LD_MIN_MINOR)
+	@scripts/kern-ver.sh $(VERSION_HEADER) 0 1
 
 BUILD_MAKEFILES = $(shell find ./arch/$(ARCH) ./kernel ./drivers ./fs -type f -name 'Makefile')
 -include $(BUILD_MAKEFILES)
@@ -74,7 +88,7 @@ menuconfig:
 
 $(OUTPUT): $(S_OBJECT_FILES) $(C_OBJECT_FILES) $(LDSCRIPT)
 	@echo "[LD] $@"
-	@$(LD) $(LDFLAGS) $(S_OBJECT_FILES) $(C_OBJECT_FILES) -T$(LDSCRIPT) -o $(OUTPUT) -l$(RTLIB)
+	@$(LD) $(LDFLAGS) $(S_OBJECT_FILES) $(C_OBJECT_FILES) -T$(LDSCRIPT) -o $(OUTPUT) $(RTLIB_FLAG)
 	@echo "[BUILD] Kernel image $@ is ready!"
 
 %.o: %.S

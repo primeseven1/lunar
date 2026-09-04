@@ -77,6 +77,21 @@ _Noreturn void kernel_ap_main(void) {
 
 INIT_TASK_DECLARE(printk_init_task, term_init_task);
 
+static void print_version(void) {
+#ifdef CONFIG_LLVM
+	const char* compiler = "clang";
+	const int cc_major = __clang_major__;
+	const int cc_minor = __clang_minor__;
+	const int cc_patchlevel = __clang_patchlevel__;
+#else
+	const char* compiler = "gcc";
+	const int cc_major = __GNUC__;
+	const int cc_minor = __GNUC_MINOR__;
+	const int cc_patchlevel = __GNUC_PATCHLEVEL__;
+#endif /* CONFIG_LLVM */
+	printk("Lunar version %d.%02d (%s %d.%d.%d)\n", LUNAR_MAJOR, LUNAR_MINOR, compiler, cc_major, cc_minor, cc_patchlevel);
+}
+
 _Noreturn void kernel_main(void) {
 	init_task_run(&printk_init_task); /* Set loglevel */
 	init_task_run(&term_init_task); /* See printk messages on the screen */
@@ -97,10 +112,14 @@ _Noreturn void kernel_main(void) {
 	local_irq_enable();
 	module_load_builtins();
 	acpi_drivers_load();
-	printk(PRINTK_CRIT "init: kernel_main() thread ended!\n");
 
 	vfs_mount_root();
 	initrd_init();
+
+	/* Will get removed eventually */
+	keyboard_reader_thread_init();
+
+	print_version();
 
 	size_t total_page_count, free_page_count;
 	mm_get_free_pages(&total_page_count, &free_page_count);
@@ -108,9 +127,5 @@ _Noreturn void kernel_main(void) {
 	printk("Memory usage: %zu/%zu pages (%zu/%zu KB used) after init\n",
 			used_pages, total_page_count,
 			(used_pages * PAGE_SIZE) / 1024, (total_page_count * PAGE_SIZE) / 1024);
-
-	/* Will get removed eventually */
-	keyboard_reader_thread_init();
-
 	sched_thread_exit();
 }
