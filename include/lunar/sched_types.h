@@ -36,13 +36,6 @@ struct context {
 	struct arch_context_extended arch_extended_context;
 };
 
-struct thread_stack {
-	void* kernel_stack_top, *kernel_stack_bottom; /* Stack to switch to on syscalls and interrupts (unless it's a kthread) */
-	size_t kernel_ptr_off; /* How many bytes already "consumed" */
-	void __user* user_stack_top, *user_stack_bottom; /* Unused for kernel threads */
-	size_t user_ptr_off; /* How many bytes already "consumed" */
-};
-
 struct topology {
 	atomic(struct cpu*) cpu;
 	struct cpumask cpumask;
@@ -50,29 +43,20 @@ struct topology {
 };
 
 struct thread {
-	struct thread_stack stack; /* The stack for the current thread, also describes what stack to switch to when entering the kernel */
-	struct topology topology; /* What CPU's this thread can run on */
-	struct mm* mm_struct; /* Might be different from proc->mm_struct */
-	struct context context; /* Registers */
+	void* kernel_stack_top; /* The stack to switch to on userspace -> kernel, and for kthreads */
 	atomic(struct proc*) proc; /* Process this thread is associated with */
-	struct list_node proc_link; /* For thread list in process struct */
-	atomic(int) prio; /* Scheduler priority */
+	struct mm* mm_struct; /* Current memory context. May be different from proc->mm_struct */
+	struct context context; /* CPU registers */
+	struct topology topology; /* What CPU's this thread can run on */
 	long preempt_count; /* If zero, the thread can be preempted */
-	struct {
-		atomic(int) state, flags; /* Running, sleeping, interruptible, etc. */
-		atomic(int) wakeup_errno; /* The reason for waking up the thread (eg. -EINTR)*/
-		atomic(unsigned long long) sleep_gen; /* Bumped on each sleep to prevent stale wakeups */
-		struct list_node block_link; /* Used by things like semaphores to manage sleeping threads */
-	} state;
+	atomic(int) prio, state, state_flags, wakeup_errno; /* Thread priority and state */
+	atomic(unsigned long long) sleep_gen; /* Prevents stale wakeups */
+	struct list_node proc_link, block_link;
+	struct timespec detach_time; /* The time the reaper detached the this thread */
+	time_t reap_warn_deadline; /* For when the thread takes too long to get freed */
 	atomic(unsigned long) refcnt;
-	atomic(void*) policy_priv;
 };
-static_assert(offsetof(struct thread, stack.kernel_stack_top) == 0);
-
-struct thread_entry_point {
-	void (*kernel_entry)(void);
-	void (__user* user_entry)(void);
-};
+static_assert(offsetof(struct thread, kernel_stack_top) == 0);
 
 #define THREAD_HOLD(t) \
 	do { \
@@ -90,10 +74,9 @@ struct thread_entry_point {
  *
  * Thread is returned with a ref
  *
- * @param flags SCHED_* flags
  * @return A pointer to the thread
  */
-struct thread* alloc_thread(int flags);
+struct thread* alloc_thread(void);
 
 /**
  * @brief free a thread
@@ -106,34 +89,34 @@ void free_thread(struct thread* thread);
 
 /**
  * @brief Allocate a kernel stack
- *
- * @param[out] bottom Bottom of the stack
- * @param[out] top Top of the stack
- *
- * @return -errno on failure
+ * @return A pointer to the top of the stack, or -errno on failure
  */
-int alloc_stack(void** bottom, void** top);
+void* alloc_stack(void);
 
 /**
  * @brief Free a kernel stack
- * @param bottom The bottom of the stack
+ * @param top The top of the stack
  */
-void free_stack(void* bottom);
+void free_stack(void* top);
 
 /**
  * @brief Allocate a kernel stack for a thread
- *
  * @param[in] thread The thread the stack is for
- * @param[in] off Number of bytes to reserve (eg. for thread arguments)
- * @param[out] bottom Bottom of the stack, optional
- * @param[out] top The top of the stack, optional
- *
- * @return -errno on failure
+ * @param[out] top An optional argument to get the pointer to the stack
+ * @return 0 on success -errno on failure
  */
-int alloc_thread_stack(struct thread* thread, size_t off, void** bottom, void** top);
+int alloc_thread_stack(struct thread* thread, void** top);
 
 /**
  * @brief Free a kernel thread stack
  * @param thread The thread to free the stack for
  */
 void free_thread_stack(struct thread* thread);
+
+/**
+ * @brief Initialize the topology for a thread
+ *
+ * @param thread The thread
+ * @param topology_flags Flags for how to select the CPU
+ */
+void thread_topology_init(struct thread* thread, int topology_flags);

@@ -39,15 +39,14 @@ static void ist_init(void) {
 	struct cpu* const cpu = current_cpu();
 	struct arch_x86_64_tss* const tss = &cpu->arch_specific.tss;
 	for (int i = 0; i < ARCH_X86_64_IDT_IST_COUNT; i++) {
-		void* tmp, *top; /* Using top here instead of the entry directly stops ubsan from complaining about a misaligned pointer access */
-		int err = alloc_stack(&tmp, &top);
-		if (err) {
+		tss->ist[i] = alloc_stack();
+		if (IS_PTR_ERR(tss->ist[i])) {
+			int err = PTR_ERR(tss->ist[i]);
 			if (err == -ENOMEM)
 				out_of_memory();
 			else
 				panic("Failed to allocate IST stack: %d", err);
 		}
-		tss->ist[i] = top;
 	}
 }
 

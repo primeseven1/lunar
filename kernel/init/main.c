@@ -127,5 +127,6 @@ _Noreturn void kernel_main(void) {
 	printk("Memory usage: %zu/%zu pages (%zu/%zu KB used) after init\n",
 			used_pages, total_page_count,
 			(used_pages * PAGE_SIZE) / 1024, (total_page_count * PAGE_SIZE) / 1024);
+
 	sched_thread_exit();
 }

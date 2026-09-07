@@ -447,9 +447,11 @@ int acpi_glue_init(void) {
 	work_cache = slab_cache_create(sizeof(struct uacpi_work), _Alignof(struct uacpi_work), MM_ZONE_NORMAL | MM_ATOMIC, NULL, NULL);
 	if (!work_cache)
 		return -ENOMEM;
-	gpe_workqueue = workqueue_create(SCHED_TOPOLOGY_BSP | SCHED_TOPOLOGY_NO_MIGRATE, "acpi_gpe");
+
+	gpe_workqueue = workqueue_create(TOPOLOGY_BSP | TOPOLOGY_NO_MIGRATE, "acpi_gpe");
 	notify_workqueue = workqueue_create(0, "acpi_notify");
 	if (!gpe_workqueue || !notify_workqueue)
 		return -ESRCH;
+
 	return 0;
 }

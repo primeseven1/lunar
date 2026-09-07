@@ -7,8 +7,8 @@ void completion_signal(struct completion* completion) {
 	completion->done = true;
 
 	struct thread* it, *tmp;
-	list_for_each_entry_safe(it, tmp, &completion->queue, state.block_link) {
-		list_remove(&it->state.block_link);
+	list_for_each_entry_safe(it, tmp, &completion->queue, block_link) {
+		list_remove(&it->block_link);
 		sched_wakeup(it, 0);
 	}
 
@@ -26,7 +26,7 @@ int completion_wait_no_resched(struct completion* completion, int flags) {
 
 	if (!completion->done) {
 		ret = sched_prepare_sleep(0, flags);
-		list_add(&completion->queue, &current_thread()->state.block_link);
+		list_add(&completion->queue, &current_thread()->block_link);
 	} else {
 		ret = -EALREADY;
 	}

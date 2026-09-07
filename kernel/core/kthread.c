@@ -38,7 +38,7 @@ static struct hashtable* kthread_table;
 static MUTEX_DEFINE(kthread_table_lock);
 
 struct thread* kthread_create(int flags, int (*threadfn)(void*), void* arg, const char* fmt, ...) {
-	struct thread* thread = alloc_thread(flags);
+	struct thread* thread = alloc_thread();
 	if (!thread)
 		return NULL;
 
@@ -49,7 +49,7 @@ struct thread* kthread_create(int flags, int (*threadfn)(void*), void* arg, cons
 		strlcpy(kt.name, "kthread", sizeof(kt.name));
 	va_end(va);
 	kt.arg = (union kthread_asm_arg){ .nonatomic = { .threadfn = threadfn, .arg = arg } };
-	int err = alloc_thread_stack(thread, sizeof(kt.arg), &kt.stack_bottom, &kt.stack_top);
+	int err = alloc_thread_stack(thread, &kt.stack_top);
 	if (err) {
 		THREAD_RELEASE(thread);
 		free_thread(thread);
@@ -68,6 +68,8 @@ struct thread* kthread_create(int flags, int (*threadfn)(void*), void* arg, cons
 	}
 
 	mutex_release(&kthread_table_lock);
+
+	thread_topology_init(thread, flags);
 	return thread;
 }
 
@@ -93,9 +95,7 @@ int kthread_run(struct thread* thread, int prio) {
 	atomic_store(&thread_args->atomic.threadfn, kt.arg.nonatomic.threadfn);
 	atomic_store(&thread_args->atomic.arg, kt.arg.nonatomic.arg);
 
-	const struct thread_entry_point entry_point = { .kernel_entry = arch_asm_kthread_start, .user_entry = NULL };
-	arch_thread_prepare_execution(thread, &entry_point);
-
+	arch_context_prepare_execution(&thread->context.arch_context, ARCH_CODE_ADDRESS(uintptr_t, arch_asm_kthread_start), (uintptr_t)kt.stack_top - sizeof(*thread_args));
 	err = sched_enqueue(thread);
 	if (err) {
 		sched_thread_detach(thread);

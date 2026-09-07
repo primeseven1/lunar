@@ -1,24 +1,7 @@
 #include <lunar/smp.h>
 #include <lunar/sched.h>
-#include "internal.h"
 
-void topology_init(struct topology* topology, int flags) {
-	atomic_store(&topology->cpu, NULL);
-	atomic_store(&topology->migratable, !(flags & SCHED_TOPOLOGY_NO_MIGRATE));
-
-	flags &= (SCHED_TOPOLOGY_BSP | SCHED_TOPOLOGY_CURRENT);
-	if (flags) {
-		cpumask_memset(&topology->cpumask, 0);
-		if (flags & SCHED_TOPOLOGY_BSP)
-			cpumask_set(&topology->cpumask, 0, true);
-		if (flags & SCHED_TOPOLOGY_CURRENT)
-			cpumask_set(&topology->cpumask, current_cpu()->runqueue.sched_id, true);
-	} else {
-		cpumask_memset(&topology->cpumask, UINT_MAX);
-	}
-}
-
-struct cpu* topology_pick_cpu(struct topology* topology) {
+static struct cpu* pick_cpu(struct topology* topology) {
 	unsigned long irq_flags = local_irq_save();
 	struct cpu* ret = NULL;
 
@@ -48,9 +31,31 @@ struct cpu* topology_pick_cpu(struct topology* topology) {
 	return ret;
 }
 
-int topology_set_cpu(struct topology* topology, struct cpu* cpu) {
+static inline int set_cpu(struct topology* topology, struct cpu* cpu) {
 	if (cpumask_test(&topology->cpumask, cpu->runqueue.sched_id) == false)
 		return -EINVAL;
 	atomic_store(&topology->cpu, cpu);
 	return 0;
+}
+
+void thread_topology_init(struct thread* thread, int topology_flags) {
+	struct topology* const topology = &thread->topology;
+
+	atomic_store(&topology->cpu, NULL);
+	atomic_store(&topology->migratable, !(topology_flags & TOPOLOGY_NO_MIGRATE));
+
+	topology_flags &= (TOPOLOGY_BSP | TOPOLOGY_CURRENT_CPU);
+	if (topology_flags) {
+		cpumask_memset(&topology->cpumask, 0);
+		if (topology_flags & TOPOLOGY_BSP)
+			cpumask_set(&topology->cpumask, 0, true);
+		if (topology_flags & TOPOLOGY_CURRENT_CPU)
+			cpumask_set(&topology->cpumask, current_cpu()->runqueue.sched_id, true);
+	} else {
+		cpumask_memset(&topology->cpumask, UINT_MAX);
+	}
+
+	struct cpu* const cpu = pick_cpu(topology);
+	bug(cpu == NULL);
+	bug(set_cpu(topology, cpu) != 0);
 }

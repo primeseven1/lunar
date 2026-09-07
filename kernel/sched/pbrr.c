@@ -9,7 +9,7 @@
 #define DEFAULT_SLICE_TICKS 10
 
 struct rr_thread {
-	struct thread* thread;
+	struct thread thread;
 	unsigned long slice_left;
 	int prio;
 	struct list_node link;
@@ -42,64 +42,78 @@ static int scale_prio(int posix_prio) {
 	return scaled;
 }
 
-static int pbrr_thread_attach(struct runqueue* rq, struct thread* thread, int posix_prio) {
+static struct slab_cache* rr_thread_cache;
+
+static struct thread* pbrr_alloc(void) {
+	struct rr_thread* rr_thread = slab_cache_alloc(rr_thread_cache);
+	return rr_thread ? &rr_thread->thread : NULL;
+}
+
+static void pbrr_free(struct thread* thread) {
+	struct rr_thread* rr_thread = container_of(thread, struct rr_thread, thread);
+	slab_cache_free(rr_thread_cache, rr_thread);
+}
+
+static int pbrr_attach(struct runqueue* rq, struct thread* thread, int posix_prio) {
 	(void)rq;
-	int prio = scale_prio(posix_prio);
-	struct rr_thread* rrt = kzalloc(sizeof(*rrt), MM_ZONE_NORMAL | MM_ATOMIC);
-	if (!rrt)
-		return -ENOMEM;
+	struct rr_thread* rr_thread = container_of(thread, struct rr_thread, thread);
+	int rr_prio = scale_prio(posix_prio);
 
 	THREAD_HOLD(thread);
-	rrt->prio = prio;
-	rrt->thread = thread;
-	rrt->slice_left = DEFAULT_SLICE_TICKS;
+	rr_thread->slice_left = DEFAULT_SLICE_TICKS;
+	rr_thread->prio = rr_prio;
+	list_node_init(&rr_thread->link);
 
-	atomic_store(&thread->policy_priv, rrt);
 	return 0;
 }
 
-static void pbrr_thread_detach(struct runqueue* rq, struct thread* thread) {
+static void pbrr_detach(struct runqueue* rq, struct thread* thread) {
 	(void)rq;
-	struct rr_thread* rr = atomic_load(&thread->policy_priv);
-	kfree(rr);
 	THREAD_RELEASE(thread);
 }
 
 static int pbrr_init(struct runqueue* rq) {
+	if (!rr_thread_cache) {
+		rr_thread_cache = slab_cache_create(sizeof(struct rr_thread), alignof(struct rr_thread), MM_ZONE_NORMAL, NULL, NULL);
+		if (!rr_thread_cache)
+			return -ENOMEM;
+	}
+
 	rq->policy_priv = kmalloc(sizeof(struct rr_runqueue), MM_ZONE_NORMAL);
 	if (!rq->policy_priv)
 		return -ENOMEM;
 
-	struct rr_runqueue* pbrq = rq->policy_priv;
-	for (size_t i = 0; i < ARRAY_SIZE(pbrq->queues); i++)
-		list_head_init(&pbrq->queues[i]);
-	pbrq->active_bitmap = 0;
-	reset_budgets(pbrq);
+	struct rr_runqueue* const rr_rq = rq->policy_priv;
+	for (size_t i = 0; i < ARRAY_SIZE(rr_rq->queues); i++)
+		list_head_init(&rr_rq->queues[i]);
+	rr_rq->active_bitmap = 0;
+	reset_budgets(rr_rq);
+
 	return 0;
 }
 
 static int pbrr_enqueue(struct runqueue* rq, struct thread* thread) {
-	struct rr_thread* rrt = atomic_load(&thread->policy_priv);
-	if (list_node_linked(&rrt->link))
+	struct rr_thread* rr_thread = container_of(thread, struct rr_thread, thread);
+	if (list_node_linked(&rr_thread->link))
 		return -EALREADY;
 
-	struct rr_runqueue* rrq = rq->policy_priv;
-	list_add_tail(&rrq->queues[rrt->prio], &rrt->link);
-	rrq->active_bitmap |= (1ul << rrt->prio);
+	struct rr_runqueue* rr_rq = rq->policy_priv;
+	list_add_tail(&rr_rq->queues[rr_thread->prio], &rr_thread->link);
+	rr_rq->active_bitmap |= (1ul << rr_thread->prio);
 
 	return 0;
 }
 
 static int pbrr_dequeue(struct runqueue* rq, struct thread* thread) {
-	struct rr_thread* rrt = atomic_load(&thread->policy_priv);
-	if (!list_node_linked(&rrt->link))
+	struct rr_thread* rr_thread = container_of(thread, struct rr_thread, thread);
+	if (!list_node_linked(&rr_thread->link))
 		return -ENOENT;
 
-	struct rr_runqueue* rrq = rq->policy_priv;
-	int prio = rrt->prio;
-	list_remove(&rrt->link);
-	if (list_empty(&rrq->queues[prio]))
-		rrq->active_bitmap &= ~(1ul << prio);
+	struct rr_runqueue* rr_rq = rq->policy_priv;
+	int rr_prio = rr_thread->prio;
+	list_remove(&rr_thread->link);
+	if (list_empty(&rr_rq->queues[rr_prio]))
+		rr_rq->active_bitmap &= ~(1ul << rr_prio);
 
 	return 0;
 }
@@ -112,121 +126,108 @@ static int highest_ready_prio_budget(struct rr_runqueue* rrq) {
 			return p;
 		bm &= ~(1ul << p);
 	}
-
 	return -1;
 }
 
 static struct rr_thread* pop_head_and_maybe_clear(struct rr_runqueue* rrq, int prio) {
-	struct list_head* head = &rrq->queues[prio];
+	struct list_head* const head = &rrq->queues[prio];
 	if (list_empty(head))
 		return NULL;
 
-	struct list_node* node = head->node.next;
-	list_remove(node);
-
-	struct rr_thread* rrt = container_of(node, struct rr_thread, link);
+	struct rr_thread* const rr_thread = list_first_entry(head, struct rr_thread, link);
+	list_remove(&rr_thread->link);
 	if (list_empty(head))
 		rrq->active_bitmap &= ~(1ul << prio);
 
-	return rrt;
+	return rr_thread;
 }
 
 static struct thread* pbrr_pick_next(struct runqueue* rq) {
-	struct rr_runqueue* rrq = rq->policy_priv;
+	struct rr_runqueue* const rr_rq = rq->policy_priv;
 
-	struct thread* current = atomic_load(&rq->current);
-	struct rr_thread* crt = atomic_load(&current->policy_priv);
-	int state = atomic_load(&current->state.state);
-	bool runnable = (state == THREAD_RUNNING || state == THREAD_READY);
+	struct thread* const current = atomic_load(&rq->current);
+	struct rr_thread* const current_rr = container_of(current, struct rr_thread, thread);
+	const int state = atomic_load(&current->state);
+	const bool runnable = (state == THREAD_RUNNING || state == THREAD_READY);
 
 	/* Place current thread at the end of the list and mark the priority as active */
-	if (current != rq->idle && runnable && !list_node_linked(&crt->link)) {
-		int p = crt->prio;
-		list_add_tail(&rrq->queues[p], &crt->link);
-		rrq->active_bitmap |= 1ul << p;
+	if (current != rq->idle && runnable && !list_node_linked(&current_rr->link)) {
+		int p = current_rr->prio;
+		list_add_tail(&rr_rq->queues[p], &current_rr->link);
+		rr_rq->active_bitmap |= 1ul << p;
 	}
 
 	/* Make sure budgets are reset */
-	if (unlikely(rrq->prio_budget[0] == 0))
-		reset_budgets(rrq);
+	if (unlikely(rr_rq->prio_budget[0] == 0))
+		reset_budgets(rr_rq);
 
-	int p = highest_ready_prio_budget(rrq);
+	int p = highest_ready_prio_budget(rr_rq);
 	if (p < 0) {
-		reset_budgets(rrq); /* All active had empty budgets, so reset them */
-		p = highest_ready_prio_budget(rrq);
+		reset_budgets(rr_rq); /* All active had empty budgets, so reset them */
+		p = highest_ready_prio_budget(rr_rq);
 		if (p < 0) /* No threads to schedule */ 
 			return NULL;
 	}
 
 	/* Pop a thread from the priority queue */
-	struct rr_thread* next_rrt = pop_head_and_maybe_clear(rrq, p);
-	bug(next_rrt == NULL); /* Well, I guess the bitmap lied to us!! */
+	struct rr_thread* const next_rr_thread = pop_head_and_maybe_clear(rr_rq, p);
+	bug(next_rr_thread == NULL); /* Well, I guess the bitmap lied to us!! */
+	if (rr_rq->prio_budget[p] > 0)
+		rr_rq->prio_budget[p]--;
 
-	if (rrq->prio_budget[p] > 0)
-		rrq->prio_budget[p]--;
-
-	next_rrt->slice_left = DEFAULT_SLICE_TICKS;
-	return next_rrt->thread;
+	next_rr_thread->slice_left = DEFAULT_SLICE_TICKS;
+	return &next_rr_thread->thread;
 }
 
 static int pbrr_change_prio(struct runqueue* rq, struct thread* thread, int posix_prio) {
 	int prio = scale_prio(posix_prio);
 
-	struct rr_runqueue* rrq = rq->policy_priv;
-	struct rr_thread* rrt = atomic_load(&thread->policy_priv);
+	struct rr_runqueue* const rr_rq = rq->policy_priv;
+	struct rr_thread* const rr_thread = container_of(thread, struct rr_thread, thread);
 
-	if (rrt->prio == prio)
+	if (rr_thread->prio == prio)
 		return 0;
-
-	/* If not the current thread, add to the other list */
-	if (list_node_linked(&rrt->link)) {
-		list_remove(&rrt->link);
-		if (list_empty(&rrq->queues[rrt->prio]))
-			rrq->active_bitmap &= ~(1ul << rrt->prio);
-		list_add_tail(&rrq->queues[prio], &rrt->link);
-		if (!list_empty(&rrq->queues[prio]))
-			rrq->active_bitmap |= (1ul << prio);
+	if (list_node_linked(&rr_thread->link)) {
+		list_remove(&rr_thread->link);
+		if (list_empty(&rr_rq->queues[rr_thread->prio]))
+			rr_rq->active_bitmap &= ~(1ul << rr_thread->prio);
+		list_add_tail(&rr_rq->queues[prio], &rr_thread->link);
+		if (!list_empty(&rr_rq->queues[prio]))
+			rr_rq->active_bitmap |= (1ul << prio);
 	}
-	rrt->prio = prio;
+	rr_thread->prio = prio;
 
 	return 0;
 }
 
 static bool pbrr_on_tick(struct runqueue* rq, struct thread* current) {
 	(void)rq;
-	struct rr_thread* rr_current = atomic_load(&current->policy_priv);
-
+	struct rr_thread* rr_current = container_of(current, struct rr_thread, thread);
 	if (rr_current->slice_left == 0)
 		return true;
 	if (--rr_current->slice_left == 0)
 		return true;
-
 	return false;
 }
 
 static void pbrr_on_yield(struct runqueue* rq, struct thread* current) {
-	(void)rq; /* pbrr_pick_next already adds to the end of the queue */
-	struct rr_thread* rr_current = atomic_load(&current->policy_priv);
-	rr_current->slice_left = DEFAULT_SLICE_TICKS;
-}
-
-static unsigned long pbrr_attached_refcount(struct runqueue* rq, struct thread* thread) {
 	(void)rq;
-	(void)thread;
-	return 1;
+	struct rr_thread* rr_current = container_of(current, struct rr_thread, thread);
+	rr_current->slice_left = DEFAULT_SLICE_TICKS;
 }
 
 static const struct sched_policy_ops pbrr_ops = {
 	.init = pbrr_init,
-	.thread_attach = pbrr_thread_attach,
-	.thread_detach = pbrr_thread_detach,
+	.alloc = pbrr_alloc,
+	.free = pbrr_free,
+	.attach = pbrr_attach,
+	.detach = pbrr_detach,
 	.enqueue = pbrr_enqueue,
 	.dequeue = pbrr_dequeue,
 	.pick_next = pbrr_pick_next,
 	.change_prio = pbrr_change_prio,
 	.on_tick = pbrr_on_tick,
-	.on_yield = pbrr_on_yield,
-	.attached_refcount = pbrr_attached_refcount
+	.on_yield = pbrr_on_yield
 };
 
 static struct sched_policy __sched_policy pbrr = {
@@ -235,14 +236,11 @@ static struct sched_policy __sched_policy pbrr = {
 	.ops = &pbrr_ops
 };
 
-/*
- * Round robin no priorities. This uses PBRR, but puts every thread into the same queue,
- * so it's effectively just round robin.
- */
+/* RR uses PBRR, but just puts everything into the same queue */
 
-static int rr_thread_attach(struct runqueue* rq, struct thread* thread, int posix_prio) {
+static int rr_attach(struct runqueue* rq, struct thread* thread, int posix_prio) {
 	(void)posix_prio;
-	return pbrr_thread_attach(rq, thread, SCHED_PRIO_MAX);
+	return pbrr_attach(rq, thread, SCHED_PRIO_MAX);
 }
 
 static int rr_change_prio(struct runqueue* rq, struct thread* thread, int posix_prio) {
@@ -254,15 +252,16 @@ static int rr_change_prio(struct runqueue* rq, struct thread* thread, int posix_
 
 static const struct sched_policy_ops rr_ops = {
 	.init = pbrr_init,
-	.thread_attach = rr_thread_attach,
-	.thread_detach = pbrr_thread_detach,
+	.alloc = pbrr_alloc,
+	.free = pbrr_free,
+	.attach = rr_attach,
+	.detach = pbrr_detach,
 	.enqueue = pbrr_enqueue,
 	.dequeue = pbrr_dequeue,
 	.pick_next = pbrr_pick_next,
 	.change_prio = rr_change_prio,
 	.on_tick = pbrr_on_tick,
-	.on_yield = pbrr_on_yield,
-	.attached_refcount = pbrr_attached_refcount
+	.on_yield = pbrr_on_yield
 };
 
 static struct sched_policy __sched_policy rr = {

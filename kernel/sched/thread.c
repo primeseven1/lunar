@@ -3,88 +3,72 @@
 #include <lunar/sched_types.h>
 #include <lunar/percpu.h>
 #include <lunar/vmm.h>
-#include "internal.h"
+#include <lunar/irq.h>
 
-int alloc_stack(void** bottom, void** top) {
+void* alloc_stack(void) {
 	struct page* pages = alloc_pages(MM_ZONE_NORMAL, get_order(THREAD_STACK_SIZE));
 	if (!pages)
-		return -ENOMEM;
+		return ERR_PTR(-ENOMEM);
 
 	struct page* page_array[(THREAD_STACK_SIZE >> PAGE_SHIFT) + 1];
-	page_array[0] = NULL;
+	page_array[0] = NULL; /* guard page */
 	for (size_t i = 1; i < ARRAY_SIZE(page_array); i++)
 		page_array[i] = pages + i - 1;
 
-	int err = 0;
 	u8* mapping = vm_map_pages(NULL, page_array, ARRAY_SIZE(page_array), PGPROT_READ | PGPROT_WRITE, VMM_STACK);
-	if (!IS_PTR_ERR(mapping)) {
-		*bottom = mapping;
-		*top = mapping + THREAD_STACK_SIZE + PAGE_SIZE;
-	} else {
-		err = PTR_ERR(mapping);
-	}
+	release_page(pages); /* vm_map_pages() will take a reference on success, so this is safe */
 
-	release_page(pages);
-	return err;
+	return IS_PTR_ERR(mapping) ? mapping : mapping + THREAD_STACK_SIZE + PAGE_SIZE;
 }
 
-void free_stack(void* bottom) {
-	vm_unmap_force(bottom, THREAD_STACK_SIZE + PAGE_SIZE, 0);
+void free_stack(void* top) {
+	const size_t unmap_size = THREAD_STACK_SIZE + PAGE_SIZE;
+	void* const bottom = (u8*)top - unmap_size;
+	vm_unmap_force(bottom, unmap_size, 0);
 }
 
-int alloc_thread_stack(struct thread* thread, size_t off, void** bottom, void** top) {
-	int err = alloc_stack(&thread->stack.kernel_stack_bottom, &thread->stack.kernel_stack_top);
-	if (err)
-		return err;
+int alloc_thread_stack(struct thread* thread, void** top) {
+	void* stack = alloc_stack();
+	if (IS_PTR_ERR(stack))
+		return PTR_ERR(stack);
 
-	if (bottom)
-		*bottom = thread->stack.kernel_stack_bottom;
+	thread->kernel_stack_top = stack;
 	if (top)
-		*top = thread->stack.kernel_stack_top;
-	thread->stack.kernel_ptr_off = off;
-
+		*top = stack;
 	return 0;
 }
 
 void free_thread_stack(struct thread* thread) {
-	free_stack(thread->stack.kernel_stack_bottom);
+	free_stack(thread->kernel_stack_top);
 }
 
-static struct slab_cache* thread_cache = NULL;
-
-struct thread* alloc_thread(int flags) {
-	struct thread* ret = slab_cache_alloc(thread_cache);
-	if (!ret)
+struct thread* alloc_thread(void) {
+	unsigned long irq_flags = local_irq_save();
+	const struct sched_policy_ops* ops = current_cpu()->runqueue.policy->ops;
+	local_irq_restore(irq_flags);
+	if (!ops->alloc || !ops->free)
 		return NULL;
 
+	struct thread* ret = ops->alloc();
+	if (unlikely(!ret))
+		return NULL;
 	int err = arch_context_init(&ret->context);
-	if (err)
+	if (unlikely(err)) {
+		ops->free(ret);
 		return NULL;
+	}
 
-	ret->stack = (struct thread_stack){
-		.kernel_stack_top = NULL, .kernel_stack_bottom = NULL, .kernel_ptr_off = 0,
-		.user_stack_top = NULL, .user_stack_bottom = NULL, .user_ptr_off = 0,
-	};
-
-	topology_init(&ret->topology, flags);
-	struct cpu* cpu = topology_pick_cpu(&ret->topology);
-	bug(cpu == NULL);
-	bug(topology_set_cpu(&ret->topology, cpu) != 0);
-
-	ret->mm_struct = NULL;
+	ret->kernel_stack_top = NULL;
 	atomic_store(&ret->proc, NULL);
-	list_node_init(&ret->proc_link);
+	ret->mm_struct = NULL;
 	atomic_store(&ret->prio, 0);
-	ret->preempt_count = 0;
-
-	atomic_store(&ret->state.state, THREAD_NEW);
-	atomic_store(&ret->state.flags, 0);
-	atomic_store(&ret->state.wakeup_errno, 0);
-	atomic_store(&ret->state.sleep_gen, 0);
-	list_node_init(&ret->state.block_link);
-
+	atomic_store(&ret->state, THREAD_NEW);
+	atomic_store(&ret->state_flags, 0);
+	atomic_store(&ret->wakeup_errno, 0);
+	atomic_store(&ret->sleep_gen, 0);
+	list_node_init(&ret->proc_link);
+	list_node_init(&ret->block_link);
 	atomic_store(&ret->refcnt, 1);
-	atomic_store(&ret->policy_priv, NULL);
 
 	return ret;
 }
@@ -92,11 +76,11 @@ struct thread* alloc_thread(int flags) {
 void free_thread(struct thread* thread) {
 	bug(atomic_load(&thread->refcnt) != 0);
 	arch_context_destroy(&thread->context);
-	slab_cache_free(thread_cache, thread);
-}
 
-void sched_thread_cache_init(void) {
-	thread_cache = slab_cache_create(sizeof(struct thread), alignof(struct thread), MM_ZONE_NORMAL, NULL, NULL);
-	if (unlikely(!thread_cache))
-		out_of_memory();
+	unsigned long irq_flags = local_irq_save();
+	const struct sched_policy_ops* ops = current_cpu()->runqueue.policy->ops;
+	local_irq_restore(irq_flags);
+
+	bug(ops->free == NULL);
+	ops->free(thread);
 }

@@ -3,6 +3,8 @@
 #include <lunar/types.h>
 #include <arch-generic/context.h>
 
+#define ARCH_CODE_ADDRESS(t, fn) ((t)(fn))
+
 struct arch_context {
 	u64 ds, es;
 	u64 cr2;

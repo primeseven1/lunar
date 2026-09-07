@@ -1,9 +1,10 @@
 #pragma once
 
+#include <lunar/types.h>
+
+struct arch_context;
 struct context;
-struct thread_stack;
 struct thread;
-struct thread_entry_point;
 
 /**
  * @brief Do a context switch
@@ -30,9 +31,8 @@ void arch_context_destroy(struct context* ctx);
 /**
  * @brief Prepare a thread for execution
  *
- * The thread stack is placed in thread->stack
- *
- * @param thread The thread to prepare
- * @param entry_point Where the thread should start executing
+ * @param ctx The context to prepare
+ * @param ip The instruction pointer
+ * @param sp The stack pointer
  */
-void arch_thread_prepare_execution(struct thread* thread, const struct thread_entry_point* entry_point);
+void arch_context_prepare_execution(struct arch_context* ctx, uintptr_t ip, uintptr_t sp);

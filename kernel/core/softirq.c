@@ -112,12 +112,15 @@ static void softirq_init(void) {
 	struct cpu* cpu = current_cpu();
 	cpu->softirq_mask = 0;
 	cpu->softirq_count = 0;
+
 	semaphore_init(&cpu->softirqd_sem, 0);
-	struct thread* d = kthread_create(SCHED_TOPOLOGY_CURRENT | SCHED_TOPOLOGY_NO_MIGRATE, softirqd,
-			cpu, "softirqd/%u", cpu->runqueue.sched_id);
+	struct thread* d = kthread_create(TOPOLOGY_CURRENT_CPU | TOPOLOGY_NO_MIGRATE, softirqd, cpu, "softirqd/%u", cpu->runqueue.sched_id);
 	if (!d)
 		out_of_memory();
-	bug(kthread_run(d, SCHED_PRIO_DEFAULT) != 0);
+
+	int err = kthread_run(d, SCHED_PRIO_DEFAULT);
+	if (err)
+		panic("Failed to run softirqd thread: %d\n", err);
 }
 
 INIT_TASK_DECLARE(kthread_init_task, sched_init_task, sched_ap_init_task);

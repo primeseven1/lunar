@@ -6,9 +6,9 @@
 #include <lunar/sched_types.h>
 #include <lunar/irq.h>
 
-#define SCHED_TOPOLOGY_BSP (1 << 0)
-#define SCHED_TOPOLOGY_CURRENT (1 << 1)
-#define SCHED_TOPOLOGY_NO_MIGRATE (1 << 2)
+#define TOPOLOGY_BSP (1 << 0)
+#define TOPOLOGY_CURRENT_CPU (1 << 1)
+#define TOPOLOGY_NO_MIGRATE (1 << 2)
 
 static inline struct thread* current_thread(void) {
 	unsigned long flags = local_irq_save();

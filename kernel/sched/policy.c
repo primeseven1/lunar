@@ -4,7 +4,7 @@
 #include <lunar/panic.h>
 #include <lunar/percpu.h>
 #include <lunar/sched_policy.h>
-#include "internal.h"
+#include <lunar/init.h>
 
 extern const struct sched_policy _ld_kernel_schedpolicies_start[];
 extern const struct sched_policy _ld_kernel_schedpolicies_end[];
@@ -49,19 +49,22 @@ static inline void set_policy(const struct sched_policy* policy) {
 	cpu->runqueue.policy = policy;
 }
 
-void sched_policy_cpu_init(void) {
-	static atomic(const struct sched_policy*) policy = atomic_init(NULL);
-	if (atomic_load(&policy)) {
-		set_policy(atomic_load(&policy));
+static void sched_policy_init(void) {
+	static const struct sched_policy* policy = NULL;
+	if (policy) {
+		set_policy(policy);
 		return;
 	}
 
-	atomic_store(&policy, decide_sched_policy());
-	if (!atomic_load(&policy)) {
+	policy = decide_sched_policy();
+	if (unlikely(!policy)) {
 		list_policies();
 		panic("No scheduling policy selected, try setting the sched_policy command line option");
 	}
 
-	set_policy(atomic_load(&policy));
-	printk(PRINTK_INFO "sched: Using policy \"%s\"\n", atomic_load(&policy)->name);
+	set_policy(policy);
+	printk(PRINTK_INFO "sched: Using policy \"%s\"\n", policy->name);
 }
+
+INIT_TASK_DECLARE(cmdline_init_task);
+INIT_TASK_DEFINE(sched_policy_init_task, INIT_TASK_SCOPE_BSP_AP, sched_policy_init, &cmdline_init_task);

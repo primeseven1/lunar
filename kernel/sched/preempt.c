@@ -1,7 +1,8 @@
 #include <lunar/timer.h>
 #include <lunar/sched.h>
 #include <lunar/printk.h>
-#include "internal.h"
+
+#define SCHED_TICK_TIME_US 1000
 
 void preempt_disable(void) {
 	current_thread()->preempt_count++;
