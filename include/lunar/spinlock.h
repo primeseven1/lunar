@@ -106,4 +106,4 @@ void spinlock_release_softirq_enable(spinlock_t* lock);
  * @param lock The lock to acquire
  * @return true if the lock is acquired, otherwise false
  */
-bool spinlock_try_accquire_softirq_disable(spinlock_t* lock);
+bool spinlock_try_acquire_softirq_disable(spinlock_t* lock);

@@ -64,7 +64,7 @@ void spinlock_release_softirq_enable(spinlock_t* lock) {
 	local_softirq_enable();
 }
 
-bool spinlock_try_accquire_softirq_disable(spinlock_t* lock) {
+bool spinlock_try_acquire_softirq_disable(spinlock_t* lock) {
 	local_softirq_disable();
 	if (spinlock_try_acquire_preempt_disable(lock))
 		return true;

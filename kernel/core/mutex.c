@@ -29,6 +29,7 @@ int mutex_acquire_safe(mutex_t* lock) {
 		return -EDEADLK;
 
 	bug(semaphore_wait(&lock->sem, 0) != 0);
+	atomic_store_explicit(&lock->owner, thread, ATOMIC_RELAXED);
 	return 0;
 }
 
