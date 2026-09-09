@@ -242,7 +242,7 @@ struct limine_rsdp_response {
 	u64 revision;
 	union {
 		void* virtual;
-		physaddr_t physical;
+		physaddr_t physical; /* Base revision 3 */
 	};
 };
 
@@ -253,8 +253,14 @@ struct limine_rsdp_request {
 
 struct limine_smbios_response {
 	u64 revision;
-	physaddr_t physical_32;
-	physaddr_t physical_64;
+	union {
+		physaddr_t physical; /* Base revision 3 and 4 */
+		void* virtual;
+	} entry_32;
+	union {
+		physaddr_t physical; /* Base revision 3 and 4 */
+		void* virtual;
+	} entry_64;
 };
 
 struct limine_smbios_request {
