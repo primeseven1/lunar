@@ -54,7 +54,7 @@ static const char* mmap_entry_type_to_string(enum limine_mmap_type type) {
 	case LIMINE_MMAP_ACPI_RECLAIMABLE:
 		return "ACPI Reclaimable";
 	case LIMINE_MMAP_RESERVED:
-	case LIMINE_MMAP_ACPI_TABLES:
+	case LIMINE_MMAP_RESERVED_MAPPED:
 	case LIMINE_MMAP_FRAMEBUFFER:
 		return "Reserved";
 	case LIMINE_MMAP_ACPI_NVS:
@@ -75,7 +75,7 @@ static inline bool mmap_entry_is_ram(const struct limine_mmap_entry* entry) {
 	case LIMINE_MMAP_BOOTLOADER_RECLAIMABLE:
 	case LIMINE_MMAP_EXECUTABLE_AND_MODULES:
 	case LIMINE_MMAP_ACPI_RECLAIMABLE:
-	case LIMINE_MMAP_ACPI_TABLES:
+	case LIMINE_MMAP_RESERVED_MAPPED:
 		return true;
 	default:
 		return false;
@@ -1202,6 +1202,12 @@ static void create_page_array(physaddr_t last_ram) {
 }
 
 static void zones_init(void) {
+	/* Revision is checked because of the memory map */
+	int supported_revisions[] = { 0, 1, 2, 3, 4, 5, 6 };
+	int revision = limine_match_base_revision(supported_revisions, ARRAY_SIZE(supported_revisions));
+	if (unlikely(revision == -1))
+		panic("Limine base revision %d unsupported by PMM", limine_base_revision());
+
 	struct limine_mmap_response* response = mmap_request.response;
 	if (unlikely(!response || response->entry_count == 0))
 		panic("Where the fuck is the memory map");
@@ -1253,5 +1259,5 @@ out:
 	reserve_unusable_memory(last_address);
 }
 
-INIT_TASK_DECLARE(stack_tracer_init_task, hhdm_init_task);
-INIT_TASK_DEFINE(zones_init_task, INIT_TASK_SCOPE_BSP, zones_init, &stack_tracer_init_task, &hhdm_init_task);
+INIT_TASK_DECLARE(limine_base_revision_init_task, stack_tracer_init_task, hhdm_init_task);
+INIT_TASK_DEFINE(zones_init_task, INIT_TASK_SCOPE_BSP, zones_init, &limine_base_revision_init_task, &stack_tracer_init_task, &hhdm_init_task);

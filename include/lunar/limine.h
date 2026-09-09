@@ -5,7 +5,7 @@
 #include <lunar/atomic.h>
 #include <arch/limine.h>
 
-#define LIMINE_KERNEL_BASE_REVISION 4
+#define LIMINE_KERNEL_BASE_REVISION 6
 
 #define __limine_request __attribute__((section(".limine_requests"), aligned(8), used))
 
@@ -154,7 +154,7 @@ enum limine_mmap_type {
 	LIMINE_MMAP_BOOTLOADER_RECLAIMABLE,
 	LIMINE_MMAP_EXECUTABLE_AND_MODULES,
 	LIMINE_MMAP_FRAMEBUFFER,
-	LIMINE_MMAP_ACPI_TABLES
+	LIMINE_MMAP_RESERVED_MAPPED /* Base revision 4+ */
 };
 
 struct limine_mmap_entry {
@@ -271,3 +271,22 @@ struct limine_executable_address_request {
 };
 
 extern struct limine_executable_file_request g_limine_executable_file_request;
+
+/**
+ * @brief Given a list of revisions, return the current base revision if it's in the list
+ *
+ * Useful for drivers or subsystems that need a specific base revision, or support multiple
+ * base revisions.
+ *
+ * @param revisions The revisions to check
+ * @param revision_count The number of revisions
+ *
+ * @return The current base revision if it's in the list, otherwise -1 is returned
+ */
+int limine_match_base_revision(int* revisions, size_t revision_count);
+
+/**
+ * @brief Get the base revision the bootloader used
+ * @return The base revision
+ */
+int limine_base_revision(void);

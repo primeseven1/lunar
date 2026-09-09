@@ -75,7 +75,7 @@ _Noreturn void kernel_ap_main(void) {
 	sched_thread_exit();
 }
 
-INIT_TASK_DECLARE(printk_init_task, term_init_task);
+INIT_TASK_DECLARE(printk_init_task, term_init_task, limine_base_revision_init_task);
 
 static void print_version(void) {
 #ifdef CONFIG_LLVM
@@ -93,6 +93,9 @@ static void print_version(void) {
 }
 
 _Noreturn void kernel_main(void) {
+	print_version();
+
+	init_task_run(&limine_base_revision_init_task); /* Sanity check the bootloader */
 	init_task_run(&printk_init_task); /* Set loglevel */
 	init_task_run(&term_init_task); /* See printk messages on the screen */
 	init_run_all_tasks();
@@ -118,15 +121,6 @@ _Noreturn void kernel_main(void) {
 
 	/* Will get removed eventually */
 	keyboard_reader_thread_init();
-
-	print_version();
-
-	size_t total_page_count, free_page_count;
-	mm_get_free_pages(&total_page_count, &free_page_count);
-	size_t used_pages = total_page_count - free_page_count;
-	printk("Memory usage: %zu/%zu pages (%zu/%zu KB used) after init\n",
-			used_pages, total_page_count,
-			(used_pages * PAGE_SIZE) / 1024, (total_page_count * PAGE_SIZE) / 1024);
 
 	sched_thread_exit();
 }
