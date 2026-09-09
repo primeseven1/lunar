@@ -240,7 +240,10 @@ struct limine_module_request {
 
 struct limine_rsdp_response {
 	u64 revision;
-	void* virtual;
+	union {
+		void* virtual;
+		physaddr_t physical;
+	};
 };
 
 struct limine_rsdp_request {

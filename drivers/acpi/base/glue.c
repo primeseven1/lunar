@@ -60,7 +60,15 @@ uacpi_status uacpi_kernel_get_rsdp(uacpi_phys_addr* out) {
 	if (!rsdp_request.response)
 		return UACPI_STATUS_NOT_FOUND;
 
-	*out = hhdm_physical(rsdp_request.response->virtual);
+	int supported_revisions[] = { 0, 1, 2, 3, 4, 5, 6 };
+	int revision = limine_match_base_revision(supported_revisions, ARRAY_SIZE(supported_revisions));
+	if (unlikely(revision == -1))
+		return UACPI_STATUS_INTERNAL_ERROR;
+
+	if (revision == 3)
+		*out = rsdp_request.response->physical;
+	else
+		*out = hhdm_physical(rsdp_request.response->virtual);
 	return UACPI_STATUS_OK;
 }
 
