@@ -31,14 +31,18 @@ static void restore_extended(struct arch_context_extended* region) {
 void arch_context_switch(struct thread* current, struct thread* next) {
 	save_extended(&current->context.arch_extended_context);
 	restore_extended(&next->context.arch_extended_context);
-	current_cpu()->arch_specific.tss.rsp[0] = next->kernel_stack_top;
+	struct arch_cpu* const acpu = arch_current_cpu();
+	acpu->tss.rsp[0] = next->kernel_stack_top;
+	acpu->__current_thread = next;
 	context_switch_generic(&current->context.arch_context, &next->context.arch_context);
 }
 
 void arch_x86_64_context_switch_in_interrupt(struct thread* current, struct thread* next, struct arch_context* intctx) {
 	save_extended(&current->context.arch_extended_context);
 	restore_extended(&next->context.arch_extended_context);
-	current_cpu()->arch_specific.tss.rsp[0] = next->kernel_stack_top;
+	struct arch_cpu* const acpu = arch_current_cpu();
+	acpu->tss.rsp[0] = next->kernel_stack_top;
+	acpu->__current_thread = next;
 	current->context.arch_context = *intctx;
 	*intctx = next->context.arch_context;
 }

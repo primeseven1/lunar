@@ -18,14 +18,19 @@ struct cpu {
 	bool need_resched;
 	struct arch_cpu arch_specific;
 };
-static_assert(sizeof(((struct cpu*)0)->softirq_mask) >= SOFTIRQ_COUNT, "sizeof(((struct cpu*)0)->softirq_mask) >= SOFTIRQ_COUNT");
+static_assert(sizeof_field(struct cpu, softirq_mask) * 8 >= SOFTIRQ_COUNT);
 
 /**
  * @brief Get the current per-cpu structure
  *
- * This function is not safe to call with preempt enabled.
- * Either disable IRQ's or disable preempt, depending on the context.
+ * This function is NOT safe to call with preemption enabled.
+ * Members of the structure also should not be read/written with preempt enabled.
+ *
+ * Some members of the structure may require IRQ's to be disabled too.
+ *
+ * @return The current per-cpu structure
  */
 static inline struct cpu* current_cpu(void) {
-	return arch_current_cpu();
+	struct arch_cpu* acpu = arch_current_cpu();
+	return container_of(acpu, struct cpu, arch_specific);
 }

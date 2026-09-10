@@ -53,19 +53,19 @@ void arch_start_cpus(void) {
 	}
 }
 
-static inline void set_cpu(struct cpu* cpu) {
-	cpu->arch_specific.cpu = cpu;
-	arch_x86_64_wrmsr(ARCH_X86_64_MSR_GS_BASE, (uintptr_t)cpu);
+static inline void set_cpu(struct arch_cpu* acpu) {
+	acpu->self = acpu;
+	arch_x86_64_wrmsr(ARCH_X86_64_MSR_GS_BASE, (uintptr_t)acpu);
 }
 
-static struct cpu bsp_cpu;
+static struct cpu bsp_cpu = { 0 };
 
 void arch_x86_64_percpu_ap_init(struct arch_limine_mp_info* cpu_info) {
 	struct page* page = alloc_pages(MM_ZONE_NORMAL | MM_NOFAIL, get_order(sizeof(struct cpu)));
 
 	struct cpu* cpu = page_hhdm_virtual(page);
 	memset(cpu, 0, sizeof(*cpu));
-	set_cpu(cpu);
+	set_cpu(&cpu->arch_specific);
 
 	struct arch_cpu* acpu = &cpu->arch_specific;
 	acpu->lapic_id = cpu_info->lapic_id;
@@ -73,24 +73,24 @@ void arch_x86_64_percpu_ap_init(struct arch_limine_mp_info* cpu_info) {
 }
 
 void arch_x86_64_percpu_bsp_init(void) {
-	set_cpu(&bsp_cpu);
-	struct arch_cpu* cpu = &current_cpu()->arch_specific;
+	struct arch_cpu* acpu = &bsp_cpu.arch_specific;
+	set_cpu(acpu);
 
 	struct arch_limine_mp_response* response = mp_request.arch_specific_response;
 	bug(response->cpu_count >= U32_MAX);
 
-	cpu->lapic_id = response->bsp_lapic_id;
+	acpu->lapic_id = response->bsp_lapic_id;
 	for (u32 i = 0; i < response->cpu_count; i++) {
 		struct arch_limine_mp_info* limine_cpuinfo = response->cpus[i];
-		if (cpu->lapic_id == limine_cpuinfo->lapic_id) {
-			cpu->acpi_id = limine_cpuinfo->processor_id;
+		if (acpu->lapic_id == limine_cpuinfo->lapic_id) {
+			acpu->acpi_id = limine_cpuinfo->processor_id;
 			break;
 		}
 	}
 }
 
-struct cpu* arch_current_cpu(void) {
-	struct cpu* cpu;
-	__asm__("movq %%gs:%c1, %0" : "=r"(cpu) : "i"(offsetof(struct cpu, arch_specific.cpu)));
+struct arch_cpu* arch_current_cpu(void) {
+	struct arch_cpu* cpu;
+	__asm__("movq %%gs:%c1, %0" : "=r"(cpu) : "i"(offsetof(struct arch_cpu, self)));
 	return cpu;
 }
