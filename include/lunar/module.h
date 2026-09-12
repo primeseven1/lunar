@@ -2,7 +2,7 @@
 
 #include <lunar/init.h>
 #include <lunar/mutex.h>
-#include <arch/asm/errno.h>
+#include <lunar/errno.h>
 
 struct module {
 	const char* name;

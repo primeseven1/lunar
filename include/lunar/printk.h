@@ -1,7 +1,7 @@
 #pragma once
 
 #include <lunar/types.h>
-#include <arch/asm/errno.h>
+#include <lunar/errno.h>
 
 #define PRINTK_DBG_N '\006'
 #define PRINTK_INFO_N '\005'

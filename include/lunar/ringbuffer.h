@@ -1,7 +1,7 @@
 #pragma once
 
 #include <lunar/types.h>
-#include <arch/asm/errno.h>
+#include <lunar/errno.h>
 
 #define RINGBUFFER_SIZE_MINIMUM 8
 

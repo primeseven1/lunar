@@ -1,6 +1,6 @@
 #pragma once
 
-#include <arch/asm/errno.h>
+#include <lunar/errno.h>
 
 #define PCI_MAX_BUSES 256u
 #define PCI_MAX_FUNCTIONS 8u

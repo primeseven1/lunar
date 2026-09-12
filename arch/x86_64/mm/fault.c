@@ -3,6 +3,7 @@
 #include <lunar/printk.h>
 #include <lunar/format.h>
 #include <x86_64/fault.h>
+#include "internal.h"
 
 #define PAGE_FAULT_WAS_PRESENT (1 << 0)
 #define PAGE_FAULT_CAUSED_BY_WRITE (1 << 1)
@@ -13,44 +14,13 @@
 #define PAGE_FAULT_CAUSED_BY_SHADOW_STACK (1 << 6)
 #define PAGE_FAULT_CAUSED_BY_SGX (1 << 15)
 
-void arch_x86_64_double_fault(struct isr* isr, struct arch_context* ctx) {
-	(void)isr;
-	(void)ctx;
-	panic("Double fault\n");
-}
-
-struct extable_entry {
-	i32 fault_rip_relative;
-	i32 fixup_rip_relative;
-} __attribute__((packed));
-
-#define X86_MAX_INSTR_SIZE 15
-
-extern const struct extable_entry _ld_arch_x86_64_kernel_extable_start[];
-extern const struct extable_entry _ld_arch_x86_64_kernel_extable_end[];
-
-static bool do_fixup(struct arch_context* ctx) {
-	size_t count = _ld_arch_x86_64_kernel_extable_end - _ld_arch_x86_64_kernel_extable_start;
-
-	for (size_t i = 0; i < count; i++) {
-		const struct extable_entry* entry = &_ld_arch_x86_64_kernel_extable_start[i];
-		uintptr_t fault = (uintptr_t)entry + offsetof(struct extable_entry, fault_rip_relative) + entry->fault_rip_relative;
-		uintptr_t fixup = (uintptr_t)entry + offsetof(struct extable_entry, fixup_rip_relative) + entry->fixup_rip_relative;
-		if (ctx->rip >= fault && ctx->rip < fault + X86_MAX_INSTR_SIZE) {
-			ctx->rip = fixup;
+static inline bool try_fixup_usercopy_fault(struct arch_context* ctx) {
+	if (current_thread()->in_usercopy) {
+		if (likely(usercopy_context_fixup_fault(ctx)))
 			return true;
-		}
+		printk(PRINTK_CRIT "mm: Could not fixup usercopy fault in usercopy context\n");
 	}
-
 	return false;
-}
-
-void arch_x86_64_general_protection_fault(struct isr* isr, struct arch_context* ctx) {
-	(void)isr;
-	if (do_fixup(ctx))
-		return;
-
-	panic("General protection fault\n");
 }
 
 static int format_reason(char* buf, size_t bufsize, u64 err) {
@@ -86,9 +56,19 @@ static int format_reason(char* buf, size_t bufsize, u64 err) {
 	return 0;
 }
 
+void arch_x86_64_general_protection_fault(struct isr* isr, struct arch_context* ctx) {
+	(void)isr;
+
+	/* Can happen when dereferncing a non-canonical address */
+	if (try_fixup_usercopy_fault(ctx))
+		return;
+
+	panic("General protection fault\n");
+}
+
 void arch_x86_64_page_fault(struct isr* isr, struct arch_context* ctx) {
 	(void)isr;
-	if (do_fixup(ctx))
+	if (try_fixup_usercopy_fault(ctx))
 		return;
 
 	char buf[64];

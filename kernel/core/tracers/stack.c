@@ -4,8 +4,7 @@
 #include <lunar/printk.h>
 #include <lunar/init.h>
 #include <lunar/elf.h>
-
-#include <arch/asm/errno.h>
+#include <lunar/errno.h>
 
 extern const u8 _ld_kernel_start;
 extern const u8 _ld_kernel_end;

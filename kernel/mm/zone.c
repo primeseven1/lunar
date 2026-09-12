@@ -9,8 +9,7 @@
 #include <lunar/mm.h>
 #include <lunar/init.h>
 #include <lunar/string.h>
-
-#include <arch/asm/errno.h>
+#include <lunar/errno.h>
 
 #define DMA32_START 0x1000000
 #define DMA32_END 0x100000000

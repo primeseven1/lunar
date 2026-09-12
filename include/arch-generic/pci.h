@@ -1,6 +1,6 @@
 #pragma once
 
-#include <arch/asm/errno.h>
+#include <lunar/errno.h>
 
 struct pci_device;
 

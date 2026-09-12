@@ -1,7 +1,8 @@
 #pragma once
 
+#include <lunar/errno.h>
+#include <arch/context.h>
 #include <arch/page.h>
-#include <arch/asm/errno.h>
 
 enum pt_flags {
 	PT_NONE = ARCH_PTE_FLAG_NONE,
@@ -45,6 +46,13 @@ enum pat_type {
  * @retval 0 Successful
  */
 int pat_type_to_pt_flags(enum pat_type type, bool hugepage, enum pt_flags* flags);
-
 void pat_init(void);
 void pat_ap_init(void);
+
+/**
+ * @brief Fix up a fault in a user copy context
+ * @param context The context
+ * @retval true The fault was handled
+ * @retval false The fault was not handled
+ */
+bool usercopy_context_fixup_fault(struct arch_context* context);

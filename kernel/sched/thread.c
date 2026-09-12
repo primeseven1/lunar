@@ -61,6 +61,8 @@ struct thread* alloc_thread(void) {
 	ret->kernel_stack_top = NULL;
 	atomic_store(&ret->proc, NULL);
 	ret->mm_struct = NULL;
+	ret->in_usercopy = 0;
+	ret->preempt_count = 0;
 	atomic_store(&ret->prio, 0);
 	atomic_store(&ret->state, THREAD_NEW);
 	atomic_store(&ret->state_flags, 0);

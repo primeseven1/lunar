@@ -1,8 +1,8 @@
 #pragma once
 
-#include <arch/usercopy.h>
-#include <arch/asm/errno.h>
+#include <lunar/errno.h>
 #include <lunar/compiler.h>
+#include <arch/usercopy.h>
 
 #define IS_USER_ADDRESS(p) ARCH_IS_USER_ADDRESS(p)
 
@@ -45,6 +45,18 @@ static inline bool usercopy_access_ok(const void __user* ptr, size_t size) {
 #define user_write_word(ptr, val) __usercopy_write(ptr, val, u16, arch_user_write_word)
 #define user_write_dword(ptr, val) __usercopy_write(ptr, val, u32, arch_user_write_dword)
 #define user_write_qword(ptr, val) __usercopy_write(ptr, val, u64, arch_user_write_qword)
+
+/**
+ * @brief Enable user copies
+ */
+void usercopy_enable(void);
+
+/**
+ * @brief Disable user copies
+ *
+ * Acts like a preempt count, 2 enables require 2 disables.
+ */
+void usercopy_disable(void);
 
 /**
  * @brief Set bytes in user space to a value

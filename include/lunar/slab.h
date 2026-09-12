@@ -7,8 +7,7 @@
 #include <lunar/string.h>
 #include <lunar/mm.h>
 #include <lunar/list.h>
-
-#include <arch/asm/errno.h>
+#include <lunar/errno.h>
 
 struct slab {
 	struct page* self_page;

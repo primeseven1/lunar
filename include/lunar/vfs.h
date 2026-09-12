@@ -3,8 +3,8 @@
 #include <lunar/time.h>
 #include <lunar/mutex.h>
 #include <lunar/cred.h>
+#include <lunar/errno.h>
 #include <arch/posix.h>
-#include <arch/asm/errno.h>
 
 #define PATHNAME_MAX 4095
 #define MAX_LINK_DEPTH 24

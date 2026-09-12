@@ -1,6 +1,6 @@
 #pragma once
 
-#include <arch/asm/errno.h>
+#include <lunar/errno.h>
 
 #define ARCH_IS_USER_ADDRESS(p) ((uintptr_t)(p) <= 0x7FFFFFFFFFFFFFFF)
 
@@ -58,3 +58,6 @@
 #define arch_user_write_word(ptr, val) __arch_x86_64_user_write(ptr, "movw", (u16)(val))
 #define arch_user_write_dword(ptr, val) __arch_x86_64_user_write(ptr, "movl", (u32)(val))
 #define arch_user_write_qword(ptr, val) __arch_x86_64_user_write(ptr, "movq", (u64)(val))
+
+void arch_usercopy_enter(void);
+void arch_usercopy_exit(void);

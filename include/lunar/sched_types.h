@@ -48,6 +48,7 @@ struct thread {
 	struct mm* mm_struct; /* Current memory context. May be different from proc->mm_struct */
 	struct context context; /* CPU registers */
 	struct topology topology; /* What CPU's this thread can run on */
+	long in_usercopy; /* Kernel space accessing user space */
 	long preempt_count; /* If zero, the thread can be preempted */
 	atomic(int) prio, state, state_flags, wakeup_errno; /* Thread priority and state */
 	atomic(unsigned long long) sleep_gen; /* Prevents stale wakeups */
