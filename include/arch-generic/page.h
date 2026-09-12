@@ -5,16 +5,6 @@
 struct tlb_batch;
 
 /**
- * @brief Initialize page tables on the bootstrap processor
- */
-void arch_pagetable_init(void);
-
-/**
- * @brief Initialize page tables on an application processor
- */
-void arch_pagetable_ap_init(void);
-
-/**
  * @brief Create a new page table
  *
  * The kernel page tables must be copied into the returned page table.

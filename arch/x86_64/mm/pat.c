@@ -1,8 +1,11 @@
+#include <lunar/init.h>
 #include <lunar/page.h>
 #include <lunar/panic.h>
 #include <lunar/printk.h>
+
 #include <x86_64/asm/cpuid.h>
 #include <x86_64/asm/msr.h>
+
 #include "internal.h"
 
 struct pat_map_entry {
@@ -53,7 +56,7 @@ int pat_type_to_pt_flags(enum pat_type type, bool hugepage, enum pt_flags* flags
 static bool supports_pat = false;
 static u64 expected_pat = U64_MAX;
 
-void pat_init(void) {
+static void pat_init(void) {
 	u32 edx, _unused;
 	arch_x86_64_cpuid(CPUID_LEAF_FEATURE_BITS, 0, &_unused, &_unused, &_unused, &edx);
 	supports_pat = !!(edx & (1 << 16));
@@ -95,10 +98,13 @@ void pat_init(void) {
 		printk(PRINTK_WARN "pat: Bootloader did not configure the PAT correctly (expected %#lx, got %#lx)\n", limine_expected_pat, expected_pat);
 }
 
-void pat_ap_init(void) {
+static void pat_ap_init(void) {
 	if (likely(supports_pat)) {
 		const u64 msr = arch_x86_64_rdmsr(ARCH_X86_64_MSR_PAT);
 		if (expected_pat != msr)
 			panic("Bootloader gave a mismatched PAT");
 	}
 }
+
+INIT_TASK_DEFINE(arch_x86_64_pat_init_task, INIT_TASK_SCOPE_BSP, pat_init);
+INIT_TASK_DEFINE(arch_x86_64_pat_ap_init_task, INIT_TASK_SCOPE_AP, pat_ap_init);

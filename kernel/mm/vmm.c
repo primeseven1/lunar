@@ -692,8 +692,6 @@ void vfree(void* ptr) {
 }
 
 static void vmm_init(void) {
-	arch_pagetable_init();
-
 	struct mm* mm = &kernel_mm_struct;
 	mm->pagetable = arch_pagetable_get_cpu_current();
 	current_cpu()->mm_struct = mm;
@@ -714,12 +712,11 @@ static void vmm_init(void) {
 }
 
 static void vmm_ap_init(void) {
-	arch_pagetable_ap_init();
 	struct cpu* cpu = current_cpu();
 	cpu->mm_struct = &kernel_mm_struct;
 	arch_pagetable_switch(cpu->mm_struct->pagetable);
 }
 
-INIT_TASK_DECLARE(vma_init_task, hhdm_init_task, zones_init_task);
-INIT_TASK_DEFINE(vmm_init_task, INIT_TASK_SCOPE_BSP, vmm_init, &vma_init_task, &hhdm_init_task, &zones_init_task);
-INIT_TASK_DEFINE(vmm_ap_init_task, INIT_TASK_SCOPE_AP, vmm_ap_init, &vmm_init_task);
+INIT_TASK_DECLARE(vma_init_task, hhdm_init_task, zones_init_task, arch_pagetable_init_task, arch_pagetable_ap_init_task);
+INIT_TASK_DEFINE(vmm_init_task, INIT_TASK_SCOPE_BSP, vmm_init, &vma_init_task, &hhdm_init_task, &zones_init_task, &arch_pagetable_init_task);
+INIT_TASK_DEFINE(vmm_ap_init_task, INIT_TASK_SCOPE_AP, vmm_ap_init, &vmm_init_task, &arch_pagetable_ap_init_task);

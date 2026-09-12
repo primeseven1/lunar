@@ -46,8 +46,6 @@ enum pat_type {
  * @retval 0 Successful
  */
 int pat_type_to_pt_flags(enum pat_type type, bool hugepage, enum pt_flags* flags);
-void pat_init(void);
-void pat_ap_init(void);
 
 /**
  * @brief Fix up a fault in a user copy context

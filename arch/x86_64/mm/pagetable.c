@@ -451,7 +451,7 @@ static inline bool enable_nxe_and_get_previous_state(void) {
 	return enabled;
 }
 
-void arch_pagetable_init(void) {
+static void pagetable_init(void) {
 	u32 ecx, _unused;
 	arch_x86_64_cpuid(0x07, 0, &_unused, &_unused, &ecx, &_unused);
 
@@ -474,8 +474,6 @@ void arch_pagetable_init(void) {
 	u32 eax;
 	arch_x86_64_cpuid(CPUID_EXT_LEAF_ADDRESS_SIZES, 0, &eax, &_unused, &_unused, &_unused);
 	max_physaddr = (1ull << (eax & 0xFF)) - 1;
-
-	pat_init();
 
 	/* Allocate all higher half L4 tables */
 	arch_pte_t* l4 = hhdm_virtual(arch_x86_64_ctl3_read());
@@ -501,11 +499,14 @@ void arch_pagetable_init(void) {
 	arch_x86_64_ctl3_write(arch_x86_64_ctl3_read());
 }
 
-void arch_pagetable_ap_init(void) {
+static void pagetable_ap_init(void) {
 	const physaddr_t current_pagetable = arch_x86_64_ctl3_read();
 	if (unlikely(bsp_bootloader_pagetable != current_pagetable)) /* If this is true, chances are the CPU already faulted before this could even run */
 		panic("AP page table is not the same as the BSP");
 	if (supports_nx)
 		enable_nxe_and_get_previous_state();
-	pat_ap_init();
 }
+
+INIT_TASK_DECLARE(arch_x86_64_pat_init_task, arch_x86_64_pat_ap_init_task, zones_init_task);
+INIT_TASK_DEFINE(arch_pagetable_init_task, INIT_TASK_SCOPE_BSP, pagetable_init, &arch_x86_64_pat_init_task, &zones_init_task);
+INIT_TASK_DEFINE(arch_pagetable_ap_init_task, INIT_TASK_SCOPE_AP, pagetable_ap_init, &arch_x86_64_pat_ap_init_task);

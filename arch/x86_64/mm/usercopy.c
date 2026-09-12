@@ -41,7 +41,7 @@ void arch_usercopy_exit(void) {
 		__asm__ volatile("clac" : : : "cc", "memory");
 }
 
-static void enable_sm_protections(void) {
+static void sm_protections_init(void) {
 	u32 ebx, _unused;
 	arch_x86_64_cpuid(0x07, 0, &_unused, &ebx, &_unused, &_unused);
 
@@ -57,11 +57,11 @@ static void enable_sm_protections(void) {
 		arch_x86_64_ctl4_write(arch_x86_64_ctl4_read() | or);
 }
 
-static void enable_sm_protections_ap(void) {
+static void sm_protections_ap_init(void) {
 	const unsigned long or = (smep ? ARCH_X86_64_CTL4_SMEP : 0) | (smap ? ARCH_X86_64_CTL4_SMAP : 0);
 	if (or)
 		arch_x86_64_ctl4_write(arch_x86_64_ctl4_read() | or);
 }
 
-INIT_TASK_DEFINE(enable_sm_protections_init_task, INIT_TASK_SCOPE_BSP, enable_sm_protections);
-INIT_TASK_DEFINE(enable_sm_protections_ap_init_task, INIT_TASK_SCOPE_AP, enable_sm_protections_ap);
+INIT_TASK_DEFINE(arch_x86_64_sm_protections_init_task, INIT_TASK_SCOPE_BSP, sm_protections_init);
+INIT_TASK_DEFINE(arch_x86_64_sm_protections_ap_init_task, INIT_TASK_SCOPE_AP, sm_protections_ap_init);
