@@ -39,6 +39,22 @@ static inline void free_isr(struct isr* isr) {
 }
 
 /**
+ * @brief Initialize the generic part of an ISR struct
+ *
+ * This is almost never to be called directly, but can be in some special cases
+ *
+ * @param isr The ISR to initialize
+ * @param handler The handler to use
+ * @param private ISR specific data
+ * @param flags ISR_FLAG_* flags
+ */
+static inline void __init_isr(struct isr* isr, isrhandler_t handler, void* private, int flags) {
+	isr->handler = handler;
+	isr->private = private;
+	isr->flags = flags;
+}
+
+/**
  * @brief Register an ISR handler
  *
  * @param isr The ISR to register
@@ -49,9 +65,7 @@ static inline void free_isr(struct isr* isr) {
  * @return -errno on failure, 0 on success
  */
 static inline int register_isr(struct isr* isr, isrhandler_t handler, void* private, int flags) {
-	isr->handler = handler;
-	isr->private = private;
-	isr->flags = flags;
+	__init_isr(isr, handler, private, flags);
 	return arch_register_isr(isr);
 }
 
