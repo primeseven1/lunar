@@ -19,18 +19,18 @@ static struct limine_mp_request __limine_request mp_request = {
 #endif /* CONFIG_ARCH_X86_64_X2APIC */
 };
 
-#ifndef CONFIG_SMP
+#ifdef CONFIG_SMP
+
+u32 arch_get_cpu_count(void) {
+	return mp_request.arch_specific_response->cpu_count;
+}
+
+#else
 
 static void halt(struct arch_limine_mp_info* mp_info) {
 	(void)mp_info;
 	while (1)
 		arch_cpu_idle();
-}
-
-#else
-
-u32 arch_get_cpu_count(void) {
-	return mp_request.arch_specific_response->cpu_count;
 }
 
 #endif /* CONFIG_SMP */
@@ -46,7 +46,7 @@ void arch_start_cpus(void) {
 		if (acpu_current->lapic_id == limine_cpuinfo->lapic_id)
 			continue;
 #ifdef CONFIG_SMP
-		atomic_store(&limine_cpuinfo->goto_address, arch_x86_64_asm_ap_start);
+		atomic_store(&limine_cpuinfo->goto_address, ap_start);
 #else
 		atomic_store(&limine_cpuinfo->goto_address, halt);
 #endif /* CONFIG_SMP */

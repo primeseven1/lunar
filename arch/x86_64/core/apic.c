@@ -15,6 +15,7 @@
 #include <arch/io.h>
 #include <arch/processor.h>
 #include <x86_64/idt.h>
+#include <x86_64/interrupt.h>
 #include <x86_64/asm/msr.h>
 #include <x86_64/asm/cpuid.h>
 
@@ -461,6 +462,31 @@ static void ioapic_mask_all(void) {
 	}
 }
 
+static void spurious(struct isr* isr) {
+	static atomic(unsigned long) count = atomic_init(0);
+	u32 x = lapic_read(LAPIC_REG_ISR_BASE + ((ARCH_X86_64_IDT_SPURIOUS_VECTOR & ~0x1f) >> 1));
+	if (x & (1 << (ARCH_X86_64_IDT_SPURIOUS_VECTOR & 0x1f))) {
+		apic_eoi(isr);
+	} else {
+		long _count = atomic_add_fetch_explicit(&count, 1, ATOMIC_RELAXED);
+		if (_count & (_count - 1))
+			printk(PRINTK_WARN "apic: Spurious IRQ (count %lu)\n", _count);
+	}
+}
+
+static void create_spurious_isr_if_needed(void) {
+	static struct isr* spurious_isr = NULL;
+	if (spurious_isr)
+		return;
+
+	spurious_isr = alloc_isr();
+	if (!spurious_isr)
+		out_of_memory();
+	int err = arch_x86_64_register_isr_vector(spurious_isr, ARCH_X86_64_IDT_SPURIOUS_VECTOR, spurious, NULL, ISR_FLAG_TYPE_LIRQ, false);
+	if (unlikely(err))
+		panic("Failed to register spurious ISR vector: %d\n", err);
+}
+
 static int apic_x1_bsp_init(void) {
 	if (!ioapics) {
 		int err = ioapic_init();
@@ -482,6 +508,7 @@ static int apic_x1_bsp_init(void) {
 	if (unlikely(IS_PTR_ERR(lapic_address)))
 		return -ENOMEM;
 
+	create_spurious_isr_if_needed();
 	ioapic_mask_all();
 	return apic_ap_init();
 }
@@ -522,6 +549,7 @@ static int apic_x2_bsp_init(void) {
 	if (!(arch_x86_64_rdmsr(ARCH_X86_64_MSR_APIC_BASE) & APIC_BASE_FLAG_X2_ENABLE))
 		return -ENODEV;
 
+	create_spurious_isr_if_needed();
 	ioapic_mask_all();
 	atomic_store(&use_x2apic, true);
 	int err = apic_ap_init();

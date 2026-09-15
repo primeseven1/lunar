@@ -1,4 +1,5 @@
 #include <lunar/irq.h>
+#include <x86_64/interrupt.h>
 #include <x86_64/pmio.h>
 
 #include "internal.h"
@@ -22,7 +23,7 @@ static inline void i8259_write(enum pic_io_address address, u8 data) {
  * Spurious IRQ's can only happen on IRQ 7 and IRQ 15. Since all IRQ's are masked on the i8259,
  * the IRQ has to be spurious, so no need to check the PIC for a spurious IRQ.
  */
-void i8259_spurious_isr(struct isr* isr) {
+static void spurious_masked(struct isr* isr) {
 	int irqnum = isr->arch_specific.id - I8259_VECTOR_OFFSET;
 
 	/* A spurious IRQ15 comes from the slave PIC, but the master doesn't know it was spurious, so send the EOI to the master */
@@ -44,10 +45,16 @@ void i8259_spurious_isr(struct isr* isr) {
 #define PIC_ICW4_SFNM 0x10
 
 void i8259_initialize_and_mask(void) {
-	/* Start the initialization process, with the PIC's expecting 4 commands (including this one) */
-	i8259_write(PIC_IO_ADDRESS_MASTER, PIC_ICW1_INIT | PIC_ICW1_ICW4);
-	i8259_write(PIC_IO_ADDRESS_SLAVE, PIC_ICW1_INIT | PIC_ICW1_ICW4);
+	static struct isr irq7, irq15;
+	int err = arch_x86_64_register_isr_vector(&irq7, I8259_VECTOR_OFFSET + 7, spurious_masked, NULL, ISR_FLAG_TYPE_IRQ, false);
+	if (unlikely(err))
+		panic("Failed to register i8259 spurious IRQ7: %d", err);
+	err = arch_x86_64_register_isr_vector(&irq15, I8259_VECTOR_OFFSET + 15, spurious_masked, NULL, ISR_FLAG_TYPE_IRQ, false);
+	if (unlikely(err))
+		panic("Failed to register i8259 spurious IRQ15: %d", err);
 
+	i8259_write(PIC_IO_ADDRESS_MASTER, PIC_ICW1_INIT | PIC_ICW1_ICW4); /* Start initialization on PIC1, 4 commands */
+	i8259_write(PIC_IO_ADDRESS_SLAVE, PIC_ICW1_INIT | PIC_ICW1_ICW4); /* Start initialization on PIC2, also 4 commands */
 	i8259_write(PIC_IO_ADDRESS_MASTER_DATA, I8259_VECTOR_OFFSET); /* Set IDT vector offset for IRQ's 0-7 */
 	i8259_write(PIC_IO_ADDRESS_SLAVE_DATA, I8259_VECTOR_OFFSET + 8); /* Set IDT vector offset for IRQ's 8-15  */
 	i8259_write(PIC_IO_ADDRESS_MASTER_DATA, 1 << PIC_CASCADE_IRQ); /* For some reason, the master PIC has this as a bitmask */

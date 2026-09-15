@@ -9,11 +9,10 @@
 
 #include <x86_64/idt.h>
 #include <x86_64/fault.h>
+#include <x86_64/interrupt.h>
 #include <x86_64/asm/segment.h>
 #include <x86_64/asm/msr.h>
 #include <x86_64/asm/flags.h>
-
-#include "internal.h"
 
 #define EXCEPTION_COUNT 32
 #define EXCEPTION_DEFINE(n, eh, f) [n] = { .handler = NULL, .flags = 0, .private = NULL, .arch_specific = { .id = n, .flags = f, .ehandler = eh } }
@@ -48,8 +47,6 @@ static struct isr exceptions[EXCEPTION_COUNT] = {
 	EXCEPTION_DEFINE(ARCH_X86_64_IDT_PAGE_FAULT_VECTOR, arch_x86_64_page_fault, 0),
 	EXCEPTION_DEFINE(ARCH_X86_64_IDT_MACHINE_CHECK_VECTOR, generic_exception, ARCH_ISR_FLAG_PARANOID_GSBASE | ARCH_ISR_FLAG_EXCEPTION_IRQSOFF)
 };
-static struct isr i8259_irq7 = { .handler = i8259_spurious_isr, .private = NULL, .arch_specific = { .id = I8259_VECTOR_OFFSET + 7, .flags = 0, .ehandler = NULL } };
-static struct isr i8259_irq15 = { .handler = i8259_spurious_isr, .private = NULL, .arch_specific = { .id = I8259_VECTOR_OFFSET + 15, .flags = 0, .ehandler = NULL } };
 
 struct idt_entry {
 	u16 handler_low;
@@ -82,9 +79,7 @@ void arch_x86_64_idt_init(void) {
 		return;
 	}
 
-	/* Set up the i8259 spurious ISR's and CPU exceptions */
-	atomic_store_explicit(&isr_handlers[I8259_VECTOR_OFFSET + 7], &i8259_irq7, ATOMIC_RELAXED);
-	atomic_store_explicit(&isr_handlers[I8259_VECTOR_OFFSET + 15], &i8259_irq15, ATOMIC_RELAXED);
+	/* Set up CPU exceptions */
 	for (size_t i = 0; i < ARRAY_SIZE(exceptions); i++) {
 		struct isr* exception = &exceptions[i];
 		if (!exception->arch_specific.ehandler) {
@@ -135,7 +130,8 @@ __asmlinkage void arch_x86_64_do_interrupt(struct arch_context* ctx) {
 	if (unlikely(!isr))
 		panic("Unregistered ISR %lu", ctx->vector);
 
-	bug(isr->arch_specific.id != ctx->vector);
+	bug((u64)isr->arch_specific.id != ctx->vector);
+
 	const bool paranoid_gsbase = (isr->arch_specific.flags & ARCH_ISR_FLAG_PARANOID_GSBASE);
 	const bool bad_gsbase = paranoid_gsbase ? (arch_x86_64_rdmsr(ARCH_X86_64_MSR_GS_BASE) < KERNEL_SPACE_START) : false;
 	if (unlikely(bad_gsbase))
@@ -204,6 +200,28 @@ int arch_register_isr(struct isr* isr) {
 	}
 
 out:
+	spinlock_release_irq_restore(&isr_handlers_lock, &irq_flags);
+	return err;
+}
+
+int arch_x86_64_register_isr_vector(struct isr* isr, int vector, isrhandler_t handler, void* private, int flags, bool need_eoi) {
+	if (vector < EXCEPTION_COUNT || (size_t)vector >= ARRAY_SIZE(isr_handlers))
+		return -EINVAL;
+
+	int err = 0;
+
+	unsigned long irq_flags;
+	spinlock_acquire_irq_save(&isr_handlers_lock, &irq_flags);
+
+	if (atomic_load(&isr_handlers[vector]) == NULL) {
+		__init_isr(isr, handler, private, flags);
+		isr->arch_specific.id = vector;
+		isr->arch_specific.flags = need_eoi ? ARCH_ISR_FLAG_NEED_EOI : 0;
+		atomic_store_explicit(&isr_handlers[vector], isr, ATOMIC_RELEASE);
+	} else {
+		err = -EEXIST;
+	}
+
 	spinlock_release_irq_restore(&isr_handlers_lock, &irq_flags);
 	return err;
 }
