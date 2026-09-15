@@ -95,7 +95,7 @@ int kthread_run(struct thread* thread, int prio) {
 	atomic_store(&thread_args->atomic.threadfn, kt.arg.nonatomic.threadfn);
 	atomic_store(&thread_args->atomic.arg, kt.arg.nonatomic.arg);
 
-	arch_context_prepare_execution(&thread->context.arch_context, ARCH_CODE_ADDRESS(uintptr_t, arch_asm_kthread_start), (uintptr_t)kt.stack_top - sizeof(*thread_args));
+	arch_context_prepare_execution(&thread->context.arch_context, ARCH_CODE_ADDRESS(uintptr_t, arch_kthread_start), (uintptr_t)kt.stack_top - sizeof(*thread_args));
 	err = sched_enqueue(thread);
 	if (err) {
 		sched_thread_detach(thread);
@@ -153,7 +153,7 @@ _Noreturn void kthread_exit(int exit) {
 __diag_push();
 __diag_ignore("-Wmissing-prototypes");
 
-_Noreturn void __asmlinkage kthread_start(int (*func)(void*), void* arg) {
+_Noreturn __asmlinkage void kthread_start(int (*func)(void*), void* arg) {
 	int ret = func(arg);
 	kthread_exit(ret);
 }

@@ -106,8 +106,10 @@ static void handle_exception(struct isr* isr, struct arch_context* ctx) {
 		swapgs();
 }
 
-void __asmlinkage arch_x86_64_do_interrupt(struct arch_context* ctx);
-void __asmlinkage arch_x86_64_do_interrupt(struct arch_context* ctx) {
+__diag_push();
+__diag_ignore("-Wmissing-prototypes");
+
+__asmlinkage void arch_x86_64_do_interrupt(struct arch_context* ctx) {
 	struct isr* isr = atomic_load(&isr_handlers[ctx->vector]);
 	if (unlikely(!isr))
 		panic("Unregistered ISR %#lx", ctx->vector);
@@ -138,6 +140,8 @@ void __asmlinkage arch_x86_64_do_interrupt(struct arch_context* ctx) {
 			arch_x86_64_context_switch_in_interrupt(current, next, ctx);
 	}
 }
+
+__diag_pop();
 
 int arch_register_isr(struct isr* isr) {
 	int err = 0;

@@ -11,7 +11,7 @@
 __diag_push();
 __diag_ignore("-Wmissing-prototypes")
 
-_Noreturn void __asmlinkage arch_x86_64_kernel_ap_main(struct arch_limine_mp_info* cpu_info) {
+_Noreturn __asmlinkage void arch_x86_64_kernel_ap_main(struct arch_limine_mp_info* cpu_info) {
 	arch_tlb_flush_all();
 	arch_x86_64_percpu_ap_init(cpu_info);
 	sched_assign_id();
@@ -20,7 +20,7 @@ _Noreturn void __asmlinkage arch_x86_64_kernel_ap_main(struct arch_limine_mp_inf
 	kernel_ap_main();
 }
 
-_Noreturn void __asmlinkage arch_x86_64_kernel_main(void) {
+_Noreturn __asmlinkage void arch_x86_64_kernel_main(void) {
 	arch_x86_64_percpu_bsp_init();
 	sched_assign_id();
 #ifdef CONFIG_ARCH_X86_64_E9HACK

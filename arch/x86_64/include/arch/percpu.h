@@ -2,7 +2,7 @@
 
 #include <lunar/limine.h>
 #include <x86_64/asm/segment.h>
-#include <x86_64/asm/percpu_offsets.h>
+#include <x86_64/asm/offsets.h>
 
 struct arch_cpu {
 	struct arch_cpu* self;

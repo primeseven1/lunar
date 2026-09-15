@@ -6,4 +6,4 @@
 
 #define RFLAGS_DEFAULT (ARCH_X86_64_RFLAGS_IF | ARCH_X86_64_RFLAGS_RSVD1_SET)
 
-void __asmlinkage context_switch_generic(struct arch_context* current, struct arch_context* next);
+__asmlinkage void context_switch_gp_regs(struct arch_context* current, struct arch_context* next);

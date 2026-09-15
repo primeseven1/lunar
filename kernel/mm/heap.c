@@ -162,19 +162,19 @@ INIT_TASK_DEFINE(heap_init_task, INIT_TASK_SCOPE_BSP, heap_init, &zones_init_tas
 __diag_push();
 __diag_ignore("-Wmissing-prototypes");
 
-void* malloc(size_t size) {
+__visible void* malloc(size_t size) {
 	return kmalloc(size, MM_ZONE_NORMAL);
 }
 
-void* realloc(void* old, size_t new_size) {
+__visible void* realloc(void* old, size_t new_size) {
 	return krealloc(old, new_size, MM_ZONE_NORMAL);
 }
 
-void* calloc(size_t count, size_t size) {
+__visible void* calloc(size_t count, size_t size) {
 	return kcalloc(count, size, MM_ZONE_NORMAL);
 }
 
-void free(void* ptr) {
+__visible void free(void* ptr) {
 	kfree(ptr);
 }
 

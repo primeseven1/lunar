@@ -34,7 +34,7 @@ void arch_context_switch(struct thread* current, struct thread* next) {
 	struct arch_cpu* const acpu = arch_current_cpu();
 	acpu->tss.rsp[0] = next->kernel_stack_top;
 	acpu->__current_thread = next;
-	context_switch_generic(&current->context.arch_context, &next->context.arch_context);
+	context_switch_gp_regs(&current->context.arch_context, &next->context.arch_context);
 }
 
 void arch_x86_64_context_switch_in_interrupt(struct thread* current, struct thread* next, struct arch_context* intctx) {

@@ -46,6 +46,6 @@ struct arch_x86_64_tss {
 static_assert(sizeof(struct arch_x86_64_tss) == 104, "sizeof(struct arch_x86_64_tss) == 104");
 
 void arch_x86_64_gdt_init(void);
-void __asmlinkage arch_x86_64_gdt_reload(const struct arch_x86_64_gdt* gdt, size_t size);
+__asmlinkage void arch_x86_64_gdt_reload(const struct arch_x86_64_gdt* gdt, size_t size);
 
 #endif /* __ASSEMBLER__ */

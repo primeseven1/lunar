@@ -4,7 +4,7 @@
 .code64
 .text
 
-/* void __asmlinkage arch_x86_64_gdt_reload(const struct arch_x86_64_gdt* gdt, size_t size) */
+/* __asmlinkage void arch_x86_64_gdt_reload(const struct arch_x86_64_gdt* gdt, size_t size) */
 ASM_FUNCTION_START(arch_x86_64_gdt_reload, ASM_LINKAGE_GLOBAL):
 	subq $16, %rsp
 
@@ -35,7 +35,7 @@ ASM_FUNCTION_START(arch_x86_64_gdt_reload, ASM_LINKAGE_GLOBAL):
 	ret
 ASM_FUNCTION_END(arch_x86_64_gdt_reload)
 
-/* void __asmlinkage arch_x86_64_idt_reload(const struct arch_x86_64_idt* idt, size_t size) */
+/* __asmlinkage void arch_x86_64_idt_reload(const struct arch_x86_64_idt* idt, size_t size) */
 ASM_FUNCTION_START(arch_x86_64_idt_reload, ASM_LINKAGE_GLOBAL):
 	subq $16, %rsp
 
@@ -47,3 +47,17 @@ ASM_FUNCTION_START(arch_x86_64_idt_reload, ASM_LINKAGE_GLOBAL):
 	addq $16, %rsp
 	ret
 ASM_FUNCTION_END(arch_x86_64_idt_reload)
+
+/* __asmlinkage void arch_kthread_start(void) */
+ASM_FUNCTION_START(arch_kthread_start, ASM_LINKAGE_GLOBAL):
+	movq (%rsp), %rdi /* Function */
+	movq 8(%rsp), %rsi /* Argument */
+
+	/* Create a null frame */
+	movq $0, (%rsp)
+	movq $0, 8(%rsp)
+	xorq %rbp, %rbp
+
+	call kthread_start
+	ud2
+ASM_FUNCTION_END(arch_kthread_start)
