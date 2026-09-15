@@ -8,6 +8,7 @@
  * The first argument points to the function for the kthread at the stack pointer.
  * The next value on the stack is the thread argument as a pointer.
  *
- * This function should never return, and should call kthread_exit() instead.
+ * After setting up the arguments, kthread_start() should be called. This function will never
+ * return.
  */
 __asmlinkage void arch_kthread_start(void);

@@ -69,9 +69,9 @@ _Noreturn void kernel_ap_main(void) {
 	smp_register_cpu();
 	smp_init_complete();
 	smp_init_wait_for_all();
-
 	preempt_init();
 	local_irq_enable();
+	printk("smp: CPU %u up\n", current_cpu()->runqueue.sched_id);
 	sched_thread_exit();
 }
 
