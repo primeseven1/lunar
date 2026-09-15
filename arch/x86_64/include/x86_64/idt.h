@@ -31,20 +31,4 @@
 #define ARCH_X86_64_IDT_SECURITY_VECTOR 30
 #define ARCH_X86_64_IDT_SPURIOUS_VECTOR 0xFF
 
-struct arch_x86_64_idt_entry {
-	u16 handler_low;
-	u16 cs;
-	u8 ist;
-	u8 flags;
-	u16 handler_mid;
-	u32 handler_high;
-	u32 _zero;
-} __attribute__((packed));
-static_assert(sizeof(struct arch_x86_64_idt_entry) == 16, "sizeof(struct arch_x86_64_idt_entry) == 16");
-
-struct arch_x86_64_idt {
-	struct arch_x86_64_idt_entry entries[ARCH_X86_64_IDT_ENTRY_COUNT];
-} __attribute__((packed));
-
 void arch_x86_64_idt_init(void);
-void __asmlinkage arch_x86_64_idt_reload(const struct arch_x86_64_idt* idt, size_t size);

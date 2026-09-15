@@ -22,7 +22,7 @@ static inline void i8259_write(enum pic_io_address address, u8 data) {
  * Spurious IRQ's can only happen on IRQ 7 and IRQ 15. Since all IRQ's are masked on the i8259,
  * the IRQ has to be spurious, so no need to check the PIC for a spurious IRQ.
  */
-void arch_x86_64_i8259_spurious_isr(struct isr* isr) {
+void i8259_spurious_isr(struct isr* isr) {
 	int irqnum = isr->arch_specific.id - I8259_VECTOR_OFFSET;
 
 	/* A spurious IRQ15 comes from the slave PIC, but the master doesn't know it was spurious, so send the EOI to the master */
@@ -43,7 +43,7 @@ void arch_x86_64_i8259_spurious_isr(struct isr* isr) {
 #define PIC_ICW4_BUF_MASTER 0x0C
 #define PIC_ICW4_SFNM 0x10
 
-void arch_x86_64_i8259_initialize_and_mask(void) {
+void i8259_initialize_and_mask(void) {
 	/* Start the initialization process, with the PIC's expecting 4 commands (including this one) */
 	i8259_write(PIC_IO_ADDRESS_MASTER, PIC_ICW1_INIT | PIC_ICW1_ICW4);
 	i8259_write(PIC_IO_ADDRESS_SLAVE, PIC_ICW1_INIT | PIC_ICW1_ICW4);

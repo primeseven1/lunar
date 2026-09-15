@@ -63,7 +63,7 @@ void arch_x86_64_general_protection_fault(struct isr* isr, struct arch_context* 
 	if (try_fixup_usercopy_fault(ctx))
 		return;
 
-	panic("General protection fault\n");
+	panic("General protection fault");
 }
 
 void arch_x86_64_page_fault(struct isr* isr, struct arch_context* ctx) {
@@ -73,9 +73,9 @@ void arch_x86_64_page_fault(struct isr* isr, struct arch_context* ctx) {
 
 	char buf[64];
 	int err = format_reason(buf, sizeof(buf), ctx->err_code);
-	if (err)
+	if (unlikely(err))
 		printk(PRINTK_WARN "mm: Failed to format page fault reason: %d\n", err);
 
 	printk(PRINTK_CRIT "Page fault at RIP %#.20lx, CR2 %#.20lx (%s)\n", ctx->rip, ctx->cr2, buf);
-	panic("Page fault\n");
+	panic("Page fault");
 }

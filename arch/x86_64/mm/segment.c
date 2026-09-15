@@ -13,6 +13,35 @@ static const struct arch_x86_64_segment_descriptor base[5] = {
 	{ .limit_low = 0xFFFF, .base_low = 0, .base_middle = 0, .access = 0xFB, .flags = 0xAF, .base_high = 0 } /* user code */
 };
 
+static void reload_gdt(const struct arch_x86_64_gdt* gdt) {
+	const struct {
+		u16 limit;
+		const struct arch_x86_64_gdt* gdt;
+	} __attribute__((packed, aligned(8))) gdtr = {
+		.limit = sizeof(*gdt) - 1,
+		.gdt = gdt
+	};
+
+	register void* lretq_rip;
+	__asm__ volatile("lgdt %1\n\t"
+			"swapgs\n\t"
+			"movq %2, %%gs\n\t"
+			"movq %2, %%fs\n\t"
+			"swapgs\n\t"
+			"movq %3, %%ds\n\t"
+			"movq %3, %%ss\n\t"
+			"movq %3, %%es\n\t"
+			"leaq 1f(%%rip), %0\n\t"
+			"pushq %4\n\t"
+			"pushq %0\n\t"
+			"lretq\n"
+			"1:\n\t"
+			"ltr %5"
+			: "=&r"(lretq_rip)
+			: "m"(gdtr), "r"((u64)0), "r"((u64)ARCH_X86_64_SEGMENT_KERNEL_DATA), "i"((u64)ARCH_X86_64_SEGMENT_KERNEL_CODE), "r"((u16)ARCH_X86_64_SEGMENT_TASK_STATE)
+			: "memory", "cc");
+}
+
 void arch_x86_64_gdt_init(void) {
 	struct cpu* const cpu = current_cpu();
 
@@ -32,7 +61,7 @@ void arch_x86_64_gdt_init(void) {
 		.base_high = ((u64)ptr >> 32) & U32_MAX, ._unused = 0
 	};
 
-	arch_x86_64_gdt_reload(gdt, sizeof(*gdt)); /* No, not sizeof(*gdt) - 1 */
+	reload_gdt(gdt);
 }
 
 static void ist_init(void) {

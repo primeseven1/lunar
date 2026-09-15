@@ -6,133 +6,167 @@
 #include <arch/irq_flags.h>
 #include <arch/context.h>
 #include <arch/asm/linkage.h>
+
 #include <x86_64/idt.h>
 #include <x86_64/fault.h>
-#include <x86_64/asm/flags.h>
-#include <x86_64/asm/msr.h>
 #include <x86_64/asm/segment.h>
+#include <x86_64/asm/msr.h>
+#include <x86_64/asm/flags.h>
 
 #include "internal.h"
 
 #define EXCEPTION_COUNT 32
-#define ISR_FLAG_EXCEPTION (1 << 0)
+#define EXCEPTION_DEFINE(n, eh, f) [n] = { .handler = NULL, .flags = 0, .private = NULL, .arch_specific = { .id = n, .flags = f, .ehandler = eh } }
+
+#define ARCH_ISR_FLAG_NEED_EOI (1 << 0) /* Call the IRQ controller's EOI function */
+#define ARCH_ISR_FLAG_PARANOID_GSBASE (1 << 1)  /* Check gsbase */
+#define ARCH_ISR_FLAG_EXCEPTION_IRQSOFF (1 << 2) /* Exception should be handled with IRQ's off */
+
+static const char* exception_strings[EXCEPTION_COUNT] = {
+	"Division by 0", "Debug", "NMI", "Breakpoint", "Overflow", "Bound Range Exceeded", "Invalid Opcode", "Device Not Available",
+	"Double Fault", "Coprocessor Segment Overrun", "Invalid TSS", "Segment Not Present", "Stack-Segment Fault", "General Protection Fault",
+	"Page Fault", NULL, "x87 Floating-Point Exception", "Alignment Check", "Machine Check", "SIMD Exception",
+	NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL
+};
+
+static _Noreturn void generic_exception(struct isr* isr, struct arch_context* ctx) {
+	const char* string = exception_strings[isr->arch_specific.id];
+	const int cpl = (ctx->cs & ARCH_X86_64_SEGMENT_CPL3) ? 3 : 0;
+	if (likely(string))
+		panic("CPU exception %s (%d): RIP: %#lx, CPL: %d, ERR: %#lx", string, isr->arch_specific.id, ctx->rip, cpl, ctx->err_code);
+	panic("Unkown exception %d: RIP: %#lx, CPL: %d, ERR: %#lx", isr->arch_specific.id, ctx->rip, cpl, ctx->err_code);
+}
 
 extern const uintptr_t isr_table[ARCH_X86_64_IDT_ENTRY_COUNT];
-static struct arch_x86_64_idt idt;
 static atomic(struct isr*) isr_handlers[ARCH_X86_64_IDT_ENTRY_COUNT] = { 0 };
 static SPINLOCK_DEFINE(isr_handlers_lock);
 
-static struct isr exceptions[EXCEPTION_COUNT] = { 0 };
-static struct isr i8259_spurious_irq7 = {
-	.handler = arch_x86_64_i8259_spurious_isr, .private = NULL,
-	.arch_specific = (struct arch_isr){
-		.id = I8259_VECTOR_OFFSET + 7, .flags = 0, .ehandler = NULL, .need_eoi = false
-	}
+static struct isr exceptions[EXCEPTION_COUNT] = {
+	EXCEPTION_DEFINE(ARCH_X86_64_IDT_NMI_VECTOR, generic_exception, ARCH_ISR_FLAG_PARANOID_GSBASE | ARCH_ISR_FLAG_EXCEPTION_IRQSOFF),
+	EXCEPTION_DEFINE(ARCH_X86_64_IDT_DOUBLE_FAULT_VECTOR, generic_exception, ARCH_ISR_FLAG_PARANOID_GSBASE | ARCH_ISR_FLAG_EXCEPTION_IRQSOFF),
+	EXCEPTION_DEFINE(ARCH_X86_64_IDT_GENERAL_PROTECTION_FAULT_VECTOR, arch_x86_64_general_protection_fault, 0),
+	EXCEPTION_DEFINE(ARCH_X86_64_IDT_PAGE_FAULT_VECTOR, arch_x86_64_page_fault, 0),
+	EXCEPTION_DEFINE(ARCH_X86_64_IDT_MACHINE_CHECK_VECTOR, generic_exception, ARCH_ISR_FLAG_PARANOID_GSBASE | ARCH_ISR_FLAG_EXCEPTION_IRQSOFF)
 };
-static struct isr i8259_spurious_irq15 = {
-	.handler = arch_x86_64_i8259_spurious_isr, .private = NULL,
-	.arch_specific = (struct arch_isr){
-		.id = I8259_VECTOR_OFFSET + 15, .flags = 0, .ehandler = NULL, .need_eoi = false
-	}
-};
+static struct isr i8259_irq7 = { .handler = i8259_spurious_isr, .private = NULL, .arch_specific = { .id = I8259_VECTOR_OFFSET + 7, .flags = 0, .ehandler = NULL } };
+static struct isr i8259_irq15 = { .handler = i8259_spurious_isr, .private = NULL, .arch_specific = { .id = I8259_VECTOR_OFFSET + 15, .flags = 0, .ehandler = NULL } };
 
-static inline bool in_weird_interrupt(int vector) {
-	return (vector == ARCH_X86_64_IDT_NMI_VECTOR || vector == ARCH_X86_64_IDT_MACHINE_CHECK_VECTOR || vector == ARCH_X86_64_IDT_DOUBLE_FAULT_VECTOR);
-}
+struct idt_entry {
+	u16 handler_low;
+	u16 cs;
+	u8 ist;
+	u8 flags;
+	u16 handler_mid;
+	u32 handler_high;
+	u32 _zero;
+} __attribute__((packed, aligned(8)));
 
-static void register_exception(struct isr* isr) {
-	switch (isr->arch_specific.id) {
-	case ARCH_X86_64_IDT_PAGE_FAULT_VECTOR:
-		isr->arch_specific.ehandler = arch_x86_64_page_fault;
-		break;
-	}
+static struct idt_entry idt[ARCH_X86_64_IDT_ENTRY_COUNT] = { 0 };
+
+static void load_idt(void) {
+	static const struct {
+		u16 limit;
+		struct idt_entry* idt;
+	} __attribute__((packed, aligned(8))) idtr = {
+		.limit = sizeof(idt) - 1,
+		.idt = idt
+	};
+	__asm__ volatile("lidt %0" : : "m"(idtr) : "memory");
 }
 
 void arch_x86_64_idt_init(void) {
-	static atomic(bool) idt_initialized = atomic_init(false);
-	if (atomic_exchange(&idt_initialized, true) == false) {
-		int ist = 0;
-		for (size_t i = 0; i < ARRAY_SIZE(idt.entries); i++) {
-			bool need_ist = in_weird_interrupt(i);
-			struct arch_x86_64_idt_entry* entry = &idt.entries[i];
-			*entry = (struct arch_x86_64_idt_entry){
-				.handler_low = isr_table[i] & U16_MAX, .cs = ARCH_X86_64_SEGMENT_KERNEL_CODE,
-				.ist = need_ist ? ++ist : 0, .flags = 0x8e, .handler_mid = (isr_table[i] >> 16) & U16_MAX,
-				.handler_high = ((u64)isr_table[i] >> 32) & U32_MAX, ._zero = 0
-			};
-		}
-		bug(ist != ARCH_X86_64_IDT_IST_COUNT);
-		for (size_t i = 0; i < ARRAY_SIZE(exceptions); i++) {
-			exceptions[i].arch_specific = (struct arch_isr){
-				.id = i, .flags = ISR_FLAG_EXCEPTION, .ehandler = NULL, .need_eoi = false
-			};
-			register_exception(&exceptions[i]);
-			atomic_store(&isr_handlers[i], &exceptions[i]);
-		}
-		atomic_store(&isr_handlers[I8259_VECTOR_OFFSET + 7], &i8259_spurious_irq7);
-		atomic_store(&isr_handlers[I8259_VECTOR_OFFSET + 15], &i8259_spurious_irq15);
+	/* Only runs on the BSP before any AP's are brought up */
+	static atomic(bool) init = atomic_init(false);
+	if (atomic_exchange_explicit(&init, true, ATOMIC_RELAXED)) {
+		load_idt();
+		return;
 	}
-	arch_x86_64_idt_reload(&idt, sizeof(idt));
+
+	/* Set up the i8259 spurious ISR's and CPU exceptions */
+	atomic_store_explicit(&isr_handlers[I8259_VECTOR_OFFSET + 7], &i8259_irq7, ATOMIC_RELAXED);
+	atomic_store_explicit(&isr_handlers[I8259_VECTOR_OFFSET + 15], &i8259_irq15, ATOMIC_RELAXED);
+	for (size_t i = 0; i < ARRAY_SIZE(exceptions); i++) {
+		struct isr* exception = &exceptions[i];
+		if (!exception->arch_specific.ehandler) {
+			exception->arch_specific.id = i;
+			exception->arch_specific.flags = 0;
+			exception->arch_specific.ehandler = generic_exception;
+		}
+		atomic_store_explicit(&isr_handlers[i], &exceptions[i], ATOMIC_RELAXED);
+	}
+
+	/* Now set up all the IDT entries */
+	int ist = 0;
+	for (size_t i = 0; i < ARRAY_SIZE(idt); i++) {
+		struct idt_entry* entry = &idt[i];
+		const struct isr* isr = atomic_load_explicit(&isr_handlers[i], ATOMIC_RELAXED);
+		*entry = (struct idt_entry){
+			.handler_low = isr_table[i] & U16_MAX, .cs = ARCH_X86_64_SEGMENT_KERNEL_CODE,
+			.ist = (isr && (isr->arch_specific.flags & ARCH_ISR_FLAG_PARANOID_GSBASE)) ? ++ist : 0, .flags = 0x8e, .handler_mid = (isr_table[i] >> 16) & U16_MAX,
+			.handler_high = ((u64)isr_table[i] >> 32) & U32_MAX, ._zero = 0
+		};
+	}
+	bug(ist > ARCH_X86_64_IDT_IST_COUNT);
+
+	load_idt();
 }
 
-static inline bool is_cpu_bad(void) {
-	return arch_x86_64_rdmsr(ARCH_X86_64_MSR_GS_BASE) < KERNEL_SPACE_START;
+static void handle_exception(struct isr* isr, struct arch_context* ctx, bool irq) {
+	if ((!(ctx->rflags & ARCH_X86_64_RFLAGS_IF) || current_thread()->preempt_count) && irq) {
+		printk(PRINTK_EMERG "Trap %u occurred in atomic context\n", isr->arch_specific.id);
+		generic_exception(isr, ctx);
+	}
+
+	if (likely(irq))
+		local_irq_enable();
+	isr->arch_specific.ehandler(isr, ctx);
+	local_irq_disable();
 }
 
 static inline void swapgs(void) {
 	__asm__ volatile("swapgs" : : : "memory");
 }
 
-static void handle_exception(struct isr* isr, struct arch_context* ctx) {
-	/* If in an NMI/MCE/DF, gsbase may be wrong */
-	bool weird_interrupt = in_weird_interrupt(isr->arch_specific.id);
-	bool bad_cpu = unlikely(weird_interrupt) ? is_cpu_bad() : false;
-	if (unlikely(bad_cpu))
-		swapgs();
-
-	if (unlikely(!isr->arch_specific.ehandler))
-		panic("Exception %u occurred, but has no handler", isr->arch_specific.id);
-	if ((unlikely(!(ctx->rflags & ARCH_X86_64_RFLAGS_IF) || current_thread()->preempt_count)) && !weird_interrupt)
-		panic("Trap %u occurred in atomic context", isr->arch_specific.id);
-
-	/* Don't re-enable interrupts if in an NMI/MCE/DF */
-	if (!weird_interrupt)
-		local_irq_enable();
-	isr->arch_specific.ehandler(isr, ctx);
-	local_irq_disable();
-
-	/* Now just swap back to the way it was before if gsbase was wrong */
-	if (unlikely(bad_cpu))
-		swapgs();
-}
-
 __diag_push();
 __diag_ignore("-Wmissing-prototypes");
 
 __asmlinkage void arch_x86_64_do_interrupt(struct arch_context* ctx) {
-	struct isr* isr = atomic_load(&isr_handlers[ctx->vector]);
+	struct isr* isr = atomic_load_explicit(&isr_handlers[ctx->vector], ATOMIC_ACQUIRE);
 	if (unlikely(!isr))
-		panic("Unregistered ISR %#lx", ctx->vector);
+		panic("Unregistered ISR %lu", ctx->vector);
 
-	if (isr->arch_specific.flags & ISR_FLAG_EXCEPTION) {
-		handle_exception(isr, ctx);
+	bug(isr->arch_specific.id != ctx->vector);
+	const bool paranoid_gsbase = (isr->arch_specific.flags & ARCH_ISR_FLAG_PARANOID_GSBASE);
+	const bool bad_gsbase = paranoid_gsbase ? (arch_x86_64_rdmsr(ARCH_X86_64_MSR_GS_BASE) < KERNEL_SPACE_START) : false;
+	if (unlikely(bad_gsbase))
+		swapgs();
+
+	const bool exception = isr->arch_specific.id < EXCEPTION_COUNT;
+	const bool exception_irqs_on = !(isr->arch_specific.flags & ARCH_ISR_FLAG_EXCEPTION_IRQSOFF);
+	if (exception) {
+		handle_exception(isr, ctx, exception_irqs_on);
 	} else if (isr->handler) {
 		preempt_offset(PREEMPT_HARDIRQ_OFFSET);
 		isr->handler(isr);
 		do_pending_irqs();
 		preempt_offset(-PREEMPT_HARDIRQ_OFFSET);
 	} else {
-		printk(PRINTK_ERR "int%lu: No handler\n", ctx->vector);
+		printk(PRINTK_CRIT "int%lu: No handler\n", ctx->vector);
 	}
 
-	if (isr->arch_specific.need_eoi)
+	if (isr->arch_specific.flags & ARCH_ISR_FLAG_NEED_EOI)
 		irqctl_eoi(isr);
-	else if (in_weird_interrupt(ctx->vector))
+
+	if (unlikely(paranoid_gsbase)) {
+		if (unlikely(bad_gsbase))
+			swapgs();
+		return;
+	}
+	if (unlikely(exception && !exception_irqs_on))
 		return;
 
-	if (!(isr->arch_specific.flags & ISR_FLAG_EXCEPTION))
+	if (!exception)
 		softirq_execute();
-
 	if (current_cpu()->need_resched && current_thread()->preempt_count == 0) {
 		struct thread* current = current_thread();
 		struct thread* next = atomic_schedule();
@@ -149,26 +183,32 @@ int arch_register_isr(struct isr* isr) {
 	unsigned long irq_flags;
 	spinlock_acquire_irq_save(&isr_handlers_lock, &irq_flags);
 
-	int index = -1;
-	for (size_t i = 0; i < ARRAY_SIZE(isr_handlers); i++) {
-		if (index == -1 && atomic_load(&isr_handlers[i]) == NULL)
-			index = i;
-		if (atomic_load(&isr_handlers[i]) == isr) {
+	/* Check for a free spot while simultaneously looking for a duplicate */
+	int id = -1;
+	for (size_t i = EXCEPTION_COUNT; i < ARRAY_SIZE(isr_handlers); i++) {
+		if (atomic_load_explicit(&isr_handlers[i], ATOMIC_RELAXED) == isr) {
 			err = -EEXIST;
-			break;
+			goto out;
+		} else if (id == -1 && atomic_load_explicit(&isr_handlers[i], ATOMIC_RELAXED) == NULL) {
+			id = i;
 		}
 	}
-	if (err == 0 && index != -1) {
-		isr->arch_specific.id = index;
-		isr->arch_specific.flags = 0;
-		isr->arch_specific.need_eoi = true;
-		atomic_store(&isr_handlers[index], isr);
+
+	/* Now publish the ISR */
+	if (id != -1) {
+		isr->arch_specific.id = id;
+		isr->arch_specific.flags = ARCH_ISR_FLAG_NEED_EOI;
+		atomic_store_explicit(&isr_handlers[id], isr, ATOMIC_RELEASE);
+	} else {
+		err = -ENOSPC;
 	}
 
+out:
 	spinlock_release_irq_restore(&isr_handlers_lock, &irq_flags);
 	return err;
 }
 
+/* Requires CPU synchronization that I do not want to implement right now */
 int arch_unregister_isr(struct isr* isr) {
 	(void)isr;
 	return -ENOSYS;

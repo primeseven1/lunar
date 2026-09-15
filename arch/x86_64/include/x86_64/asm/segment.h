@@ -20,19 +20,20 @@ struct arch_x86_64_segment_descriptor {
 	u8 access;
 	u8 flags;
 	u8 base_high;
-} __attribute__((packed));
-static_assert(sizeof(struct arch_x86_64_segment_descriptor) == 8, "sizeof(struct arch_x86_64_segment_descriptor) == 8");
+} __attribute__((packed, aligned(8)));
+static_assert(sizeof(struct arch_x86_64_segment_descriptor) == 8, "size of struct arch_x86_64_segment_descriptor must be 8 bytes");
 
 struct arch_x86_64_tss_descriptor {
 	struct arch_x86_64_segment_descriptor desc;
 	u32 base_high, _unused;
-} __attribute__((packed));
-static_assert(sizeof(struct arch_x86_64_tss_descriptor) == 16, "sizeof(struct arch_x86_64_tss_descriptor) == 16");
+} __attribute__((packed, aligned(8)));
+static_assert(sizeof(struct arch_x86_64_tss_descriptor) == 16, "size of struct arch_x86_64_tss_descriptor must be 16 bytes");
 
 struct arch_x86_64_gdt {
 	struct arch_x86_64_segment_descriptor base[5];
 	struct arch_x86_64_tss_descriptor tss;
-} __attribute__((packed));
+} __attribute__((packed, aligned(8)));
+static_assert(sizeof(struct arch_x86_64_gdt) == 56, "size of struct arch_x86_64_gdt must be 56 bytes");
 
 struct arch_x86_64_tss {
 	u32 _unused0;
@@ -42,10 +43,9 @@ struct arch_x86_64_tss {
 	u64 _unused2;
 	u16 _unused3;
 	u16 iomap_base;
-} __attribute__((packed));
-static_assert(sizeof(struct arch_x86_64_tss) == 104, "sizeof(struct arch_x86_64_tss) == 104");
+} __attribute__((packed, aligned(8)));
+static_assert(sizeof(struct arch_x86_64_tss) == 104, "size of struct arch_x86_64_tss must be 104 bytes");
 
 void arch_x86_64_gdt_init(void);
-__asmlinkage void arch_x86_64_gdt_reload(const struct arch_x86_64_gdt* gdt, size_t size);
 
 #endif /* __ASSEMBLER__ */
