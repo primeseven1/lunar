@@ -441,6 +441,9 @@ static void sched_init(void) {
 	sched_bootstrap_processor();
 }
 
-INIT_TASK_DECLARE(timers_init_task, timekeeper_init_task, timers_ap_init_task, timekeeper_ap_init_task, proc_init_task, sched_policy_init_task);
-INIT_TASK_DEFINE(sched_init_task, INIT_TASK_SCOPE_BSP, sched_init, &timers_init_task, &timekeeper_init_task, &proc_init_task, &sched_policy_init_task);
-INIT_TASK_DEFINE(sched_ap_init_task, INIT_TASK_SCOPE_AP, sched_bootstrap_processor, &timers_ap_init_task, &timekeeper_ap_init_task, &sched_policy_init_task);
+INIT_TASK_DECLARE(timers_init_task, timekeeper_init_task, timers_ap_init_task, timekeeper_ap_init_task,
+		proc_init_task, sched_policy_init_task, arch_context_init_task, arch_context_ap_init_task);
+INIT_TASK_DEFINE(sched_init_task, INIT_TASK_SCOPE_BSP, sched_init,
+		&timers_init_task, &timekeeper_init_task, &proc_init_task, &sched_policy_init_task, &arch_context_init_task);
+INIT_TASK_DEFINE(sched_ap_init_task, INIT_TASK_SCOPE_AP, sched_bootstrap_processor,
+		&timers_ap_init_task, &timekeeper_ap_init_task, &sched_policy_init_task, &arch_context_ap_init_task);
