@@ -47,7 +47,10 @@ static_assert(sizeof(struct arch_x86_64_fxsave_context) == 512, "struct arch_x86
 
 struct arch_context_extended {
 	void* user_fsbase, *user_gsbase;
-	struct arch_x86_64_fxsave_context* fxsave_region;
+	union {
+		struct arch_x86_64_fxsave_context* fxsave_region;
+		void* xsave_region;
+	} un;
 };
 
 /**
