@@ -22,15 +22,13 @@ struct page {
 
 struct vmm_range {
 	uintptr_t start, end;
-	bool grows_down;
-	size_t max_size;
 };
 
 struct mm {
 	arch_pte_t* pagetable;
 	struct list_head vma_list; /* struct vma */
 	struct rbtree vma_rbtree;
-	struct vmm_range segment, brk, mmap, stack;
+	struct vmm_range mmap, stack;
 	mutex_t mutex;
 };
 

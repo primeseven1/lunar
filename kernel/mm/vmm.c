@@ -252,10 +252,8 @@ static struct mm kernel_mm_struct = {
 	.pagetable = NULL,
 	.vma_list = LIST_HEAD_INITIALIZER(kernel_mm_struct.vma_list),
 	.vma_rbtree = RBTREE_INITIALIZER,
-	.segment = { .start = KERNEL_SPACE_START, .end = KERNEL_SPACE_END, .grows_down = false, .max_size = KERNEL_SPACE_END - KERNEL_SPACE_START },
-	.brk = { .start = KERNEL_SPACE_START, .end = KERNEL_SPACE_END, .grows_down = false, .max_size = KERNEL_SPACE_END - KERNEL_SPACE_START },
-	.mmap = { .start = KERNEL_SPACE_START, .end = KERNEL_SPACE_END, .grows_down = false, .max_size = KERNEL_SPACE_END - KERNEL_SPACE_START },
-	.stack = { .start = KERNEL_SPACE_START, .end = KERNEL_SPACE_END, .grows_down = false, .max_size = KERNEL_SPACE_END - KERNEL_SPACE_START },
+	.mmap = { .start = KERNEL_SPACE_START, .end = KERNEL_SPACE_END },
+	.stack = { .start = KERNEL_SPACE_START, .end = KERNEL_SPACE_END },
 	.mutex = MUTEX_INITIALIZER(kernel_mm_struct.mutex)
 };
 
@@ -277,11 +275,11 @@ struct mm* mm_create(void) {
 
 	list_head_init(&mm->vma_list);
 	rbtree_init(&mm->vma_rbtree);
-	const struct vmm_range zero_range = { .start = 0, .end = 0, .grows_down = false, .max_size = 0 };
-	mm->segment = zero_range;
-	mm->brk = zero_range;
-	mm->mmap = zero_range;
-	mm->stack = zero_range;
+
+	size_t mmap_start = ARCH_USER_SPACE_START + 0x400000;
+	size_t mmap_end = ARCH_USER_SPACE_END - 0x800000;
+	mm->mmap = (struct vmm_range){ .start = mmap_start, .end = mmap_end };
+	mm->stack = (struct vmm_range){ .start = mmap_end, .end = ARCH_USER_SPACE_END };
 	mutex_init(&mm->mutex);
 
 	return mm;
