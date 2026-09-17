@@ -42,7 +42,11 @@ void arch_usercopy_exit(void) {
 }
 
 static void sm_protections_init(void) {
-	u32 ebx, _unused;
+	u32 eax, _unused;
+	arch_x86_64_cpuid(0x00, 0, &eax, &_unused, &_unused, &_unused);
+	if (eax < 0x07)
+		return;
+	u32 ebx;
 	arch_x86_64_cpuid(0x07, 0, &_unused, &ebx, &_unused, &_unused);
 
 	unsigned long or = 0;

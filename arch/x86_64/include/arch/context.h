@@ -29,6 +29,9 @@ static_assert(offsetof(struct arch_context, ds) == ARCH_X86_64_CTX_DS_OFFSET && 
 		&& offsetof(struct arch_context, rflags) == ARCH_X86_64_CTX_RFLAGS_OFFSET && offsetof(struct arch_context, rsp) == ARCH_X86_64_CTX_RSP_OFFSET
 		&& offsetof(struct arch_context, ss) == ARCH_X86_64_CTX_SS_OFFSET, "struct arch_context offsets are wrong");
 
+#define ARCH_CONTEXT_IP(c) ((c)->rip)
+#define ARCH_CONTEXT_SP(c) ((c)->rsp)
+
 struct arch_x86_64_fxsave_context {
 	u16 fcw;
 	u16 fsw;

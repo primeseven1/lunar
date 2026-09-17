@@ -2,9 +2,10 @@
 
 #define ARCH_X86_64_SEGMENT_KERNEL_CODE 0x08
 #define ARCH_X86_64_SEGMENT_KERNEL_DATA 0x10
-#define ARCH_X86_64_SEGMENT_USER_DATA 0x18
-#define ARCH_X86_64_SEGMENT_USER_CODE 0x20
-#define ARCH_X86_64_SEGMENT_TASK_STATE 0x28
+#define ARCH_X86_64_SEGMENT_USER_CODE_32 0x18
+#define ARCH_X86_64_SEGMENT_USER_DATA 0x20
+#define ARCH_X86_64_SEGMENT_USER_CODE 0x28
+#define ARCH_X86_64_SEGMENT_TASK_STATE 0x30
 #define ARCH_X86_64_SEGMENT_CPL0 0x00
 #define ARCH_X86_64_SEGMENT_CPL3 0x03
 
@@ -30,10 +31,10 @@ struct arch_x86_64_tss_descriptor {
 static_assert(sizeof(struct arch_x86_64_tss_descriptor) == 16, "size of struct arch_x86_64_tss_descriptor must be 16 bytes");
 
 struct arch_x86_64_gdt {
-	struct arch_x86_64_segment_descriptor base[5];
+	struct arch_x86_64_segment_descriptor base[6];
 	struct arch_x86_64_tss_descriptor tss;
 } __attribute__((packed, aligned(8)));
-static_assert(sizeof(struct arch_x86_64_gdt) == 56, "size of struct arch_x86_64_gdt must be 56 bytes");
+static_assert(sizeof(struct arch_x86_64_gdt) == 64, "size of struct arch_x86_64_gdt must be 64 bytes");
 
 struct arch_x86_64_tss {
 	u32 _unused0;
