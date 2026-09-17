@@ -61,9 +61,13 @@ static void restore_extended_context(struct arch_context_extended* region) {
 void arch_context_switch(struct thread* current, struct thread* next) {
 	save_extended_context(&current->context.arch_extended_context);
 	restore_extended_context(&next->context.arch_extended_context);
+
 	struct arch_cpu* const acpu = arch_current_cpu();
 	acpu->tss.rsp[0] = next->kernel_stack_top;
 	acpu->__current_thread = next;
+
+	if (next->context.arch_context.cs & ARCH_X86_64_SEGMENT_CPL3)
+		sched_userspace_check(&next->context.arch_context);
 	context_switch_gp_regs(&current->context.arch_context, &next->context.arch_context);
 }
 

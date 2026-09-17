@@ -109,10 +109,10 @@ ASM_FUNCTION_START(arch_x86_64_syscall_entry, ASM_LINKAGE_GLOBAL):
 .exit_work:
 	addq $8, %rsp /* Discard 7th argument */
 	movq %rax, ARCH_X86_64_CTX_RAX_OFFSET(%rsp) /* Save the return value */
-
-	/* TODO: Handle things like signals, rescheduling, etc. */
-
 	cli
+
+	movq %rsp, %rdi
+	call sched_userspace_check
 
 	/* Check to make sure the frame has the same selectors as from the IA32_STAR MSR */
 	movq ARCH_X86_64_CTX_CS_OFFSET(%rsp), %rbx
