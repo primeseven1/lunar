@@ -6,6 +6,9 @@
 #include <lunar/module.h>
 #include <lunar/vfs.h>
 #include <lunar/input.h>
+#include <lunar/cmdline.h>
+#include <lunar/proc.h>
+#include <lunar/elf.h>
 
 #include <arch/tlb.h>
 #include <arch/irq_flags.h>
@@ -77,6 +80,49 @@ _Noreturn void kernel_ap_main(void) {
 
 INIT_TASK_DECLARE(printk_init_task, term_init_task, limine_base_revision_init_task);
 
+/* This function does zero cleanup on failure, since this function failing means a kernel panic */
+static int start_init(struct vnode* vnode) {
+	struct proc* proc;
+	int err = proc_create(&proc);
+	if (err)
+		return err;
+
+	struct thread* thread = alloc_thread();
+	if (!thread)
+		return -ENOMEM;
+	err = alloc_thread_stack(thread, NULL);
+	if (err)
+		return err;
+	thread_topology_init(thread, 0);
+
+	struct mm* kernel_mm = current_mm();
+	mm_switch_context(proc->mm_struct);
+
+	u8 __user* user_stack;
+	struct elf64_auxv_list auxv_list;
+	err = elf_load(vnode, &auxv_list);
+	if (likely(err == 0)) {
+		const size_t user_stack_size = 0x200000;
+		user_stack = vm_map_user(NULL, user_stack_size, PGPROT_READ | PGPROT_WRITE, VMM_STACK, NULL);
+		if (IS_PTR_ERR(user_stack))
+			err = PTR_ERR(user_stack);
+		else
+			user_stack += user_stack_size;
+	}
+
+	mm_switch_context(kernel_mm);
+	if (unlikely(err))
+		return err;
+
+	err = sched_thread_attach(thread, proc, SCHED_PRIO_DEFAULT);
+	if (err == 0) {
+		arch_context_prepare_execution(&thread->context.arch_context, auxv_list.entry.value, (uintptr_t)user_stack);
+		err = sched_enqueue(thread);
+	}
+
+	return err;
+}
+
 static void print_version(void) {
 #ifdef CONFIG_LLVM
 	const char* compiler = "clang";
@@ -121,6 +167,18 @@ _Noreturn void kernel_main(void) {
 
 	/* Will get removed eventually */
 	keyboard_reader_thread_init();
+
+	const char* init_cmdline = cmdline_get("init");
+	struct vnode* vnode;
+	int err = vfs_open(NULL, init_cmdline ? init_cmdline : "/sbin/init", 0, &vnode);
+	if (err)
+		panic("No init found, try setting the init command line option");
+	err = start_init(vnode);
+	if (err) {
+		if (err == -ENOMEM)
+			out_of_memory();
+		panic("Failed to start init: %d", err);
+	}
 
 	sched_thread_exit();
 }
