@@ -193,6 +193,11 @@ int sched_yield(void) {
 	return 0;
 }
 
+/* Unimplemented for now */
+__asmlinkage void sched_userspace_check(struct arch_context* ctx) {
+	(void)ctx;
+}
+
 static int __sched_wakeup_locked(struct thread* thread, int wakeup_errno) {
 	struct cpu* target_cpu = atomic_load(&thread->topology.cpu);
 	struct runqueue* rq = &target_cpu->runqueue;
@@ -217,6 +222,7 @@ static int __sched_wakeup_locked(struct thread* thread, int wakeup_errno) {
 		return 0;
 
 	atomic_store(&thread->wakeup_errno, wakeup_errno);
+	atomic_store(&thread->state_flags, 0);
 	bug(rq->policy->ops->enqueue(rq, thread) != 0);
 	if (atomic_load(&thread->prio) > atomic_load(&rq_current->prio))
 		send_resched(target_cpu);

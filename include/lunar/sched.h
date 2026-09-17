@@ -108,6 +108,12 @@ int sched_dequeue(struct thread* thread);
 int sched_change_prio(struct thread* thread, int prio);
 
 /**
+ * @brief Handle things like signals before returning to userspace
+ * @param ctx Context being returned to
+ */
+__asmlinkage void sched_userspace_check(struct arch_context* ctx);
+
+/**
  * @brief Wake a thread from sleep
  *
  * If the thread is already awake, wakeup_errno isn't set.
