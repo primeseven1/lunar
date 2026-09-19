@@ -12,6 +12,7 @@
 .align 8
 syscall_table:
 	.quad syscall_exit
+	.quad syscall_yield
 syscall_table_end:
 .equ syscall_count, (syscall_table_end - syscall_table) / 8
 
