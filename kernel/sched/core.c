@@ -193,18 +193,30 @@ int sched_yield(void) {
 	return 0;
 }
 
-/* Unimplemented for now */
+/* Expected to be called with IRQ's off */
 __asmlinkage void sched_userspace_check(struct arch_context* ctx) {
-	(void)ctx;
+	struct thread* thread = current_thread();
+	if (atomic_load(&thread->should_exit)) {
+		memset(ctx, 0, sizeof(*ctx));
+		arch_context_prepare_execution(ctx, ARCH_CODE_ADDRESS(uintptr_t, sched_thread_exit), (uintptr_t)thread->kernel_stack_top);
+	}
 }
 
 static int __sched_wakeup_locked(struct thread* thread, int wakeup_errno) {
 	struct cpu* target_cpu = atomic_load(&thread->topology.cpu);
 	struct runqueue* rq = &target_cpu->runqueue;
 	struct thread* rq_current = atomic_load(&rq->current);
+
+	/*
+	 * Here is may seem weird to return 0 here, but in this case there's nothing the caller should really do.
+	 * So just let the thread wake up normally.
+	 */
+	if (wakeup_errno == -EINTR && !(atomic_load(&thread->state_flags) & THREAD_STATE_FLAG_INTERRUPTIBLE))
+		return 0;
+
 	int expected = THREAD_SLEEPING;
 
-	/* Here we need to wait for the CPU to reschedule, to avoid nasty race conditions */
+	/* When this happens, this function needs to wait for the CPU to reschedule, to avoid nasty race conditions */
 	if (thread == rq_current) {
 		if (target_cpu != current_cpu())
 			return -EAGAIN;
