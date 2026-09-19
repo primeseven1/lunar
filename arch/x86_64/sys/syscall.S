@@ -11,13 +11,14 @@
 #endif /* CONFIG_KASLR */
 .align 8
 syscall_table:
+	.quad syscall_exit
 syscall_table_end:
 .equ syscall_count, (syscall_table_end - syscall_table) / 8
 
 .code64
 .text
 
-.macro RESTORE_CONTEXT
+.macro restore_context
 	popq %rbx
 	movq %rbx, %ds
 	popq %rbx
@@ -39,6 +40,13 @@ syscall_table_end:
 	popq %r14
 	popq %r15
 	addq $16, %rsp /* Skip the IDT vector and error code */
+.endm
+
+.macro swapgs_if_needed_exit
+	cmpq $ARCH_X86_64_SEGMENT_KERNEL_CODE, 8(%rsp)
+	je 1f
+	swapgs
+1:
 .endm
 
 ASM_FUNCTION_START(arch_x86_64_syscall_entry, ASM_LINKAGE_GLOBAL):
@@ -151,15 +159,15 @@ ASM_FUNCTION_START(arch_x86_64_syscall_entry, ASM_LINKAGE_GLOBAL):
 	cmpq %rcx, %rbx
 	jne .exit_iret
 
-	RESTORE_CONTEXT
+	restore_context
 	movq 0(%rsp), %rcx /* RIP to RCX */
 	movq 16(%rsp), %r11 /* RFLAGS to r11 */
 	movq 24(%rsp), %rsp /* sysretq does not restore the stack pointer */
 	swapgs
 	sysretq
 .exit_iret:
-	RESTORE_CONTEXT
-	swapgs
+	restore_context
+	swapgs_if_needed_exit
 	iretq
 ASM_FUNCTION_END(arch_x86_64_syscall_entry)
 
