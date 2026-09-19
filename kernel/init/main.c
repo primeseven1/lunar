@@ -82,15 +82,13 @@ INIT_TASK_DECLARE(printk_init_task, term_init_task, limine_base_revision_init_ta
 
 /* This function does zero cleanup on failure, since this function failing means a kernel panic */
 static int start_init(struct vnode* vnode) {
-	struct proc* proc;
-	int err = proc_create(&proc);
-	if (err)
-		return err;
-
+	struct proc* proc = proc_create();
+	if (!proc)
+		return -ENOMEM;
 	struct thread* thread = alloc_thread();
 	if (!thread)
 		return -ENOMEM;
-	err = alloc_thread_stack(thread, NULL);
+	int err = alloc_thread_stack(thread, NULL);
 	if (err)
 		return err;
 	thread_topology_init(thread, 0);

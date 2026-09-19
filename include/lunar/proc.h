@@ -7,17 +7,16 @@
 #include <lunar/sched.h>
 #include <arch/posix.h>
 
-#define PROC_THREAD_ATTACHED_REFCOUNT 1 /* How many references a process holds to a thread when attached */
-
 struct proc {
 	pid_t pid;
+	struct proc* parent, *sibling, *child;
 	struct cred cred;
 	struct mm* mm_struct;
-	struct {
-		struct list_head list;
-		atomic(unsigned int) count;
-		spinlock_t lock;
-	} threads;
+	struct list_head thread_list;
+	unsigned int thread_count;
+	bool no_more_threads;
+	spinlock_t thread_list_lock;
+	int exit_code;
 	struct {
 		struct vnode* cwd, *root;
 		mutex_t mtx;
@@ -54,12 +53,9 @@ int proc_get(pid_t pid, struct proc** out);
  *
  * Pointer is returned with a ref, use PROC_RELEASE() to unref.
  *
- * @param[out] out Pointer to where the process will be stored
- *
- * @retval 0 Successful
- * @retval -ENOMEM Out of memory
+ * @return A pointer to the new process
  */
-int proc_create(struct proc** out);
+struct proc* proc_create(void);
 
 /**
  * @brief Called when a process refcount goes to zero
@@ -72,12 +68,21 @@ int proc_create(struct proc** out);
 void proc_inactive(struct proc* proc);
 
 /**
+ * @brief Terminate the current process
+ * @param exit_code The exit code
+ */
+_Noreturn void proc_terminate(int exit_code);
+
+/**
  * @brief Attach a thread to a process
  *
  * @param proc The process to attach the thread to
  * @param thread The thread to attach
+ *
+ * @retval -ESRCH Process is in the middle of being torn down
+ * @retval 0 Successful
  */
-void proc_thread_attach(struct proc* proc, struct thread* thread);
+int proc_thread_attach(struct proc* proc, struct thread* thread);
 
 /**
  * @brief Detach a thread from a process

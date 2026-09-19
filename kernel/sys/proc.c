@@ -9,13 +9,13 @@ static struct hashtable* process_table;
 static atomic(pid_t) pid_counter = atomic_init(1);
 static struct proc kernel_proc = {
 	.pid = 0,
+	.parent = NULL, .sibling = NULL, .child = NULL,
 	.cred = { .uid = 0, .euid = 0, .suid = 0, .gid = 0, .egid = 0, .sgid = 0 },
 	.mm_struct = NULL,
-	.threads = {
-		.list = LIST_HEAD_INITIALIZER(kernel_proc.threads.list),
-		.count = atomic_init(0),
-		.lock = SPINLOCK_INITIALIZER
-	},
+	.thread_list = LIST_HEAD_INITIALIZER(kernel_proc.thread_list),
+	.thread_count = 0,
+	.no_more_threads = false,
+	.thread_list_lock = SPINLOCK_INITIALIZER,
 	.fs = {
 		.cwd = NULL, .root = NULL,
 		.mtx = MUTEX_INITIALIZER(kernel_proc.fs.mtx)
@@ -35,77 +35,125 @@ int proc_get(pid_t pid, struct proc** out) {
 	return 0;
 }
 
-int proc_create(struct proc** out) {
+struct proc* proc_create(void) {
 	struct proc* proc = slab_cache_alloc(process_cache);
 	if (!proc)
-		return -ENOMEM;
-
+		return NULL;
 	proc->mm_struct = mm_create();
 	if (!proc->mm_struct) {
 		slab_cache_free(process_cache, proc);
-		return -ENOMEM;
+		return NULL;
 	}
 	proc->pid = atomic_fetch_add(&pid_counter, 1);
+	proc->parent = NULL;
+	proc->sibling = NULL;
+	proc->child = NULL;
 	proc->cred = *current_cred();
-	list_head_init(&proc->threads.list);
-	atomic_store(&proc->threads.count, 0);
-	spinlock_init(&proc->threads.lock);
+	list_head_init(&proc->thread_list);
+	proc->thread_count = 0;
+	proc->no_more_threads = false;
+	spinlock_init(&proc->thread_list_lock);
 	proc->fs.cwd = NULL;
 	proc->fs.root = NULL;
 	mutex_init(&proc->fs.mtx);
 	atomic_store(&proc->refcnt, 1);
 
 	int err = hashtable_insert(process_table, &proc->pid, sizeof(proc->pid), &proc);
-	if (err == 0) {
-		*out = proc;
-	} else {
+	if (err) {
 		mm_destroy(proc->mm_struct);
 		slab_cache_free(process_cache, proc);
+		return NULL;
 	}
-	return err;
+	return proc;
 }
 
 void proc_inactive(struct proc* proc) {
 	bug(proc == &kernel_proc);
-
-	struct proc* _tmp;
-	bug(hashtable_search(process_table, &proc->pid, sizeof(proc->pid), &_tmp) != 0 || _tmp != proc);
-
 	bug(hashtable_remove(process_table, &proc->pid, sizeof(proc->pid)) != 0);
 	mm_destroy(proc->mm_struct);
 	slab_cache_free(process_cache, proc);
 }
 
-void proc_thread_attach(struct proc* proc, struct thread* thread) {
+_Noreturn void proc_terminate(int exit_code) {
+	struct proc* proc = current_proc();
+	if (proc == &kernel_proc)
+		panic("Attempted to kill the current process in a kernel thread");
+	if (proc->pid == 1)
+		panic("Attempted to kill init (exit_code: %#.8x)", exit_code);
+
+	struct thread* current = current_thread();
+	bool thread_exit_now = false;
+
 	unsigned long irq_flags;
-	spinlock_acquire_irq_save(&proc->threads.lock, &irq_flags);
+	spinlock_acquire_irq_save(&proc->thread_list_lock, &irq_flags);
 
-	THREAD_HOLD(thread);
-	PROC_HOLD(proc);
+	if (!proc->no_more_threads) {
+		proc->no_more_threads = true;
+		struct thread* thread;
+		list_for_each_entry(thread, &proc->thread_list, proc_link) {
+			if (thread != current) {
+				atomic_store(&thread->should_exit, true);
+				sched_wakeup(thread, -EINTR);
+			}
+		}
+	} else {
+		thread_exit_now = true;
+	}
 
-	bug(atomic_exchange(&thread->proc, proc) != NULL);
-	list_add(&proc->threads.list, &thread->proc_link);
-	atomic_fetch_add(&proc->threads.count, 1);
-	if (!thread->mm_struct)
-		thread->mm_struct = proc->mm_struct;
+	spinlock_release_irq_restore(&proc->thread_list_lock, &irq_flags);
 
-	spinlock_release_irq_restore(&proc->threads.lock, &irq_flags);
+	if (thread_exit_now)
+		sched_thread_exit();
+
+	/* TODO: This is terrible */
+	while (1) {
+		spinlock_acquire_irq_save(&proc->thread_list_lock, &irq_flags);
+		bool one_thread = proc->thread_count == 1;
+		spinlock_release_irq_restore(&proc->thread_list_lock, &irq_flags);
+		if (one_thread)
+			break;
+		schedule();
+	}
+
+	proc->exit_code = exit_code;
+	sched_thread_exit();
+}
+
+int proc_thread_attach(struct proc* proc, struct thread* thread) {
+	int err = -ESRCH;
+
+	unsigned long irq_flags;
+	spinlock_acquire_irq_save(&proc->thread_list_lock, &irq_flags);
+
+	if (likely(!proc->no_more_threads)) {
+		THREAD_HOLD(thread);
+		PROC_HOLD(proc);
+
+		bug(atomic_exchange(&thread->proc, proc) != NULL);
+		list_add(&proc->thread_list, &thread->proc_link);
+		proc->thread_count++;
+		if (!thread->mm_struct)
+			thread->mm_struct = proc->mm_struct;
+
+		err = 0;
+	}
+
+	spinlock_release_irq_restore(&proc->thread_list_lock, &irq_flags);
+	return err;
 }
 
 void proc_thread_detach(struct thread* thread) {
 	struct proc* proc = atomic_exchange(&thread->proc, NULL);
 
 	unsigned long irq_flags;
-	spinlock_acquire_irq_save(&proc->threads.lock, &irq_flags);
+	spinlock_acquire_irq_save(&proc->thread_list_lock, &irq_flags);
 
-	bug(!list_node_linked(&thread->proc_link));
 	list_remove(&thread->proc_link);
-	atomic_fetch_sub(&proc->threads.count, 1);
-
+	proc->thread_count--;
 	PROC_RELEASE(proc);
 	THREAD_RELEASE(thread);
 
-	spinlock_release_irq_restore(&proc->threads.lock, &irq_flags);
+	spinlock_release_irq_restore(&proc->thread_list_lock, &irq_flags);
 }
 
 static void proc_init(void) {

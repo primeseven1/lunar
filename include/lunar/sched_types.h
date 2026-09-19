@@ -51,6 +51,7 @@ struct thread {
 	long in_usercopy; /* Kernel space accessing user space */
 	long preempt_count; /* If zero, the thread can be preempted */
 	atomic(int) prio, state, state_flags, wakeup_errno; /* Thread priority and state */
+	atomic(bool) should_exit;
 	atomic(unsigned long long) sleep_gen; /* Prevents stale wakeups */
 	struct list_node proc_link, block_link;
 	struct timespec detach_time; /* The time the reaper detached the this thread */
