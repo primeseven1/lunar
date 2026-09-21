@@ -7,12 +7,23 @@
 #include <lunar/printk.h>
 #include <arch/processor.h>
 
+static inline int clamp_prio(int prio) {
+	if (prio < SCHED_PRIO_MIN)
+		return SCHED_PRIO_MIN;
+	else if (prio > SCHED_PRIO_MAX)
+		return SCHED_PRIO_MAX;
+	return prio;
+}
+
 int sched_thread_attach(struct thread* thread, struct proc* proc, int prio) {
 	struct runqueue* rq = &atomic_load(&thread->topology.cpu)->runqueue;
 	if (!rq->policy->ops->attach)
 		return -ENOSYS;
 
+	prio = clamp_prio(prio);
+
 	atomic_store(&thread->state, THREAD_READY);
+	atomic_store(&thread->prio, prio);
 	proc_thread_attach(proc, thread);
 
 	unsigned long flags;
@@ -81,23 +92,29 @@ int sched_enqueue(struct thread* thread) {
 	spinlock_acquire_irq_save(&rq->lock, &irq_flags);
 
 	bug(atomic_load(&thread->proc) == NULL); /* Thread is detached */
+
+	struct thread* rq_current = atomic_load(&rq->current);
 	int ret = rq->policy->ops->enqueue(rq, thread);
-	if (ret == 0 && atomic_load(&thread->prio) >= atomic_load(&atomic_load(&rq->current)->prio))
+	if (ret == 0 && atomic_load(&thread->prio) > atomic_load(&rq_current->prio))
 		send_resched(cpu);
 
 	spinlock_release_irq_restore(&rq->lock, &irq_flags);
 	return ret;
 }
 
+/* This function is not used anywhere in the kernel right now, but may be used when migration is implemented. */
 int sched_dequeue(struct thread* thread) {
 	struct runqueue* rq = &atomic_load(&thread->topology.cpu)->runqueue;
-	bug(rq->policy->ops->dequeue == NULL);
+	if (!rq->policy->ops->dequeue)
+		return -ENOSYS;
 
 	unsigned long irq_flags;
 	spinlock_acquire_irq_save(&rq->lock, &irq_flags);
 
 	bug(atomic_load(&thread->proc) == NULL); /* Thread is detached */
-	int ret = rq->policy->ops->dequeue(rq, thread);
+	int ret = -EAGAIN;
+	if (likely(atomic_load(&rq->current) != thread))
+		ret = rq->policy->ops->dequeue(rq, thread);
 
 	spinlock_release_irq_restore(&rq->lock, &irq_flags);
 	return ret;
@@ -109,18 +126,17 @@ int sched_change_prio(struct thread* thread, int prio) {
 	if (!rq->policy->ops->change_prio)
 		return -ENOSYS;
 
-	if (prio < SCHED_PRIO_MIN)
-		prio = SCHED_PRIO_MIN;
-	if (prio > SCHED_PRIO_MAX)
-		prio = SCHED_PRIO_MAX;
+	prio = clamp_prio(prio);
 
 	unsigned long irq_flags;
 	spinlock_acquire_irq_save(&rq->lock, &irq_flags);
 
 	int err = rq->policy->ops->change_prio(rq, thread, prio);
 	if (err == 0) {
-		atomic_store(&thread->prio, prio);
-		if (prio >= atomic_load(&atomic_load(&rq->current)->prio))
+		struct thread* rq_current = atomic_load(&rq->current);
+		int old_prio = atomic_exchange(&thread->prio, prio);
+		bool resched = (rq_current == thread) ? (prio < old_prio) : (prio > atomic_load(&rq_current->prio));
+		if (resched)
 			send_resched(cpu);
 	}
 
@@ -226,7 +242,10 @@ static int __sched_wakeup_locked(struct thread* thread, int wakeup_errno) {
 		 * where if you're trying to wake up the current thread on the current cpu, it waits infinitely for the
 		 * current CPU to reschedule.
 		 */
-		atomic_compare_exchange_strong(&thread->state, &expected, THREAD_RUNNING);
+		if (atomic_compare_exchange_strong(&thread->state, &expected, THREAD_RUNNING)) {
+			atomic_store(&thread->wakeup_errno, wakeup_errno);
+			atomic_store(&thread->state_flags, 0);
+		}
 		return 0;
 	}
 
@@ -241,31 +260,27 @@ static int __sched_wakeup_locked(struct thread* thread, int wakeup_errno) {
 	return 0;
 }
 
-static int try_wakeup(struct thread* thread, int wakeup_errno, bool* send_ipi) {
+static int try_wakeup(struct thread* thread, int wakeup_errno, bool resched) {
 	struct cpu* target_cpu = atomic_load(&thread->topology.cpu);
 	struct runqueue* rq = &target_cpu->runqueue;
 
 	unsigned long irq_flags;
 	spinlock_acquire_irq_save(&rq->lock, &irq_flags);
 
-	/* If the target CPU is the current one, the reschedule IPI will cause the CPU to reschedule right after enabling IRQ's */
 	int err = __sched_wakeup_locked(thread, wakeup_errno);
-	if (err == -EAGAIN && *send_ipi) {
+	if (err == -EAGAIN && resched)
 		send_resched(target_cpu);
-		*send_ipi = false;
-	}
 
 	spinlock_release_irq_restore(&rq->lock, &irq_flags);
 	return err;
 }
 
 void sched_wakeup(struct thread* thread, int wakeup_errno) {
-	bool send_ipi = true;
-	int err;
-	do {
-		err = try_wakeup(thread, wakeup_errno, &send_ipi);
-		arch_cpu_relax();
-	} while (err == -EAGAIN);
+	int err = try_wakeup(thread, wakeup_errno, true);
+	if (err == -EAGAIN) {
+		while ((err = try_wakeup(thread, wakeup_errno, false)) == -EAGAIN)
+			arch_cpu_relax();
+	}
 	bug(err != 0);
 }
 
@@ -276,25 +291,45 @@ struct sched_timer_arg {
 
 static struct slab_cache* atomic_sta_cache;
 
-static void sched_timer_handler(void* event_handle, void* arg) {
-	(void)event_handle;
-
-	struct sched_timer_arg* targ = arg;
+static int __sched_timer_wakeup(struct sched_timer_arg* targ, bool resched) {
 	struct thread* thread = targ->thread;
-
-	struct runqueue* rq = &atomic_load(&thread->topology.cpu)->runqueue;
+	struct cpu* target_cpu = atomic_load(&thread->topology.cpu);
+	struct runqueue* rq = &target_cpu->runqueue;
+	int err = 0;
 
 	unsigned long irq_flags;
 	spinlock_acquire_irq_save(&rq->lock, &irq_flags);
 
 	if (atomic_load(&thread->sleep_gen) == targ->gen) {
-		int errno = 0;
+		int wakeup_errno = 0;
 		if (atomic_load(&thread->state_flags) & THREAD_STATE_FLAG_TIMEOUT)
-			errno = -ETIME;
-		__sched_wakeup_locked(thread, errno);
+			wakeup_errno = -ETIME;
+		err = __sched_wakeup_locked(thread, wakeup_errno);
+		if (err == -EAGAIN && resched)
+			send_resched(target_cpu);
 	}
 
 	spinlock_release_irq_restore(&rq->lock, &irq_flags);
+	return err;
+}
+
+static void sched_timer_handler(void* event_handle, void* arg) {
+	struct sched_timer_arg* targ = arg;
+
+	int err = __sched_timer_wakeup(targ, true);
+	if (err == -EAGAIN) {
+		/* Try to just re-arm the event to try again shortly, to avoid spinning */
+		const struct timer_event_handler handler = { .fn = sched_timer_handler, .arg = targ };
+		if (likely(arm_timer_event_handle(event_handle, 0, &handler, 0) == 0))
+			return;
+
+		/* Fall back to spinning */
+		while ((err = __sched_timer_wakeup(targ, false)) == -EAGAIN)
+			arch_cpu_relax();
+	}
+	bug(err != 0);
+
+	THREAD_RELEASE(targ->thread);
 	slab_cache_free(atomic_sta_cache, targ);
 	free_timer_event_handle(event_handle);
 }
@@ -327,9 +362,11 @@ int sched_prepare_sleep(time_t us, int flags) {
 
 	unsigned long long gen = atomic_add_fetch(&thread->sleep_gen, 1);
 	atomic_store(&thread->state_flags, flags);
+	atomic_store(&thread->wakeup_errno, 0);
 	atomic_store(&thread->state, THREAD_SLEEPING);
 
 	if (handle) {
+		THREAD_HOLD(thread); /* Thread might be reaped before the timer event fires, so hold a reference */
 		targ->thread = thread;
 		targ->gen = gen;
 		const struct timer_event_handler handler = { .fn = sched_timer_handler, .arg = targ };
@@ -338,6 +375,7 @@ int sched_prepare_sleep(time_t us, int flags) {
 			atomic_store(&thread->state, THREAD_RUNNING);
 			free_timer_event_handle(handle);
 			slab_cache_free(atomic_sta_cache, targ);
+			THREAD_RELEASE(thread);
 		}
 	}
 
