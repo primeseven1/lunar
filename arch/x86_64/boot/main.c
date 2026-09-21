@@ -18,9 +18,11 @@ static void enable_syscall(void) {
 		ARCH_X86_64_RFLAGS_IOPL | ARCH_X86_64_RFLAGS_NT | ARCH_X86_64_RFLAGS_RF | ARCH_X86_64_RFLAGS_AC | ARCH_X86_64_RFLAGS_ID;
 	arch_x86_64_wrmsr(ARCH_X86_64_MSR_SF_MASK, sf_mask);
 
+	const u64 user32_sel = ARCH_X86_64_SEGMENT_USER_CODE_32 | ARCH_X86_64_SEGMENT_CPL3;
+	const u64 kernel64_sel = ARCH_X86_64_SEGMENT_KERNEL_CODE | ARCH_X86_64_SEGMENT_CPL0;
 	arch_x86_64_wrmsr(ARCH_X86_64_MSR_LSTAR, (uintptr_t)arch_x86_64_syscall_entry);
 	arch_x86_64_wrmsr(ARCH_X86_64_MSR_CSTAR, (uintptr_t)arch_x86_64_compat_syscall_entry);
-	arch_x86_64_wrmsr(ARCH_X86_64_MSR_STAR, (u64)ARCH_X86_64_SEGMENT_USER_CODE_32 << 48 | (u64)ARCH_X86_64_SEGMENT_KERNEL_CODE << 32);
+	arch_x86_64_wrmsr(ARCH_X86_64_MSR_STAR, (user32_sel << 48) | (kernel64_sel << 32));
 
 	arch_x86_64_wrmsr(ARCH_X86_64_MSR_EFER, arch_x86_64_rdmsr(ARCH_X86_64_MSR_EFER) | ARCH_X86_64_MSR_EFER_SCE);
 }

@@ -162,7 +162,7 @@ ASM_FUNCTION_START(arch_x86_64_syscall_entry, ASM_LINKAGE_GLOBAL):
 
 	restore_context
 	movq 0(%rsp), %rcx /* RIP to RCX */
-	movq 16(%rsp), %r11 /* RFLAGS to r11 */
+	movq 16(%rsp), %r11 /* RFLAGS to R11 */
 	movq 24(%rsp), %rsp /* sysretq does not restore the stack pointer */
 	swapgs
 	sysretq
