@@ -120,8 +120,24 @@ ASM_FUNCTION_START(arch_x86_64_syscall_entry, ASM_LINKAGE_GLOBAL):
 	movq %rax, ARCH_X86_64_CTX_RAX_OFFSET(%rsp) /* Save the return value */
 	cli
 
+	/* Prepare argument and align the stack */
 	movq %rsp, %rdi
+	movq %rsp, %rbx
+	andq $15, %rbx
+	subq %rbx, %rsp
 	call sched_userspace_check
+	addq %rbx, %rsp
+
+	/*
+	 * Check to see if the return address is non-canonical. If so, using sysretq will cause a #GP in ring 0 on the user stack.
+	 * If LA57 is enabled, this breaks
+	 */
+	movq ARCH_X86_64_CTX_RIP_OFFSET(%rsp), %rcx
+	movq %rcx, %rbx
+	shlq $(64 - 48), %rbx
+	sarq $(64 - 48), %rbx
+	cmpq %rcx, %rbx
+	jne .gpf
 
 	/* Check to make sure the frame has the same selectors as from the IA32_STAR MSR */
 	movq ARCH_X86_64_CTX_CS_OFFSET(%rsp), %rbx
@@ -149,17 +165,6 @@ ASM_FUNCTION_START(arch_x86_64_syscall_entry, ASM_LINKAGE_GLOBAL):
 	cmpq ARCH_X86_64_CTX_RCX_OFFSET(%rsp), %rcx
 	jne .exit_iret
 
-	/*
-	 * Check to see if the return address is non-canonical. If so, using sysretq will cause a #GP in ring 0 on the user stack.
-	 * If LA57 ever gets supported, this path should get changed to check if LA57 is used. Otherwise the iret path will be
-	 * unnecessarily taken.
-	 */
-	movq %rcx, %rbx
-	shlq $(64 - 48), %rbx
-	sarq $(64 - 48), %rbx
-	cmpq %rcx, %rbx
-	jne .exit_iret
-
 	restore_context
 	movq 0(%rsp), %rcx /* RIP to RCX */
 	movq 16(%rsp), %r11 /* RFLAGS to R11 */
@@ -170,6 +175,11 @@ ASM_FUNCTION_START(arch_x86_64_syscall_entry, ASM_LINKAGE_GLOBAL):
 	restore_context
 	swapgs_if_needed_exit
 	iretq
+.gpf:
+	restore_context
+	pushq $0 /* Error code */
+	swapgs /* #GP handler will do swapgs when it checks the CS */
+	jmp *(isr_table + 13 * 8)(%rip) /* Jump to the #GP handler, with a user frame */
 ASM_FUNCTION_END(arch_x86_64_syscall_entry)
 
 /*
