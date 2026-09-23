@@ -613,7 +613,7 @@ static struct mem_area* get_mem_area(struct zone* zone, physaddr_t addr) {
  * Allocate pages from a memory zone, this function makes sure the memory
  * region is actually system RAM before returning the address.
  */
-static physaddr_t __alloc_pages(struct zone* zone, mm_t mm_flags, unsigned int order) {
+static physaddr_t __alloc_pages(struct zone* zone, bool atomic, unsigned int order) {
 	size_t alloc_size = PAGE_SIZE << order;
 
 	physaddr_t ret = 0;
@@ -623,7 +623,6 @@ static physaddr_t __alloc_pages(struct zone* zone, mm_t mm_flags, unsigned int o
 	unsigned long block;
 	unsigned long irq_flags;
 
-	bool atomic = !!(mm_flags & MM_ATOMIC);
 	struct mem_area* area = select_mem_area(zone, order, &layer, &block, atomic, &irq_flags);
 	if (!area)
 		goto out;
@@ -663,7 +662,8 @@ retry:
 
 	/*
 	 * Now make sure this region is actually marked usable in the memory map.
-	 * These regions are reserved at boot, but this serves as a sanity check
+	 * This path is mostly hit before the reserved memory is marked as allocated,
+	 * but it can still happen if there are holes in the memory map.
 	 */
 	if (unlikely(!mmap_region_is_usable_strict(ret, alloc_size))) {
 		/* Go through each page, and see what usable pages there are, and free those blocks */
@@ -753,22 +753,21 @@ static struct zone* dma32_zone;
 static struct zone* normal_zone;
 
 /* 
- * Get a memory zone from MM flags, this function must select
- * the most restrictive zone if multiple zones are set for whatever reason.
+ * Get a memory zone from MM flags, this function must select the most restrictive
+ * zone if multiple zones are set for whatever reason. Returns the normal zone if
+ * no flags are set.
  */
-static struct zone* get_zone_mm(mm_t mm_flags) {
+static inline struct zone* get_zone_mm(mm_t mm_flags) {
 	if (mm_flags & MM_ZONE_DMA)
 		return &dma_zone;
 	if (mm_flags & MM_ZONE_DMA32)
 		return dma32_zone;
-	if (mm_flags & MM_ZONE_NORMAL)
-		return normal_zone;
-	return NULL;
+	return normal_zone;
 }
 
 /*
  * Checks if an address range is in a memory zone, this function does assume
- * that all memory areas are ordered.
+ * that all memory areas are ordered (as they should).
  */
 static inline bool in_zone(struct zone* zone, physaddr_t base, physaddr_t top) {
 	struct mem_area* first_area = &zone->areas[0];
@@ -795,6 +794,19 @@ static struct zone* get_zone_addr(physaddr_t addr, size_t size) {
 	return NULL;
 }
 
+static inline struct zone* fallback_zone(struct zone* zone) {
+	switch (zone->zone_type) {
+	case MM_ZONE_NORMAL:
+		return dma32_zone;
+	case MM_ZONE_DMA32:
+		return &dma_zone;
+	case MM_ZONE_DMA:
+		return NULL;
+	default:
+		bug("Invalid zone type");
+	}
+}
+
 static atomic(u64) pages_in_use = atomic_init(0);
 static u64 mem_total = 0;
 
@@ -807,57 +819,43 @@ void out_of_memory(void) {
 	panic("Out of memory");
 }
 
+/* Yes... this is the same as out_of_memory(), this will change at some point */
+static void out_of_memory_atomic(void) {
+	panic("Out of memory");
+}
+
 static physaddr_t _alloc_pages(mm_t mm_flags, unsigned int order) {
-	if (order > MAX_ORDER) {
-		dump_stack();
-		printk(PRINTK_ERR "mm: %s(mm_flags: %u, order: %u) failed: bad order\n", __func__, mm_flags, order);
+	if (order > MAX_ORDER)
 		return 0;
-	}
 
-	if ((mm_flags & (MM_ZONE_NORMAL | MM_ZONE_DMA32 | MM_ZONE_DMA)) == 0)
-		mm_flags |= MM_ZONE_NORMAL;
 	struct zone* zone = get_zone_mm(mm_flags);
-	if (!zone) {
-		dump_stack();
-		printk(PRINTK_ERR "mm: %s(mm_flags: %u, order: %u) failed: bad flags\n", __func__, mm_flags, order);
-		return 0;
-	}
 
-	/* For atomic contexts, don't retry at all to avoid latency issues (unless MM_NOFAIL is set (bad idea)) */
-	const unsigned int max_retries = (mm_flags & MM_ATOMIC) ? 0 : 8;
+	const bool atomic = !!(mm_flags & MM_ATOMIC);
+	const unsigned int max_retries = atomic ? 0 : 3;
 	unsigned int retries = max_retries;
+
 	physaddr_t ret = 0;
-	do {
-		ret = __alloc_pages(zone, mm_flags, order);
+	while (1) {
+		ret = __alloc_pages(zone, atomic, order);
 		if (ret) {
 			atomic_add_fetch(&pages_in_use, 1ul << order);
 			break;
 		}
-		if (mm_flags & MM_NOFAIL && retries == 0) {
-			retries = 1;
-			if ((mm_flags & MM_ATOMIC) == 0) /* Having MM_ATOMIC set with MM_NOFAIL is dangerous, but legal */
+
+		struct zone* fallback = fallback_zone(zone);
+		if (fallback) {
+			zone = fallback;
+		} else if (mm_flags & MM_NOFAIL) {
+			if (atomic)
+				out_of_memory_atomic();
+			else
 				out_of_memory();
-			continue;
+		} else if (retries-- == 0) {
+			break;
+		} else {
+			zone = get_zone_mm(mm_flags);
 		}
-		if (retries < max_retries / 2) {
-			switch (zone->zone_type) {
-			case MM_ZONE_NORMAL:
-				zone = dma32_zone;
-				break;
-			case MM_ZONE_DMA32:
-				zone = &dma_zone;
-				break;
-			case MM_ZONE_DMA:
-				if (mm_flags & MM_ZONE_DMA32)
-					zone = dma32_zone;
-				else if (mm_flags & MM_ZONE_NORMAL)
-					zone = normal_zone;
-				break;
-			default:
-				bug("Invalid zone type");
-			}
-		}
-	} while (retries--);
+	}
 
 	return ret;
 }
@@ -947,9 +945,9 @@ static int init_area(struct mem_area* area, physaddr_t base, size_t real_size, b
 
 	size_t free_list_size = ((1 << layer_count) >> 3) + 1;
 	unsigned int order = get_order(free_list_size);
-	physaddr_t free_list = __alloc_pages(alloc_zone, 0, order);
+	physaddr_t free_list = __alloc_pages(alloc_zone, false, order);
 	if (!free_list) {
-		free_list = __alloc_pages(alloc_zone, MM_ATOMIC, order);
+		free_list = __alloc_pages(alloc_zone, true, order);
 		if (!free_list)
 			return -ENOMEM;
 	}
@@ -996,9 +994,9 @@ static int zone_init(struct zone* zone, mm_t zone_type,
 	if (atomic_count == 0)
 		atomic_count = 1;
 	unsigned int area_order = get_order(sizeof(struct mem_area) * area_count);
-	physaddr_t _areas = __alloc_pages(original_alloc_zone, 0, area_order);
+	physaddr_t _areas = __alloc_pages(original_alloc_zone, false, area_order);
 	if (unlikely(!_areas)) {
-		_areas = __alloc_pages(original_alloc_zone, MM_ATOMIC, area_order);
+		_areas = __alloc_pages(original_alloc_zone, true, area_order);
 		if (unlikely(!_areas))
 			return -ENOMEM;
 	}
