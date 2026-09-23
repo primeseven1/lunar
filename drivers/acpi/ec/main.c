@@ -69,7 +69,7 @@ static inline void ec_enable(struct ec_device* device) {
 	bug(uacpi_enable_gpe(UACPI_NULL, device->gpe_index) != UACPI_STATUS_OK);
 }
 
-static bool ec_fixup_configuration(struct ec_device* device) {
+static bool ec_fixup_regs_and_check_sanity(struct ec_device* device) {
 	bool ok = true;
 	ec_lock(device);
 
@@ -93,16 +93,18 @@ static int ec_init_from_namespace(uacpi_namespace_node* node, uacpi_namespace_no
 	if (found_real)
 		return 0;
 
-	struct ec_device* device = kzalloc(sizeof(*device), MM_ZONE_NORMAL);
+	struct ec_device* device = kmalloc(sizeof(*device), MM_ZONE_NORMAL);
 	if (!device)
 		return -ENOMEM;
+
+	device->node = node;
+	atomic_store(&device->handling_events, false);
+	device->global_lock = needs_global_lock(node);
+	mutex_init(&device->mtx);
 
 	int err = -ENODEV;
 	const uacpi_char* device_path = uacpi_namespace_node_generate_absolute_path(node);
 
-	device->node = node;
-	mutex_init(&device->mtx);
-	device->global_lock = needs_global_lock(node);
 	i32 gpe = get_gpe(node);
 	if (gpe < 0) {
 		printk("ec: %s has no GPE\n", device_path);
@@ -117,6 +119,8 @@ static int ec_init_from_namespace(uacpi_namespace_node* node, uacpi_namespace_no
 		printk(PRINTK_ERR "ec: %s has no resources\n", device_path);
 		goto out;
 	}
+
+	/* Now loop through the resources to find the control and data ports */
 	struct ec_init_ctx init_ctx = { .need_ctrl = true, .need_data = true };
 	status = uacpi_for_each_resource(resources, ec_resource_it, &init_ctx);
 	uacpi_free_resources(resources);
@@ -124,17 +128,16 @@ static int ec_init_from_namespace(uacpi_namespace_node* node, uacpi_namespace_no
 		printk(PRINTK_ERR "ec: %s doesn't have all ports\n", device_path);
 		goto out;
 	}
-	found_real = true;
 	device->ctrl = init_ctx.ctrl;
 	device->data = init_ctx.data;
 
 	/* namespace isn't guarunteed to have the IO addresses in order, so make sure the IO addresses aren't swapped */
-	if (unlikely(!ec_fixup_configuration(device)))
+	if (unlikely(!ec_fixup_regs_and_check_sanity(device)))
 		goto out;
 
+	found_real = true;
 	ec_enable(device);
-	printk("ec: Device %s at IO %lx,%lx GPE: %u, from namespace\n", 
-			device_path, device->data.address, device->ctrl.address, device->gpe_index);
+	printk("ec: Device %s at IO %lx,%lx GPE: %u, from namespace\n", device_path, device->data.address, device->ctrl.address, device->gpe_index);
 	err = 0;
 out:
 	uacpi_free_absolute_path(device_path);
@@ -156,16 +159,17 @@ static int ec_init_from_ecdt(const struct acpi_ecdt* ecdt) {
 
 	uacpi_namespace_node* ec_node;
 	uacpi_status status = uacpi_namespace_node_find(UACPI_NULL, ecdt->ec_id, &ec_node);
-	if (status != UACPI_STATUS_OK)
+	if (status != UACPI_STATUS_OK) {
+		kfree(device);
 		return -ENODEV;
+	}
 
-	mutex_init(&device->mtx);
 	device->node = ec_node;
+	atomic_store(&device->handling_events, false);
 	device->ctrl = ecdt->ec_control;
 	device->data = ecdt->ec_data;
 	device->global_lock = needs_global_lock(ec_node);
-
-	printk("running\n");
+	mutex_init(&device->mtx);
 
 	int err = -ENODEV;
 	const uacpi_char* device_path = uacpi_namespace_node_generate_absolute_path(ec_node);
@@ -178,12 +182,11 @@ static int ec_init_from_ecdt(const struct acpi_ecdt* ecdt) {
 	device->gpe_index = (u16)gpe;
 
 	/* here we choose not to trust the firmware, make sure they aren't swapped */
-	if (unlikely(!ec_fixup_configuration(device)))
+	if (unlikely(!ec_fixup_regs_and_check_sanity(device)))
 		goto out;
 
 	ec_enable(device);
-	printk("ec: Device %s at IO %lx,%lx GPE: %u, from ECDT\n", 
-			device_path, device->data.address, device->ctrl.address, device->gpe_index);
+	printk("ec: Device %s at IO %lx,%lx GPE: %u, from ECDT\n", device_path, device->data.address, device->ctrl.address, device->gpe_index);
 	err = 0;
 out:
 	uacpi_free_absolute_path(device_path);

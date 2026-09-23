@@ -33,8 +33,8 @@ static void handle_ec_query(uacpi_handle handle) {
 			printk(PRINTK_ERR "ec: uacpi_eval() failed executing method %s: %s\n", method_name, uacpi_status_to_string(status));
 	}
 
-	uacpi_finish_handling_gpe(NULL, device->gpe_index);
 	atomic_store(&device->handling_events, false);
+	uacpi_finish_handling_gpe(NULL, device->gpe_index);
 }
 
 static uacpi_status ec_aml_rw(uacpi_region_op op, uacpi_region_rw_data* data) {
@@ -47,7 +47,8 @@ static uacpi_status ec_aml_rw(uacpi_region_op op, uacpi_region_rw_data* data) {
 	struct ec_device* device = data->handler_context;
 	ec_lock(device);
 
-	ec_burst_enable(device);
+	const bool burst_on = ec_burst_enable(device) == 0;
+
 	if (op == UACPI_REGION_OP_READ) {
 		timeout = ec_read(device, data->offset, &d);
 		if (timeout == 0)
@@ -59,7 +60,9 @@ static uacpi_status ec_aml_rw(uacpi_region_op op, uacpi_region_rw_data* data) {
 	} else {
 		bug("invalid EC op"); /* Silence the warning about timeout being uninitialized */
 	}
-	ec_burst_disable(device);
+
+	if (likely(burst_on))
+		ec_burst_disable(device);
 
 	ec_unlock(device);
 	return timeout ? UACPI_STATUS_HARDWARE_TIMEOUT : UACPI_STATUS_OK;

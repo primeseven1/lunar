@@ -16,14 +16,24 @@ static inline void raw_write(struct acpi_gas* gas, u8 value) {
 }
 
 static int wait(struct acpi_gas* gas, u8 bit, bool value) {
-	const int timeout_ms = 1000;
-	int left = timeout_ms;
+	const int timeout_us = 1000 * 1000;
+	const int delay_time = 5;
+
+	/* Most EC transactions finish in a few microseconds, so spin for ~1ms before sleeping */
+	for (int i = 0; i < 1000 / delay_time; i++) {
+		if (!!(raw_read(gas) & bit) == value)
+			return 0;
+		udelay(delay_time);
+	}
+
+	/* Fall back to sleeping */
+	const time_t start = timespec_us(time_fromboot());
 	while (1) {
 		u8 reg = raw_read(gas);
 		if (!!(reg & bit) == value)
 			break;
-		if (left-- == 0) {
-			printk(PRINTK_ERR "ec: Timed out after %d ms\n", timeout_ms);
+		if (timespec_us(time_fromboot()) - start >= timeout_us) {
+			printk(PRINTK_ERR "ec: Timed out after %d us\n", timeout_us);
 			return -ETIMEDOUT;
 		}
 		msleep(1);	
