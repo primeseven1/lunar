@@ -53,7 +53,9 @@ void init_task_run(struct init_task* task) {
 		}
 	}
 
+	printk(PRINTK_DBG "init: running task %s\n", task->name);
 	task->func();
+
 	cpumask_set(&task->done, sched_id, true);
 	cpumask_set(&task->running, sched_id, false);
 }
@@ -74,7 +76,7 @@ _Noreturn void kernel_ap_main(void) {
 	smp_init_wait_for_all();
 	preempt_init();
 	local_irq_enable();
-	printk("smp: CPU %u up\n", current_cpu()->runqueue.sched_id);
+	printk(PRINTK_DBG "smp: CPU %u up\n", current_cpu()->runqueue.sched_id);
 	sched_thread_exit();
 }
 
