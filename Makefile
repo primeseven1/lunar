@@ -65,10 +65,15 @@ else
 LDSCRIPT := ./arch/$(ARCH)/nokaslr.ld
 endif
 
-.PHONY: all version menuconfig clean
+.PHONY: help all version menuconfig clean
 
 all: version
 	$(MAKE) $(OUTPUT)
+
+help:
+	@echo "Available targets:"
+	@echo "    make menuconfig - Configure the project"
+	@echo "    make all        - Build the project"
 
 version:
 	@scripts/cc-ver.sh $(CC) $(CC_MIN_MAJOR) $(CC_MIN_MINOR)
@@ -89,17 +94,16 @@ menuconfig:
 $(OUTPUT): $(S_OBJECT_FILES) $(C_OBJECT_FILES) $(LDSCRIPT)
 	@echo "[LD] $@"
 	@$(LD) $(LDFLAGS) $(S_OBJECT_FILES) $(C_OBJECT_FILES) -T$(LDSCRIPT) -o $(OUTPUT) $(RTLIB_FLAG)
-	@echo "[BUILD] Kernel image $@ is ready!"
 
 %.o: %.S
-	@echo "[AS] $<"
+	@echo "[AS] $@"
 	@$(CC) $(ASMFLAGS) $< -o $@
 
 %.o: %.c
-	@echo "[CC] $<"
+	@echo "[CC] $@"
 	@sparse $(CFLAGS) $(SPARSE_CFLAGS) $<
 	@$(CC) $(CFLAGS) $< -o $@
 
 clean:
-	@rm -f $(S_OBJECT_FILES) $(C_OBJECT_FILES) $(H_DEPENDENCIES) $(OUTPUT)
 	@echo "[CLEAN] ."
+	@rm -f $(S_OBJECT_FILES) $(C_OBJECT_FILES) $(H_DEPENDENCIES) $(OUTPUT)

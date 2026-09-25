@@ -10,7 +10,7 @@ C_SOURCE_FILES += $(shell find ./drivers/liminefb/flanterm/src -type f -name '*.
 C_SOURCE_FILES += ./drivers/liminefb/module.c
 
 ./drivers/liminefb/%.o: ./drivers/liminefb/%.c
-	@echo "[CC] $<"
+	@echo "[CC] $@"
 	@sparse $(CFLAGS) $(SPARSE_CFLAGS) $(LIMINEFB_CFLAGS) $(FLANTERM_CFLAGS) $<
 	@$(CC) $(CFLAGS) $(LIMINEFB_CFLAGS) $(FLANTERM_CFLAGS) $< -o $@
 
