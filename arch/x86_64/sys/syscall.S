@@ -52,14 +52,16 @@ syscall_table_end:
 
 ASM_FUNCTION_START(arch_x86_64_syscall_entry, ASM_LINKAGE_GLOBAL):
 	swapgs
-	lfence
+	lfence /* spectre v1 */
 
 	movq %rax, %gs:ARCH_X86_64_PERCPU_SYSCALL_NUMBER_OFFSET
 	movq %gs:ARCH_X86_64_PERCPU_CURRENT_THREAD_OFFSET, %rax
 	movq 0(%rax), %rax /* Kernel stack top */
 	xchg %rax, %rsp /* Switch to the kernel stack */
 
-	/* Push user interrupt frame */
+	andq $-16, %rsp /* Align the stack */
+
+	/* Push user interrupt frame, 7 values */
 	pushq $(ARCH_X86_64_SEGMENT_USER_DATA | ARCH_X86_64_SEGMENT_CPL3)
 	pushq %rax /* User stack pointer */
 	pushq %r11 /* The syscall instruction saves rflags in r11 */
@@ -70,7 +72,7 @@ ASM_FUNCTION_START(arch_x86_64_syscall_entry, ASM_LINKAGE_GLOBAL):
 
 	movq %gs:ARCH_X86_64_PERCPU_SYSCALL_NUMBER_OFFSET, %rax
 
-	/* Now the general purpose registers */
+	/* Now the general purpose registers, 18 values */
 	pushq %r15
 	pushq %r14
 	pushq %r13
@@ -97,7 +99,7 @@ ASM_FUNCTION_START(arch_x86_64_syscall_entry, ASM_LINKAGE_GLOBAL):
 	movq %rbx, %ds
 
 	/* Prepare syscall arguments */
-	pushq %r9 /* 7th argument */
+	pushq %r9 /* 7th argument, aligns the stack to 16 */
 	movq %r8, %r9
 	movq %r10, %r8
 	movq %rdx, %rcx
@@ -110,8 +112,14 @@ ASM_FUNCTION_START(arch_x86_64_syscall_entry, ASM_LINKAGE_GLOBAL):
 
 	cmpq $syscall_count, %rax
 	jae .invalid
+	lfence /* spectre v1 */
 	leaq syscall_table(%rip), %r10
-	call *(%r10, %rax, 8)
+	movq (%r10, %rax, 8), %r10
+#ifdef CONFIG_ARCH_X86_64_RETPOLINE
+	call __x86_indirect_thunk_r10 /* spectre v2 */
+#else
+	call *%r10
+#endif /* CONFIG_ARCH_X86_64_RETPOLINE */
 	jmp .exit_work
 .invalid:
 	call syscall_invalid
@@ -120,13 +128,11 @@ ASM_FUNCTION_START(arch_x86_64_syscall_entry, ASM_LINKAGE_GLOBAL):
 	movq %rax, ARCH_X86_64_CTX_RAX_OFFSET(%rsp) /* Save the return value */
 	cli
 
-	/* Prepare argument and align the stack */
+	/* Prepare argument and align the stack (again) */
 	movq %rsp, %rdi
-	movq %rsp, %rbx
-	andq $15, %rbx
-	subq %rbx, %rsp
+	subq $8, %rsp
 	call sched_userspace_check
-	addq %rbx, %rsp
+	addq $8, %rsp
 
 	/*
 	 * Check to see if the return address is non-canonical. If so, using sysretq will cause a #GP in ring 0 on the user stack.

@@ -12,4 +12,10 @@ config ARCH_X86_64_X2APIC
 	help
 	  "Use x2apic"
 
+config ARCH_X86_64_RETPOLINE
+	bool "Enable return trampolines"
+	default y
+	help
+	  "Enable the retpoline mitigation for spectre-v2"
+
 endmenu

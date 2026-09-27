@@ -81,3 +81,39 @@ ASM_FUNCTION_START(context_switch_gp_regs, ASM_LINKAGE_GLOBAL):
 2:
 	ret
 ASM_FUNCTION_END(context_switch_gp_regs)
+
+#ifdef CONFIG_ARCH_X86_64_RETPOLINE
+
+.macro thunk reg
+.pushsection .text.__x86.indirect_thunk.\reg, "ax", @progbits
+ASM_FUNCTION_START(__x86_indirect_thunk_\reg, ASM_LINKAGE_GLOBAL):
+	call 2f
+1:
+	pause
+	lfence
+	jmp 1b
+2:
+	movq %\reg, (%rsp)
+	ret
+	ud2
+ASM_FUNCTION_END(__x86_indirect_thunk_\reg)
+.popsection
+.endm
+
+thunk rax
+thunk rbx
+thunk rcx
+thunk rdx
+thunk rsi
+thunk rdi
+thunk rbp
+thunk r8
+thunk r9
+thunk r10
+thunk r11
+thunk r12
+thunk r13
+thunk r14
+thunk r15
+
+#endif /* CONFIG_ARCH_X86_64_RETPOLINE */
