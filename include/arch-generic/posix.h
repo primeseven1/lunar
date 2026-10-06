@@ -1,8 +1,10 @@
 #pragma once
 
 #include <lunar/types.h>
+#include <lunar/compiler.h>
 
 #define NAME_MAX 255
+#define IOV_MAX 1024
 
 #define DT_UNKNOWN 0
 #define DT_FIFO 1
@@ -60,4 +62,12 @@ struct dirent {
 	unsigned short reclen;
 	unsigned char type;
 	char name[NAME_MAX + 1];
+};
+
+struct iovec {
+	union {
+		void* iov_base;
+		void __user* iov_base_user;
+	};
+	size_t iov_len;
 };

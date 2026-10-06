@@ -11,97 +11,27 @@
 
 static atomic(unsigned long) id = atomic_init(1);
 
-struct tmpfs_block {
+struct tmpfs_node {
+	struct vnode vnode;
 	struct vattr attr;
 	union {
 		struct {
 			u8* data;
 			size_t cap;
-		} file;
-		char symlink[PATHNAME_MAX + 1];
-	} data;
-	mutex_t mtx;
-};
-
-struct tmpfs_directory {
-	struct vattr attr;
-	struct hashtable* children;
-};
-
-struct tmpfs_node {
-	struct vnode vnode;
-	union {
-		struct tmpfs_block* data;
-		struct tmpfs_directory directory;
-	} typedata;
+		} regular;
+		struct hashtable* directory;
+		char* symlink;
+	} un;
 };
 
 struct tmpfs_mount {
 	struct mount mount;
 	unsigned long id;
+	atomic(ino_t) next_ino;
 };
 
-static const struct vnode_ops tmpfs_node_ops_alias __attribute__((alias("tmpfs_node_ops")));
-static struct slab_cache* tmpnode_cache;
-
-static struct tmpfs_node* new_node(struct mount* mount, enum vtype type, int flags) {
-	struct tmpfs_node* ret = slab_cache_alloc(tmpnode_cache);
-	if (ret)
-		VOP_INIT(&ret->vnode, type, &tmpfs_node_ops_alias, flags, mount);
-	return ret;
-}
-
-static inline void destroy_node(struct tmpfs_node* tmpnode) {
-	slab_cache_free(tmpnode_cache, tmpnode);
-}
-
-static int init_directory(struct tmpfs_node* tnode, const struct vattr* attr) {
-	struct tmpfs_directory* dir = &tnode->typedata.directory;
-	dir->children = hashtable_create(24, sizeof(struct tmpfs_node*));
-	if (!dir->children)
-		return -ENOMEM;
-	dir->attr = *attr;
-	return 0;
-}
-
-static int init_regular_or_symlink(struct tmpfs_node* tnode, const struct vattr* attr) {
-	struct tmpfs_block* block = kzalloc(sizeof(*block), MM_ZONE_NORMAL);
-	if (!block)
-		return -ENOMEM;
-	block->attr = *attr;
-	mutex_init(&block->mtx);
-	tnode->typedata.data = block;
-	return 0;
-}
-
-static void destroy_directory(struct tmpfs_node* tnode) {
-	hashtable_destroy(tnode->typedata.directory.children);
-}
-
-static void destroy_regular_or_symlink(struct tmpfs_node* tnode) {
-	struct tmpfs_block* block = tnode->typedata.data;
-	if (block->data.file.data)
-		vfree(block->data.file.data);
-	kfree(block);
-}
-
-static inline struct vattr tmpfs_sanitize_attr(const struct tmpfs_mount* tmount, enum vtype type, const struct vattr* attr) {
-	return (struct vattr){
-		.type = type,
-		.mode = attr->mode, .uid = attr->uid, .gid = attr->gid,
-		.fsid = tmount->id,
-		.nlinks = (type == VTYPE_DIR) ? 2 : 1,
-		.size = 0, .fsblocksize = PAGE_SIZE,
-		.atime = (struct timespec){ .tv_sec = 0, .tv_nsec = 0 }, /* atime/mtime/ctime unsupported for now */
-		.mtime = (struct timespec){ .tv_sec = 0, .tv_nsec = 0 },
-		.ctime = (struct timespec){ .tv_sec = 0, .tv_nsec = 0 },
-		.rdevmajor = 0, .rdevminor = 0, .devmajor = 0, .devminor = 0,
-		.blocksused = 0
-	};
-}
-
-static int check_args(const struct vnode* dvp, const char* name, const struct vattr* attr, bool allow_null_attr) {
-	if (!dvp || !name || (!allow_null_attr && !attr) || strlen(name) == 0)
+static int check_args(const struct vnode* dvp, const char* name) {
+	if (!dvp || !name || strlen(name) == 0)
 		return -EINVAL;
 	if (strlen(name) > NAME_MAX)
 		return -ENAMETOOLONG;
@@ -110,102 +40,154 @@ static int check_args(const struct vnode* dvp, const char* name, const struct va
 	return 0;
 }
 
-static bool exists(const struct tmpfs_node* tdvp, const char* name) {
-	struct tmpfs_node* _tmp;
-	return hashtable_search(tdvp->typedata.directory.children, name, strlen(name), &_tmp) == 0;
+static const struct vnode_ops tmpfs_node_ops; /* Defined at the end of the file */
+static struct slab_cache* tmpnode_cache;
+
+static struct tmpfs_node* new_node(struct tmpfs_mount* tmount, enum vtype type, int flags, const struct vattr* attr) {
+	struct tmpfs_node* ret = slab_cache_alloc(tmpnode_cache);
+	if (!ret)
+		return NULL;
+
+	const bool is_dev = (type == VTYPE_CHDEV || type == VTYPE_BLKDEV);
+	VOP_INIT(&ret->vnode, type, &tmpfs_node_ops, flags, &tmount->mount);
+	ret->attr = (struct vattr){
+		.type = type,
+		.mode = attr ? attr->mode : 0,
+		.uid = attr ? attr->uid : 0, .gid = attr ? attr->gid : 0,
+		.fsid = tmount->id,
+		.inode = atomic_fetch_add(&tmount->next_ino, 1),
+		.nlinks = 0,
+		.size = 0, .fsblocksize = PAGE_SIZE,
+		.atime = { .tv_sec = 0, .tv_nsec = 0 }, .mtime = { .tv_sec = 0, .tv_nsec = 0 }, .ctime = { .tv_sec = 0, .tv_nsec = 0 },
+		.rdevmajor = (is_dev && attr) ? attr->rdevmajor : 0, .rdevminor = (is_dev && attr) ? attr->rdevminor : 0,
+		.devmajor = 0, .devminor = 0,
+		.blocksused = 0
+	};
+	memset(&ret->un, 0, sizeof(ret->un));
+
+	return ret;
+}
+
+static void destroy_node(struct tmpfs_node* tnode) {
+	switch (tnode->vnode.type) {
+	case VTYPE_REGULAR:
+		if (tnode->un.regular.data)
+			vfree(tnode->un.regular.data);
+		break;
+	case VTYPE_DIR:
+		if (tnode->un.directory)
+			hashtable_destroy(tnode->un.directory);
+		break;
+	case VTYPE_LINK:
+		kfree(tnode->un.symlink);
+		break;
+	default:
+		break;
+	}
+	slab_cache_free(tmpnode_cache, tnode);
+}
+
+static int search_directory(struct tmpfs_node* node, const char* name, struct tmpfs_node** out) {
+	if (node->vnode.type != VTYPE_DIR)
+		return -ENOTDIR;
+	struct tmpfs_node* tmp;
+	int err = hashtable_search(node->un.directory, name, strlen(name), &tmp);
+	if (err == 0 && out)
+		*out = tmp;
+	return err;
+}
+
+static int init_directory(struct tmpfs_node* tnode, struct tmpfs_node* parent) {
+	if (tnode->vnode.type != VTYPE_DIR)
+		return -ENOTDIR;
+	tnode->un.directory = hashtable_create(24, sizeof(struct tmpfs_node*));
+	if (!tnode->un.directory)
+		return -ENOMEM;
+
+	/* destroy_node() will destroy this for us on failure */
+	int err = hashtable_insert(tnode->un.directory, ".", 1, &tnode);
+	if (err)
+		return err;
+	return hashtable_insert(tnode->un.directory, "..", 2, &parent);
+}
+
+static int create_node(struct vnode* dvp, const char* name, enum vtype type, const struct vattr* attr, const char* symlink_target, struct vnode** out) {
+	int err = check_args(dvp, name);
+	if (err)
+		return err;
+
+	struct tmpfs_node* tdvp = container_of(dvp, struct tmpfs_node, vnode);
+	err = search_directory(tdvp, name, NULL);
+	if (err == 0)
+		return -EEXIST;
+
+	struct tmpfs_node* tnode = new_node(container_of(dvp->belongs_to, struct tmpfs_mount, mount), type, 0, attr);
+	if (!tnode)
+		return -ENOMEM;
+	if (type == VTYPE_DIR) {
+		err = init_directory(tnode, tdvp);
+		if (err)
+			goto err;
+	} else if (type == VTYPE_LINK) {
+		tnode->un.symlink = kstrdup(symlink_target, MM_ZONE_NORMAL);
+		if (!tnode->un.symlink) {
+			err = -ENOMEM;
+			goto err;
+		}
+		tnode->attr.size = strlen(tnode->un.symlink);
+	}
+
+	err = hashtable_insert(tdvp->un.directory, name, strlen(name), &tnode);
+	if (err)
+		goto err;
+
+	tnode->attr.nlinks++;
+	if (type == VTYPE_DIR) {
+		tnode->attr.nlinks++;
+		tdvp->attr.nlinks++;
+	}
+
+	if (out) {
+		VOP_HOLD(&tnode->vnode);
+		*out = &tnode->vnode;
+	}
+	return 0;
+err:
+	destroy_node(tnode);
+	return err;
 }
 
 static int tmpfs_create(struct vnode* dvp, const char* name, const struct vattr* attr, struct vnode** out, const struct cred* cred) {
 	(void)cred;
-	int err = check_args(dvp, name, attr, false);
-	if (err)
-		return err;
-	struct tmpfs_node* tdvp = container_of(dvp, struct tmpfs_node, vnode);
-	if (exists(tdvp, name))
-		return -EEXIST;
-
-	struct tmpfs_mount* tmount = container_of(dvp->belongs_to, struct tmpfs_mount, mount);
-	struct tmpfs_node* tout = new_node(&tmount->mount, VTYPE_REGULAR, 0);
-	if (!tout)
-		return -ENOMEM;
-
-	/* Create the entry */
-	const struct vattr tattr = tmpfs_sanitize_attr(tmount, VTYPE_REGULAR, attr);
-	err = init_regular_or_symlink(tout, &tattr);
-	if (err) {
-		destroy_node(tout);
-		return err;
-	}
-	err = hashtable_insert(tdvp->typedata.directory.children, name, strlen(name), &tout);
-	if (err) {
-		destroy_regular_or_symlink(tout);
-		destroy_node(tout);
-		return err;
-	}
-
-	/* Now return the entry if wanted */
-	if (out) {
-		VOP_LOCK(&tout->vnode);
-		*out = &tout->vnode;
-	} else {
-		VOP_RELEASE(&tout->vnode);
-	}
-	return 0;
+	if (!attr)
+		return -EINVAL;
+	return create_node(dvp, name, VTYPE_REGULAR, attr, NULL, out);
 }
 
 static int tmpfs_mkdir(struct vnode* dvp, const char* name, const struct vattr* attr, struct vnode** out, const struct cred* cred) {
 	(void)cred;
-	int err = check_args(dvp, name, attr, false);
-	if (err)
-		return err;
-	struct tmpfs_node* tdvp = container_of(dvp, struct tmpfs_node, vnode);
-	if (exists(tdvp, name))
-		return -EEXIST;
+	if (!attr)
+		return -EINVAL;
+	return create_node(dvp, name, VTYPE_DIR, attr, NULL, out);
+}
 
-	struct tmpfs_mount* tmount = container_of(dvp->belongs_to, struct tmpfs_mount, mount);
-	struct tmpfs_node* tout = new_node(&tmount->mount, VTYPE_DIR, 0);
-	if (!tout)
-		return -ENOMEM;
+static int tmpfs_mknod(struct vnode* dvp, const char* name, const struct vattr* attr, struct vnode** out, const struct cred* cred) {
+	(void)cred;
+	if (!attr || (attr->type != VTYPE_CHDEV && attr->type != VTYPE_BLKDEV && attr->type != VTYPE_FIFO))
+		return -EINVAL;
+	return create_node(dvp, name, attr->type, attr, NULL, out);
+}
 
-	/* Create the entry */
-	const struct vattr tattr = tmpfs_sanitize_attr(tmount, VTYPE_DIR, attr);
-	err = init_directory(tout, &tattr);
-	if (err) {
-		destroy_node(tout);
-		return err;
-	}
-	err = hashtable_insert(tout->typedata.directory.children, ".", 1, &tout);
-	if (err)
-		goto cleanup_directory;
-	err = hashtable_insert(tout->typedata.directory.children, "..", 2, &tdvp);
-	if (err)
-		goto cleanup_directory;
-	err = hashtable_insert(tdvp->typedata.directory.children, name, strlen(name), &tout);
-	if (err)
-		goto cleanup_directory;
-
-	tdvp->typedata.directory.attr.nlinks++;
-	if (out) {
-		VOP_LOCK(&tout->vnode);
-		*out = &tout->vnode;
-	} else {
-		VOP_RELEASE(&tout->vnode);
-	}
-	return 0;
-cleanup_directory:
-	destroy_directory(tout);
-	destroy_node(tout);
-	return err;
+static inline bool key_equals(const struct hashtable_node* node, const char* str) {
+	const size_t len = strlen(str);
+	return node->key_size == len && memcmp(node->key, str, len) == 0;
 }
 
 static foreach_iteration_desicion_t tmpfs_foreach_isempty(struct hashtable* table, struct hashtable_node* node, void* ctx) {
 	(void)table;
 	bool* empty = ctx;
 
-	struct tmpfs_node* tnode;
-	memcpy(&tnode, node->value, sizeof(struct tmpfs_node*));
-
-	if (strcmp(node->key, ".") != 0 && strcmp(node->key, "..") != 0) {
+	if (!key_equals(node, ".") && !key_equals(node, "..")) {
 		*empty = false;
 		return FOREACH_ITERATION_DESICION_BREAK;
 	}
@@ -213,9 +195,18 @@ static foreach_iteration_desicion_t tmpfs_foreach_isempty(struct hashtable* tabl
 	return FOREACH_ITERATION_DESICION_CONTINUE;
 }
 
+static inline int remove_from_directory(struct tmpfs_node* tdvp, struct tmpfs_node* tchild, const char* name) {
+	struct tmpfs_node* tmp;
+	int err = search_directory(tdvp, name, &tmp);
+	bug(err != 0 || tmp != tchild);
+	return hashtable_remove(tdvp->un.directory, name, strlen(name));
+}
+
 static int tmpfs_rmdir(struct vnode* dvp, struct vnode* vnode, const char* name, const struct cred* cred) {
 	(void)cred;
-	int err = check_args(dvp, name, NULL, true);
+	if (!vnode)
+		return -EINVAL;
+	int err = check_args(dvp, name);
 	if (err)
 		return err;
 	if (vnode->type != VTYPE_DIR)
@@ -223,22 +214,16 @@ static int tmpfs_rmdir(struct vnode* dvp, struct vnode* vnode, const char* name,
 
 	struct tmpfs_node* tnode = container_of(vnode, struct tmpfs_node, vnode);
 	bool empty = true;
-	hashtable_for_each_entry(tnode->typedata.directory.children, tmpfs_foreach_isempty, &empty);
+	hashtable_for_each_entry(tnode->un.directory, tmpfs_foreach_isempty, &empty);
 	if (!empty)
 		return -ENOTEMPTY;
 
 	struct tmpfs_node* tdvp = container_of(dvp, struct tmpfs_node, vnode);
-
-	/* Check to make sure the name resolves to the same child */
-	struct tmpfs_node* _tmp;
-	bug(hashtable_search(tdvp->typedata.directory.children, name, strlen(name), &_tmp) != 0);
-	bug(_tmp != tnode);
-
-	/* Now just remove the reference */
-	err = hashtable_remove(tdvp->typedata.directory.children, name, strlen(name));
+	err = remove_from_directory(tdvp, tnode, name);
 	if (err == 0) {
-		tnode->typedata.directory.attr.nlinks -= 2; /* . and .. links */
-		tdvp->typedata.directory.attr.nlinks--;
+		tnode->attr.nlinks -= 2; /* its entry in dvp, and its own . */
+		tdvp->attr.nlinks--; /* .. */
+		VOP_RELEASE(vnode);
 	}
 	return err;
 }
@@ -246,7 +231,13 @@ static int tmpfs_rmdir(struct vnode* dvp, struct vnode* vnode, const char* name,
 static int tmpfs_open(struct vnode** vnode, int flags, const struct cred* cred) {
 	(void)flags;
 	(void)cred;
-	(void)vnode;
+
+	struct vnode* v = *vnode;
+
+	/* for now */
+	if (v->type == VTYPE_SOCKET || v->type == VTYPE_CHDEV || v->type == VTYPE_BLKDEV || v->type == VTYPE_FIFO)
+		return -ENXIO;
+
 	return 0;
 }
 
@@ -257,67 +248,68 @@ static int tmpfs_close(struct vnode* vnode, int flags, const struct cred* cred) 
 	return 0;
 }
 
-static int tmpfs_read(struct vnode* vnode, void* buf, size_t count, off_t off, int flags, size_t* out_readc, const struct cred* cred) {
+static int tmpfs_read(struct vnode* vnode, struct uio* uio, int flags, const struct cred* cred) {
 	(void)flags;
 	(void)cred;
-	if (off < 0 || !out_readc)
+	if (vnode->type != VTYPE_REGULAR)
 		return -EINVAL;
 
 	struct tmpfs_node* tnode = container_of(vnode, struct tmpfs_node, vnode);
-	struct tmpfs_block* block = tnode->typedata.data;
-
-	size_t size = block->attr.size;
-	if ((size_t)off >= size) {
-		*out_readc = 0;
+	const size_t size = tnode->attr.size;
+	const size_t off = (size_t)uio->offset;
+	if (off >= size)
 		return 0;
+
+	return uio_move(tnode->un.regular.data + off, size - off, uio);
+}
+
+static int reserve(struct tmpfs_node* tnode, size_t size) {
+	if (size <= tnode->un.regular.cap)
+		return 0;
+
+	size_t new_cap = (size + PAGE_SIZE - 1) & ~((size_t)PAGE_SIZE - 1);
+	u8* new_data = vmalloc(new_cap);
+	if (!new_data)
+		return -ENOMEM;
+	if (tnode->un.regular.data) {
+		memcpy(new_data, tnode->un.regular.data, tnode->un.regular.cap);
+		vfree(tnode->un.regular.data);
 	}
+	tnode->un.regular.data = new_data;
+	tnode->un.regular.cap = new_cap;
 
-	size_t avail = size - (size_t)off;
-	if (count > avail)
-		count = avail;
-
-	memcpy(buf, block->data.file.data + off, count);
-	*out_readc = count;
 	return 0;
 }
 
-static int tmpfs_write(struct vnode* vnode, const void* buf, size_t count, off_t off, int flags, size_t* out_wcount, const struct cred* cred) {
+static int tmpfs_write(struct vnode* vnode, struct uio* uio, int flags, const struct cred* cred) {
 	(void)flags;
 	(void)cred;
-	if (off < 0 || !out_wcount)
+	if (vnode->type != VTYPE_REGULAR)
 		return -EINVAL;
-	if (count == 0) {
-		*out_wcount = 0;
+	if (uio->resid == 0)
 		return 0;
-	}
 
 	struct tmpfs_node* tnode = container_of(vnode, struct tmpfs_node, vnode);
+	const size_t off = (size_t)uio->offset;
 	size_t end;
-	if (__builtin_add_overflow(off, count, &end))
+	if (__builtin_add_overflow(off, uio->resid, &end) || end > (size_t)SSIZE_MAX)
 		return -EFBIG;
 
-	struct tmpfs_block* block = tnode->typedata.data;
-	if (end > block->data.file.cap) {
-		size_t new_cap = (end + PAGE_SIZE - 1) & ~((size_t)PAGE_SIZE - 1);
-		u8* new_data = vmalloc(new_cap);
-		if (!new_data)
-			return -ENOMEM;
-		if (block->data.file.data) {
-			memcpy(new_data, block->data.file.data, block->data.file.cap);
-			vfree(block->data.file.data);
-		}
-		block->data.file.data = new_data;
-		block->data.file.cap = new_cap;
-	}
+	int err = reserve(tnode, end);
+	if (err)
+		return err;
 
-	if ((size_t)off > block->attr.size)
-		memset(block->data.file.data + block->attr.size, 0, (size_t)off - block->attr.size);
-	memcpy(block->data.file.data + off, buf, count);
-	if (end > block->attr.size)
-		block->attr.size = end;
+	tnode->attr.blocksused = tnode->un.regular.cap / 512;
+	if (off > tnode->attr.size)
+		memset(tnode->un.regular.data + tnode->attr.size, 0, off - tnode->attr.size);
 
-	*out_wcount = count;
-	return 0;
+	const size_t start = uio->resid;
+	err = uio_move(tnode->un.regular.data + off, start, uio);
+	const size_t written = start - uio->resid;
+	if (written && off + written > tnode->attr.size)
+		tnode->attr.size = off + written;
+
+	return err;
 }
 
 static int tmpfs_lookup(struct vnode* ref, const char* name, struct vnode** out, const struct cred* cred) {
@@ -332,15 +324,13 @@ static int tmpfs_lookup(struct vnode* ref, const char* name, struct vnode** out,
 		return -ENOTDIR;
 
 	struct tmpfs_node* tnode = container_of(ref, struct tmpfs_node, vnode);
-	struct tmpfs_node* lookup;
-	int ret = hashtable_search(tnode->typedata.directory.children, name, strlen(name), &lookup);
-	if (ret)
-		return -ENOENT;
-
-	VOP_HOLD(&lookup->vnode);
-	VOP_LOCK(&lookup->vnode);
-	*out = &lookup->vnode;
-	return 0;
+	struct tmpfs_node* tmp;
+	int ret = search_directory(tnode, name, &tmp);
+	if (ret == 0) {
+		VOP_HOLD(&tmp->vnode);
+		*out = &tmp->vnode;
+	}
+	return ret;
 }
 
 static int tmpfs_sync(struct vnode* vnode) {
@@ -350,115 +340,101 @@ static int tmpfs_sync(struct vnode* vnode) {
 
 static int tmpfs_getattr(struct vnode* vnode, struct vattr* attr, const struct cred* cred) {
 	(void)cred;
-	struct tmpfs_node* tnode = container_of(vnode, struct tmpfs_node, vnode);
-	const struct vattr* tattr = (vnode->type == VTYPE_DIR) ? &tnode->typedata.directory.attr : &tnode->typedata.data->attr;
-	memcpy(attr, tattr, sizeof(*attr));
+	struct tmpfs_node* const tnode = container_of(vnode, struct tmpfs_node, vnode);
+	memcpy(attr, &tnode->attr, sizeof(*attr));
 	return 0;
 }
 
 static int tmpfs_setattr(struct vnode* vnode, const struct vattr* attr, int attrs, const struct cred* cred) {
 	(void)cred;
-	struct tmpfs_node* tnode = container_of(vnode, struct tmpfs_node, vnode);
-	struct vattr* tattr = (vnode->type == VTYPE_DIR) ? &tnode->typedata.directory.attr : &tnode->typedata.data->attr;
+	struct tmpfs_node* const tnode = container_of(vnode, struct tmpfs_node, vnode);
+
+	if (attrs & VATTR_SIZE) {
+		if (vnode->type == VTYPE_DIR)
+			return -EISDIR;
+		if (vnode->type != VTYPE_REGULAR)
+			return -EINVAL;
+		if (attr->size > (size_t)SSIZE_MAX)
+			return -EFBIG;
+		if (attr->size > tnode->attr.size) {
+			int err = reserve(tnode, attr->size);
+			if (err)
+				return err;
+			memset(tnode->un.regular.data + tnode->attr.size, 0, attr->size - tnode->attr.size);
+		}
+
+		/* This does not free the buffer, blocksused will stay at the old capacity until the page cache replaces this */
+		tnode->attr.size = attr->size;
+		tnode->attr.blocksused = tnode->un.regular.cap / 512;
+	}
 	if (attrs & VATTR_MODE)
-		tattr->mode = attr->mode;
+		tnode->attr.mode = attr->mode;
 	if (attrs & VATTR_UID)
-		tattr->uid = attr->uid;
+		tnode->attr.uid = attr->uid;
 	if (attrs & VATTR_GID)
-		tattr->gid = attr->gid;
+		tnode->attr.gid = attr->gid;
 	if (attrs & VATTR_ATIME)
-		tattr->atime = attr->atime;
+		tnode->attr.atime = attr->atime;
 	if (attrs & VATTR_MTIME)
-		tattr->mtime = attr->mtime;
+		tnode->attr.mtime = attr->mtime;
 	if (attrs & VATTR_CTIME)
-		tattr->ctime = attr->ctime;
+		tnode->attr.ctime = attr->ctime;
+
 	return 0;
 }
 
 static int tmpfs_link(struct vnode* dvp, struct vnode* svp, const char* name, const struct cred* cred) {
 	(void)cred;
-	if (!dvp || !svp || !name || strlen(name) == 0)
+	int err = check_args(dvp, name);
+	if (err)
+		return err;
+	if (!svp)
 		return -EINVAL;
 	if (dvp->belongs_to != svp->belongs_to)
 		return -EXDEV;
-	if (dvp->type != VTYPE_DIR)
-		return -ENOTDIR;
 	if (svp->type == VTYPE_DIR)
 		return -EPERM;
 
-	struct tmpfs_node* tnode = new_node(dvp->belongs_to, VTYPE_REGULAR, 0);
-	if (!tnode)
-		return -ENOMEM;
-
 	struct tmpfs_node* tdvp = container_of(dvp, struct tmpfs_node, vnode);
-	int err = hashtable_insert(tdvp->typedata.directory.children, name, strlen(name), &tnode);
-	if (err) {
-		destroy_node(tnode);
-		return err;
-	}
+	if (search_directory(tdvp, name, NULL) == 0)
+		return -EEXIST;
 
 	struct tmpfs_node* tsvp = container_of(svp, struct tmpfs_node, vnode);
-	struct tmpfs_block* block = tsvp->typedata.data;
-	block->attr.nlinks++;
-	tnode->typedata.data = block;
+	err = hashtable_insert(tdvp->un.directory, name, strlen(name), &tsvp);
+	if (err == 0) {
+		VOP_HOLD(svp);
+		tsvp->attr.nlinks++;
+	}
 
-	return 0;
+	return err;
 }
 
 static int tmpfs_symlink(struct vnode* dvp, const char* name, const char* target, const struct vattr* attr, const struct cred* cred) {
 	(void)cred;
-	if (!name || !target || strlen(name) == 0 || strlen(target) == 0)
+	if (!target || strlen(target) == 0)
 		return -EINVAL;
 	if (strlen(target) > PATHNAME_MAX)
 		return -ENAMETOOLONG;
-	if (dvp->type != VTYPE_DIR)
-		return -ENOTDIR;
-
-	struct tmpfs_node* tnode = new_node(dvp->belongs_to, VTYPE_LINK, 0);
-	if (!tnode)
-		return -ENOMEM;
-	const struct vattr tattr = tmpfs_sanitize_attr(container_of(dvp->belongs_to, struct tmpfs_mount, mount), VTYPE_LINK, attr);
-	int err = init_regular_or_symlink(tnode, &tattr);
-	if (err) {
-		destroy_node(tnode);
-		return err;
-	}
-
-	struct tmpfs_node* tdvp = container_of(dvp, struct tmpfs_node, vnode);
-	err = hashtable_insert(tdvp->typedata.directory.children, name, strlen(name), &tnode);
-	if (err) {
-		destroy_regular_or_symlink(tnode);
-		destroy_node(tnode);
-		return err;
-	}
-
-	strlcpy(tnode->typedata.data->data.symlink, target, sizeof(tnode->typedata.data->data.symlink));
-	return 0;
+	return create_node(dvp, name, VTYPE_LINK, attr, target, NULL);
 }
 
 static int tmpfs_unlink(struct vnode* dvp, struct vnode* child, const char* name, const struct cred* cred) {
 	(void)cred;
-	if (!dvp || !child || !name || strlen(name) == 0)
+	int err = check_args(dvp, name);
+	if (err)
+		return err;
+	if (!child)
 		return -EINVAL;
-	if (dvp->type != VTYPE_DIR)
-		return -ENOTDIR;
 	if (child->type == VTYPE_DIR)
 		return -EISDIR;
 
 	struct tmpfs_node* tchild = container_of(child, struct tmpfs_node, vnode);
-	struct tmpfs_node* tdvp = container_of(dvp, struct tmpfs_node, vnode);
-
-	/* Check to make sure the name resolves to the same child */
-	struct tmpfs_node* _tmp;
-	bug(hashtable_search(tdvp->typedata.directory.children, name, strlen(name), &_tmp) != 0);
-	bug(_tmp != tchild);
-
-	/* Now just remove the reference to the child */
-	int err = hashtable_remove(tdvp->typedata.directory.children, name, strlen(name));
+	err = remove_from_directory(container_of(dvp, struct tmpfs_node, vnode), tchild, name);
 	if (err == 0) {
-		struct tmpfs_block* block = tchild->typedata.data;
-		block->attr.nlinks--;
+		tchild->attr.nlinks--;
+		VOP_RELEASE(child);
 	}
+
 	return err;
 }
 
@@ -468,7 +444,7 @@ static int tmpfs_readlink(struct vnode* vnode, char** out, const struct cred* cr
 		return -EINVAL;
 
 	struct tmpfs_node* tnode = container_of(vnode, struct tmpfs_node, vnode);
-	char* _out = kstrdup(tnode->typedata.data->data.symlink, MM_ZONE_NORMAL);
+	char* _out = kstrdup(tnode->un.symlink, MM_ZONE_NORMAL);
 	if (!_out)
 		return -ENOMEM;
 
@@ -498,16 +474,21 @@ static foreach_iteration_desicion_t tmpfs_foreach_getdents(struct hashtable* tab
 	if (data->rcount == data->count)
 		return FOREACH_ITERATION_DESICION_BREAK;
 
-	struct dirent* entry = &data->buf[data->rcount];
 	struct tmpfs_node* tnode;
-	memcpy(&tnode, node->value, sizeof(struct tmpfs_node*));
+	memcpy(&tnode, node->value, sizeof(typeof(tnode))); /* typeof suppresses the compiler warning */
 
-	entry->ino = (tnode->vnode.type == VTYPE_DIR) ? tnode->typedata.directory.attr.inode : tnode->typedata.data->attr.inode;
+	struct dirent* entry = &data->buf[data->rcount];
+	entry->ino = tnode->attr.inode;
 	entry->off = data->npos;
 	entry->reclen = sizeof(*entry);
-	strlcpy(entry->name, node->key, sizeof(entry->name));
+	size_t name_len = node->key_size;
+	if (name_len > sizeof(entry->name) - 1)
+		name_len = sizeof(entry->name) - 1;
+	memcpy(entry->name, node->key, name_len);
+	entry->name[name_len] = '\0';
 	entry->type = vfs_posix_type(tnode->vnode.type);
 	data->rcount++;
+	data->npos++;
 
 	return FOREACH_ITERATION_DESICION_CONTINUE;
 }
@@ -518,54 +499,29 @@ static int tmpfs_getdents(struct vnode* dir, struct dirent* buf, size_t count, o
 	if (dir->type != VTYPE_DIR)
 		return -ENOTDIR;
 
-	if (count) {
-		if (!buf)
-			return -EINVAL;
-		struct tmpfs_dent_ctx ctx = { .buf = buf, .count = count, .rcount = 0, .off = off, .npos = 0 };
-		struct tmpfs_node* tdir = container_of(dir, struct tmpfs_node, vnode);
-		hashtable_for_each_entry(tdir->typedata.directory.children, tmpfs_foreach_getdents, &ctx);
-		*out_rcount = ctx.rcount;
-	} else {
-		*out_rcount = 0;
-	}
+	*out_rcount = 0;
+	if (count == 0)
+		return 0;
+	if (!buf)
+		return -EINVAL;
 
-	return 0;
-}
-
-static int tmpfs_lock(struct vnode* vnode) {
-	struct tmpfs_node* tnode = container_of(vnode, struct tmpfs_node, vnode);
-	if (vnode->type == VTYPE_REGULAR)
-		mutex_acquire(&tnode->typedata.data->mtx);
-	else
-		mutex_acquire(&vnode->mtx);
-	return 0;
-}
-
-static int tmpfs_unlock(struct vnode* vnode) {
-	struct tmpfs_node* tnode = container_of(vnode, struct tmpfs_node, vnode);
-	if (vnode->type == VTYPE_REGULAR)
-		mutex_release(&tnode->typedata.data->mtx);
-	else
-		mutex_release(&vnode->mtx);
+	struct tmpfs_dent_ctx ctx = { .buf = buf, .count = count, .rcount = 0, .off = off, .npos = 0 };
+	hashtable_for_each_entry(container_of(dir, struct tmpfs_node, vnode)->un.directory, tmpfs_foreach_getdents, &ctx);
+	*out_rcount = ctx.rcount;
 	return 0;
 }
 
 static void tmpfs_inactive(struct vnode* vnode) {
 	struct tmpfs_node* tnode = container_of(vnode, struct tmpfs_node, vnode);
-	struct vattr* attr = (vnode->type == VTYPE_DIR) ? &tnode->typedata.directory.attr : &tnode->typedata.data->attr;
-	if (attr->nlinks == 0) {
-		if (vnode->type == VTYPE_DIR)
-			destroy_directory(tnode);
-		else
-			destroy_regular_or_symlink(tnode);
-		destroy_node(tnode);
-	}
+	bug(tnode->attr.nlinks != 0);
+	destroy_node(tnode);
 }
 
 static const struct vnode_ops tmpfs_node_ops = {
 	.create = tmpfs_create,
 	.mkdir = tmpfs_mkdir,
 	.rmdir = tmpfs_rmdir,
+	.mknod = tmpfs_mknod,
 	.open = tmpfs_open,
 	.close = tmpfs_close,
 	.read = tmpfs_read,
@@ -580,8 +536,8 @@ static const struct vnode_ops tmpfs_node_ops = {
 	.readlink = tmpfs_readlink,
 	.freelink = tmpfs_freelink,
 	.getdents = tmpfs_getdents,
-	.lock = tmpfs_lock,
-	.unlock = tmpfs_unlock,
+	.lock = NULL,
+	.unlock = NULL,
 	.inactive = tmpfs_inactive
 };
 
@@ -589,43 +545,30 @@ static int tmpfs_mnt_mount(struct vnode* backing, void* data, struct mount** out
 	(void)backing;
 	(void)data;
 
-	struct tmpfs_mount* tmpfs_mount = kzalloc(sizeof(*tmpfs_mount), MM_ZONE_NORMAL);
-	if (!tmpfs_mount)
+	struct tmpfs_mount* tmount = kzalloc(sizeof(*tmount), MM_ZONE_NORMAL);
+	if (!tmount)
 		return -ENOMEM;
-	struct tmpfs_node* tmproot = new_node(&tmpfs_mount->mount, VTYPE_DIR, VFLAG_ROOT);
-	if (!tmproot) {
-		kfree(tmpfs_mount);
+
+	tmount->id = atomic_fetch_add(&id, 1);
+	atomic_store(&tmount->next_ino, 1);
+
+	const struct vattr attr = { .uid = current_cred()->uid, .gid = current_cred()->gid, .mode = 0 };
+	struct tmpfs_node* root = new_node(tmount, VTYPE_DIR, VFLAG_ROOT, &attr);
+	if (!root) {
+		kfree(tmount);
 		return -ENOMEM;
 	}
-
-	tmpfs_mount->mount.root = &tmproot->vnode;
-	const struct vattr _attr = {
-		.uid = current_cred()->uid,
-		.gid = current_cred()->gid,
-		.mode = 0
-	};
-	const struct vattr attr = tmpfs_sanitize_attr(tmpfs_mount, VTYPE_DIR, &_attr);
-	int err = init_directory(tmproot, &attr);
+	int err = init_directory(root, root);
 	if (err) {
-		destroy_node(tmproot);
-		kfree(tmpfs_mount);
+		destroy_node(root);
+		kfree(tmount);
 		return err;
 	}
-	err = hashtable_insert(tmproot->typedata.directory.children, ".", 1, &tmproot);
-	if (err)
-		goto cleanup_directory;
-	err = hashtable_insert(tmproot->typedata.directory.children, "..", 2, &tmproot);
-	if (err)
-		goto cleanup_directory;
+	root->attr.nlinks = 2; /* . and .., both itself */
 
-	tmpfs_mount->id = atomic_fetch_add(&id, 1);
-	*out_mount = &tmpfs_mount->mount;
+	tmount->mount.root = &root->vnode;
+	*out_mount = &tmount->mount;
 	return 0;
-cleanup_directory:
-	destroy_directory(tmproot);
-	destroy_node(tmproot);
-	kfree(tmpfs_mount);
-	return err;
 }
 
 static int tmpfs_mnt_unmount(struct mount* mount) {

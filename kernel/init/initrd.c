@@ -1,6 +1,7 @@
 #include <lunar/slab.h>
 #include <lunar/vfs.h>
 #include <lunar/printk.h>
+#include <lunar/panic.h>
 #include <lunar/string.h>
 #include <lunar/limine.h>
 #include <arch/posix.h>
@@ -52,6 +53,25 @@ struct ustar_entry {
 	u32 dev_minor;
 	u32 dev_major;
 };
+
+static enum vtype ustar_type_to_vtype(enum ustar_type type) {
+	switch (type) {
+	case USTAR_FILE:
+	case USTAR_HARDLINK: /* vfs_link() uses VTYPE_REGULAR to create a hardlink */
+		return VTYPE_REGULAR;
+	case USTAR_SYMLINK:
+		return VTYPE_LINK;
+	case USTAR_CHARDEV:
+		return VTYPE_CHDEV;
+	case USTAR_BLOCK:
+		return VTYPE_BLKDEV;
+	case USTAR_DIR:
+		return VTYPE_DIR;
+	case USTAR_FIFO:
+		return VTYPE_FIFO;
+	}
+	return VTYPE_REGULAR;
+}
 
 static const char* ustar_type_to_string(enum ustar_type type) {
 	switch (type) {
@@ -109,46 +129,67 @@ static void build_entry(struct ustar_entry* entry, const void* addr) {
 	memcpy(entry->version, header->version, sizeof(entry->version));
 }
 
+static int do_file(const struct ustar_entry* entry, const void* data, const struct vattr* attr) {
+	struct vnode* vn;
+	int err = vfs_create(NULL, entry->name, attr, &vn);
+	if (err)
+		return err;
+
+	struct vnode* tmp = vn;
+	VOP_LOCK(vn);
+	err = VOP_OPEN(&vn, 0, current_cred());
+	VOP_UNLOCK(vn);
+	if (err) {
+		VOP_RELEASE(vn);
+		return err;
+	}
+	bug(tmp != vn);
+
+	size_t write_count;
+	err = vfs_write(vn, data, entry->size, 0, 0, &write_count);
+	if (unlikely(err == 0 && write_count != entry->size))
+		err = -EIO;
+
+	VOP_LOCK(vn);
+	VOP_CLOSE(vn, 0, current_cred());
+	VOP_UNLOCK(vn);
+
+	VOP_RELEASE(vn);
+	return err;
+}
+
 static void handle_entry(struct ustar_entry* entry, const void* data) {
+	const struct vattr attr = {
+		.type = ustar_type_to_vtype(entry->type_flag),
+		.gid = entry->gid, .uid = entry->uid, .mode = entry->mode,
+		.rdevmajor = entry->dev_major, .rdevminor = entry->dev_minor
+	};
+
 	int err;
-	const struct vattr attr = { .gid = entry->gid, .uid = entry->uid, .mode = entry->mode };
-	struct vnode* vnode = NULL;
 	switch (entry->type_flag) {
-	case USTAR_FILE: {
-		err = vfs_create(NULL, entry->name, &attr, NULL);
-		if (err)
-			break;
-		err = vfs_open(NULL, entry->name, 0, &vnode);
-		if (err)
-			break;
-		size_t writecnt;
-		err = vfs_write(vnode, data, entry->size, 0, 0, &writecnt);
-		if (unlikely(err == 0 && writecnt != entry->size))
-			err = -EIO;
+	case USTAR_FILE:
+		err = do_file(entry, data, &attr);
 		break;
-	}
-	case USTAR_DIR: {
-		err = vfs_mkdir(NULL, entry->name, &attr, NULL);
-		break;
-	}
-	case USTAR_SYMLINK: {
-		err = vfs_link(NULL, entry->link, NULL, entry->name, VTYPE_LINK, &attr);
-		break;
-	}
-	case USTAR_HARDLINK: {
+	case USTAR_HARDLINK:
 		err = vfs_link(NULL, entry->link, NULL, entry->name, VTYPE_REGULAR, &attr);
 		break;
-	}
-	default: {
-		err = -ENOTSUP;
+	case USTAR_SYMLINK:
+		err = vfs_link(NULL, entry->link, NULL, entry->name, VTYPE_LINK, &attr);
 		break;
-	}
+	case USTAR_BLOCK:
+	case USTAR_CHARDEV:
+		err = vfs_mknod(NULL, entry->name, &attr, NULL);
+		break;
+	case USTAR_DIR:
+		err = vfs_mkdir(NULL, entry->name, &attr, NULL);
+		break;
+	default:
+		err = -ENOSYS;
+		break;
 	}
 
 	if (err)
-		printk("initrd: Failed to unpack %s of type %s: %d", entry->name, ustar_type_to_string(entry->type_flag), err);
-	if (vnode)
-		VOP_RELEASE(vnode);
+		printk(PRINTK_ERR "initrd: Failed to unpack %s of type %s: %d\n", entry->name, ustar_type_to_string(entry->type_flag), err);
 }
 
 static struct limine_internal_module _initrd_mod = {

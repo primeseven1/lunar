@@ -3,11 +3,10 @@
 #include <lunar/hashtable.h>
 #include <lunar/proc.h>
 #include <lunar/rwlock.h>
+#include <lunar/uio.h>
+#include <lunar/printk.h>
 
-static struct vnode_ops noops = {
-	.lock = NULL,
-	.unlock = NULL
-};
+static struct vnode_ops noops = { 0 };
 static struct vnode vfs_root = {
 	.type = VTYPE_DIR,
 	.ops = &noops,
@@ -44,6 +43,14 @@ int vfs_mount(const char* fs_name, struct vnode* ref, const char* mp, struct vno
 	int err = vfs_lookup(ref, mp, NULL, 0, &mp_vnode);
 	if (err)
 		return err;
+	if (mp_vnode->type != VTYPE_DIR) {
+		err = -ENOTDIR;
+		goto err;
+	}
+	if (mp_vnode->flags & VFLAG_DEAD) {
+		err = -ENOENT;
+		goto err;
+	}
 
 	struct mount* mnt;
 	err = type->mount(backing, NULL, &mnt);
@@ -65,18 +72,42 @@ int vfs_mount(const char* fs_name, struct vnode* ref, const char* mp, struct vno
 	mutex_release(&mounted_filesystems_mtx);
 
 	return 0;
+err:
+	VOP_UNLOCK(mp_vnode);
+	VOP_RELEASE(mp_vnode);
+	return err;
+}
+
+static bool has_trailing_slash(const char* path) {
+	size_t len = strlen(path);
+	if (len == 0 || path[len - 1] != '/')
+		return false;
+	for (size_t i = 0; i < len; i++) {
+		if (path[i] != '/')
+			return true;
+	}
+	return false;
 }
 
 static int create(struct vnode* ref, const char* path, enum vtype type, const struct vattr* attr, struct vnode** out) {
-	struct vnode* parent;
 	char* lastcomp = kmalloc(NAME_MAX + 1, MM_ZONE_NORMAL);
 	if (!lastcomp)
 		return -ENOMEM;
+
+	struct vnode* parent;
 	int err = vfs_lookup(ref, path, lastcomp, VFS_LOOKUP_PARENT, &parent);
 	if (err)
 		goto out;
+	if (parent->flags & VFLAG_DEAD) {
+		err = -ENOENT;
+		goto cleanup;
+	}
 	if (strcmp(lastcomp, ".") == 0 || strcmp(lastcomp, "..") == 0) {
 		err = -EEXIST;
+		goto cleanup;
+	}
+	if (type != VTYPE_DIR && has_trailing_slash(path)) {
+		err = -EISDIR;
 		goto cleanup;
 	}
 
@@ -85,17 +116,17 @@ static int create(struct vnode* ref, const char* path, enum vtype type, const st
 		err = VOP_CREATE(parent, lastcomp, attr, &_out, current_cred());
 	else if (type == VTYPE_DIR)
 		err = VOP_MKDIR(parent, lastcomp, attr, &_out, current_cred());
+	else if (type == VTYPE_CHDEV || type == VTYPE_BLKDEV || type == VTYPE_FIFO)
+		err = VOP_MKNOD(parent, lastcomp, attr, &_out, current_cred());
 	else
 		err = -ENOSYS;
 	if (err)
 		goto cleanup;
 
-	if (out) {
+	if (out)
 		*out = _out;
-	} else {
-		VOP_UNLOCK(_out); /* locked/ref'd by VOP_CREATE() */
+	else
 		VOP_RELEASE(_out);
-	}
 
 cleanup:
 	VOP_UNLOCK(parent); /* locked and ref'd by vfs_lookup() */
@@ -105,7 +136,7 @@ out:
 	return err;
 }
 
-static int remove(struct vnode* ref, const char* path, enum vtype type) {
+static int remove(struct vnode* ref, const char* path, bool directory) {
 	char* lastcomp = kmalloc(NAME_MAX + 1, MM_ZONE_NORMAL);
 	if (!lastcomp)
 		return -ENOMEM;
@@ -113,10 +144,16 @@ static int remove(struct vnode* ref, const char* path, enum vtype type) {
 	int err = vfs_lookup(ref, path, lastcomp, VFS_LOOKUP_PARENT, &parent);
 	if (err)
 		goto cleanup;
+	if (parent->flags & VFLAG_DEAD) {
+		VOP_UNLOCK(parent);
+		VOP_RELEASE(parent);
+		err = -ENOENT;
+		goto cleanup;
+	}
 	if (strcmp(lastcomp, ".") == 0 || strcmp(lastcomp, "..") == 0) {
 		VOP_UNLOCK(parent);
 		VOP_RELEASE(parent);
-		if (type == VTYPE_DIR)
+		if (directory)
 			err = -EBUSY;
 		else
 			err = -EISDIR;
@@ -130,23 +167,24 @@ static int remove(struct vnode* ref, const char* path, enum vtype type) {
 		VOP_RELEASE(parent);
 		goto cleanup;
 	}
-	switch (type) {
-	case VTYPE_REGULAR:
-	case VTYPE_LINK:
-		if (child->type != VTYPE_REGULAR && child->type != VTYPE_LINK)
-			err = (child->type == VTYPE_DIR) ? -EISDIR : -EPERM;
-		else
-			err = VOP_UNLINK(parent, child, lastcomp, current_cred());
-		break;
-	case VTYPE_DIR:
+	VOP_LOCK(child);
+
+	if (directory) {
 		if (child->type != VTYPE_DIR)
 			err = -ENOTDIR;
+		else if (child->un.mounted_here)
+			err = -EBUSY;
 		else
 			err = VOP_RMDIR(parent, child, lastcomp, current_cred());
-		break;
-	default:
-		err = -ENOSYS;
-		break;
+		if (err == 0)
+			child->flags |= VFLAG_DEAD;
+	} else {
+		if (child->type == VTYPE_DIR)
+			err = -EISDIR;
+		else if (has_trailing_slash(path))
+			err = -ENOTDIR;
+		else
+			err = VOP_UNLINK(parent, child, lastcomp, current_cred());
 	}
 
 	VOP_UNLOCK(child);
@@ -166,8 +204,14 @@ int vfs_mkdir(struct vnode* ref, const char* path, const struct vattr* attr, str
 	return create(ref, path, VTYPE_DIR, attr, out);
 }
 
+int vfs_mknod(struct vnode* ref, const char* path, const struct vattr* attr, struct vnode** out) {
+	if (!attr || (attr->type != VTYPE_CHDEV && attr->type != VTYPE_BLKDEV && attr->type != VTYPE_FIFO))
+		return -EINVAL;
+	return create(ref, path, attr->type, attr, out);
+}
+
 int vfs_rmdir(struct vnode* ref, const char* path) {
-	return remove(ref, path, VTYPE_DIR);
+	return remove(ref, path, true);
 }
 
 int vfs_open(struct vnode* ref, const char* path, int flags, struct vnode** out) {
@@ -203,64 +247,133 @@ int vfs_close(struct vnode* vnode, int flags) {
 	return err;
 }
 
+static int vfs_rdwr(struct vnode* vnode, struct uio* uio, int flags, enum uio_rw rw, size_t* count) {
+	if (!vnode || !uio || uio->rw != rw || !count)
+		return -EINVAL;
+	if (vnode->type == VTYPE_DIR)
+		return -EISDIR;
+
+	const size_t start = uio->resid;
+	VOP_LOCK(vnode);
+	int err = (rw == UIO_READ) ? VOP_READ(vnode, uio, flags, current_cred()) : VOP_WRITE(vnode, uio, flags, current_cred());
+	VOP_UNLOCK(vnode);
+
+	*count = start - uio->resid;
+	if (err && *count)
+		err = 0;
+
+	return err;
+}
+
+int vfs_readv(struct vnode* vnode, struct uio* uio, int flags, size_t* rcount) {
+	return vfs_rdwr(vnode, uio, flags, UIO_READ, rcount);
+}
+
+int vfs_writev(struct vnode* vnode, struct uio* uio, int flags, size_t* wcount) {
+	return vfs_rdwr(vnode, uio, flags, UIO_WRITE, wcount);
+}
+
 int vfs_read(struct vnode* vnode, void* buf, size_t count, off_t off, int flags, size_t* rcount) {
 	if (!vnode)
 		return -EINVAL;
-	VOP_LOCK(vnode);
-	int ret = VOP_READ(vnode, buf, count, off, flags, rcount, current_cred());
-	VOP_UNLOCK(vnode);
-	return ret;
+
+	const struct iovec iovec = { .iov_base = buf, .iov_len = count };
+	struct uio uio;
+	int err = uio_init(&uio, &iovec, 1, off, UIO_SYSSPACE, UIO_READ);
+	if (unlikely(err))
+		return err;
+
+	return vfs_readv(vnode, &uio, flags, rcount);
 }
 
 int vfs_write(struct vnode* vnode, const void* buf, size_t count, off_t off, int flags, size_t* wcount) {
 	if (!vnode)
 		return -EINVAL;
-	VOP_LOCK(vnode);
-	int ret = VOP_WRITE(vnode, buf, count, off, flags, wcount, current_cred());
-	VOP_UNLOCK(vnode);
-	return ret;
+
+	/* buf is never modified with UIO_WRITE */
+	const struct iovec iovec = { .iov_base = (void*)buf, .iov_len = count };
+	struct uio uio;
+	int err = uio_init(&uio, &iovec, 1, off, UIO_SYSSPACE, UIO_WRITE);
+	if (err)
+		return err;
+
+	return vfs_writev(vnode, &uio, flags, wcount);
 }
 
 int vfs_link(struct vnode* dref, const char* dpath, struct vnode* lref, const char* lpath, enum vtype type, const struct vattr* attr) {
 	if (type != VTYPE_LINK && type != VTYPE_REGULAR)
 		return -EINVAL;
 
-	int err;
-	struct vnode* target_node;
+	/* When creating a link of type regular, this means a hardlink is being created. Otherwise a symbolic link is made */
+	struct vnode* target_node = NULL;
 	if (type == VTYPE_REGULAR) {
-		err = vfs_lookup(dref, dpath, NULL, 0, &target_node);
+		int err = vfs_lookup(dref, dpath, NULL, 0, &target_node);
 		if (err)
 			return err;
+		VOP_UNLOCK(target_node); /* The second vfs_lookup() could cause a deadlock if it resolves to the same vnode */
+		if (target_node->type == VTYPE_DIR) {
+			VOP_RELEASE(target_node);
+			return -EPERM; /* Directories cannot be hardlinked */
+		}
 	}
 
+	int err = -ENOMEM;
 	char* comp = kmalloc(NAME_MAX + 1, MM_ZONE_NORMAL);
-	if (!comp) {
-		err = -ENOMEM;
+	if (!comp)
 		goto cleanup;
-	}
 
 	struct vnode* parent_node;
 	err = vfs_lookup(lref, lpath, comp, VFS_LOOKUP_PARENT, &parent_node);
 	if (err)
 		goto cleanup;
 
-	err = (type == VTYPE_REGULAR) ? VOP_LINK(parent_node, target_node, comp, current_cred()) : VOP_SYMLINK(parent_node, comp, dpath, attr, current_cred());
+	if ((parent_node->flags & VFLAG_DEAD) || has_trailing_slash(lpath)) {
+		err = -ENOENT;
+	} else if (strcmp(comp, ".") == 0 || strcmp(comp, "..") == 0) {
+		err = -EEXIST;
+	} else if (target_node) {
+		if (target_node->belongs_to == parent_node->belongs_to) {
+			VOP_LOCK(target_node);
+			err = VOP_LINK(parent_node, target_node, comp, current_cred());
+			VOP_UNLOCK(target_node);
+		} else {
+			err = -EXDEV;
+		}
+	} else {
+		err = VOP_SYMLINK(parent_node, comp, dpath, attr, current_cred());
+	}
+
 	VOP_UNLOCK(parent_node);
 	VOP_RELEASE(parent_node);
 cleanup:
 	kfree(comp);
-	if (type == VTYPE_REGULAR) {
-		VOP_UNLOCK(target_node);
+	if (target_node)
 		VOP_RELEASE(target_node);
-	}
 	return err;
 }
 
 int vfs_unlink(struct vnode* ref, const char* path) {
-	return remove(ref, path, VTYPE_REGULAR); /* VTYPE_REGULAR and VTYPE_LINK are treated the same, so just use regular */
+	return remove(ref, path, false);
 }
 
-/* Follow a mount point */
+int vfs_getdents(struct vnode* dir, struct dirent* buf, size_t count, off_t off, size_t* rcount) {
+	if (!dir || !buf || !rcount)
+		return -EINVAL;
+	if (dir->type != VTYPE_DIR)
+		return -ENOTDIR;
+
+	VOP_LOCK(dir);
+
+	int err = 0;
+	if (dir->flags & VFLAG_DEAD)
+		*rcount = 0;
+	else
+		err = VOP_GETDENTS(dir, buf, count, off, rcount);
+
+	VOP_UNLOCK(dir);
+	return err;
+}
+
 static void follow_mount(struct vnode** vnode) {
 	bug((*vnode)->type != VTYPE_DIR);
 	while (1) {
@@ -268,19 +381,6 @@ static void follow_mount(struct vnode** vnode) {
 		if (!mnt)
 			break;
 		struct vnode* next = mnt->root;
-		VOP_HOLD(next);
-		VOP_UNLOCK(*vnode);
-		VOP_RELEASE(*vnode);
-		*vnode = next;
-		VOP_LOCK(*vnode);
-	}
-}
-
-/* Climbs out of a mounted file system */
-static void dotdot_mount(struct vnode** vnode) {
-	bug((*vnode)->type != VTYPE_DIR);
-	while ((*vnode)->belongs_to && (*vnode)->belongs_to->covered) {
-		struct vnode* next = (*vnode)->belongs_to->covered;
 		VOP_HOLD(next);
 		VOP_UNLOCK(*vnode);
 		VOP_RELEASE(*vnode);
@@ -300,9 +400,18 @@ int vfs_lookup(struct vnode* ref, const char* path, char* lastcomp, int flags, s
 		return -ENOENT;
 	if (pathlen > PATHNAME_MAX)
 		return -ENAMETOOLONG;
+	if (flags & VFS_LOOKUP_PARENT) {
+		if (!lastcomp)
+			return -EINVAL;
+		strlcpy(lastcomp, ".", NAME_MAX + 1);
+	}
+
+	/* strtok_r strips trailing slashes */
+	const bool trailing_slash = has_trailing_slash(path);
 
 	struct proc* proc = current_proc();
 	mutex_acquire(&proc->fs.mtx);
+
 	if (*path == '/') {
 		ref = proc->fs.root;
 		while (*path == '/')
@@ -310,9 +419,10 @@ int vfs_lookup(struct vnode* ref, const char* path, char* lastcomp, int flags, s
 	} else if (!ref) {
 		ref = proc->fs.cwd;
 	}
+
 	VOP_HOLD(ref);
-	VOP_LOCK(ref);
 	mutex_release(&proc->fs.mtx);
+	VOP_LOCK(ref);
 
 	char* _path = kstrdup(path, MM_ZONE_NORMAL);
 	if (!_path) {
@@ -340,10 +450,7 @@ int vfs_lookup(struct vnode* ref, const char* path, char* lastcomp, int flags, s
 
 		const bool is_last = (next_comp == NULL);
 		if (is_last && (flags & VFS_LOOKUP_PARENT)) {
-			if (comp)
-				strlcpy(lastcomp, comp, NAME_MAX + 1);
-			else
-				err = -EINVAL;
+			strlcpy(lastcomp, comp, NAME_MAX + 1);
 			break;
 		}
 
@@ -356,7 +463,8 @@ int vfs_lookup(struct vnode* ref, const char* path, char* lastcomp, int flags, s
 			mutex_release(&proc->fs.mtx);
 			if (ref == chroot)
 				continue;
-			if (ref->belongs_to && ref == ref->belongs_to->root && ref->belongs_to->covered) {
+
+			while (ref->belongs_to && ref == ref->belongs_to->root && ref->belongs_to->covered) {
 				struct vnode* next = ref->belongs_to->covered;
 				VOP_HOLD(next);
 				VOP_UNLOCK(ref);
@@ -366,19 +474,26 @@ int vfs_lookup(struct vnode* ref, const char* path, char* lastcomp, int flags, s
 			}
 		}
 
+		if (ref->flags & VFLAG_DEAD) {
+			err = -ENOENT;
+			break;
+		}
+
 		struct vnode* next;
-		err = VOP_LOOKUP(ref, comp, &next, current_cred());
+		err = VOP_LOOKUP(ref, comp, &next, current_cred()); /* referenced, but not locked */
 		if (err)
 			break;
 
-		if (is_dotdot)
-			dotdot_mount(&next);
-		else if (next->type == VTYPE_DIR)
+		/* only one vnode is locked at a time to avoid ABA deadlocks */
+		VOP_UNLOCK(ref);
+		unlock_ref_on_err = false;
+		VOP_LOCK(next);
+
+		if (!is_dotdot && next->type == VTYPE_DIR)
 			follow_mount(&next);
 
 		if (next->type == VTYPE_LINK) {
-			if (is_last && (flags & VFS_LOOKUP_NOFOLLOW)) {
-				VOP_UNLOCK(ref);
+			if (is_last && (flags & VFS_LOOKUP_NOFOLLOW) && !trailing_slash) {
 				VOP_RELEASE(ref);
 				ref = next;
 				break;
@@ -387,15 +502,15 @@ int vfs_lookup(struct vnode* ref, const char* path, char* lastcomp, int flags, s
 			char* target;
 			err = VOP_READLINK(next, &target, current_cred());
 			VOP_UNLOCK(next);
-			VOP_RELEASE(next);
-			if (err)
+			if (err) {
+				VOP_RELEASE(next);
 				break;
+			}
 
-			VOP_UNLOCK(ref);
-			unlock_ref_on_err = false;
 			struct vnode* link_vnode;
 			err = vfs_lookup(ref, target, NULL, (flags & VFS_LOOKUP_LINK_DEPTH_MASK) + 1, &link_vnode);
 			VOP_FREELINK(next, target);
+			VOP_RELEASE(next);
 			if (err)
 				break;
 
@@ -409,9 +524,9 @@ int vfs_lookup(struct vnode* ref, const char* path, char* lastcomp, int flags, s
 			continue;
 		}
 
-		VOP_UNLOCK(ref);
 		VOP_RELEASE(ref);
 		ref = next;
+		unlock_ref_on_err = true;
 	}
 
 	if (err) {
@@ -419,8 +534,15 @@ int vfs_lookup(struct vnode* ref, const char* path, char* lastcomp, int flags, s
 			VOP_UNLOCK(ref);
 		VOP_RELEASE(ref);
 	} else {
-		*out = ref;
+		if (trailing_slash && ref->type != VTYPE_DIR && !(flags & VFS_LOOKUP_PARENT)) {
+			err = -ENOTDIR;
+			VOP_UNLOCK(ref);
+			VOP_RELEASE(ref);
+		} else {
+			*out = ref;
+		}
 	}
+
 	kfree(_path);
 	return err;
 }

@@ -4,6 +4,7 @@
 #include <lunar/mutex.h>
 #include <lunar/cred.h>
 #include <lunar/errno.h>
+#include <lunar/uio.h>
 #include <arch/posix.h>
 
 #define PATHNAME_MAX 4095
@@ -37,7 +38,8 @@
 #define VATTR_SIZE (1 << 6)
 #define VATTR_ALL (VATTR_MODE | VATTR_UID | VATTR_GID | VATTR_ATIME | VATTR_MTIME | VATTR_CTIME | VATTR_SIZE)
 
-#define VFLAG_ROOT (1 << 0)
+#define VFLAG_ROOT (1 << 0) /* Root directory of the file system */
+#define VFLAG_DEAD (1 << 1) /* Only applies to directories, this means a directory was removed */
 
 #define VFS_LOOKUP_LINK_DEPTH_MASK 0xFF
 #define VFS_LOOKUP_PARENT (1 << 8)
@@ -98,14 +100,16 @@ struct vattr {
 	size_t blocksused;
 };
 
+/* create/mkdir/mknod return an unlocked vnode */
 struct vnode_ops {
 	int (*create)(struct vnode* dvp, const char*, const struct vattr*, struct vnode** out, const struct cred*);
 	int (*mkdir)(struct vnode* dvp, const char*, const struct vattr*, struct vnode** out, const struct cred*);
+	int (*mknod)(struct vnode* dvp, const char*, const struct vattr*, struct vnode** out, const struct cred*);
 	int (*rmdir)(struct vnode* dvp, struct vnode*, const char* name, const struct cred*);
 	int (*open)(struct vnode**, int, const struct cred*);
 	int (*close)(struct vnode*, int, const struct cred*);
-	int (*read)(struct vnode*, void* buf, size_t count, off_t, int flags, size_t* out_rcount, const struct cred*);
-	int (*write)(struct vnode*, const void* buf, size_t count, off_t, int flags, size_t* out_wcount, const struct cred*);
+	int (*read)(struct vnode*, struct uio* uio, int ioflags, const struct cred*);
+	int (*write)(struct vnode*, struct uio* uio, int ioflags, const struct cred*);
 	int (*lookup)(struct vnode* ref, const char*, struct vnode** out, const struct cred*);
 	int (*sync)(struct vnode*); /* Sync a vnode to disk */
 	int (*getattr)(struct vnode*, struct vattr* out, const struct cred*);
@@ -133,25 +137,55 @@ struct vnode {
 	mutex_t mtx;
 };
 
-#define VOP_CREATE(dvp, name, vap, out, cr) (dvp)->ops->create(dvp, name, vap, out, cr)
-#define VOP_MKDIR(dvp, name, vap, out, cr) (dvp)->ops->mkdir(dvp, name, vap, out, cr)
-#define VOP_RMDIR(dvp, v, name, cr) (dvp)->ops->rmdir(dvp, v, name, cr)
-#define VOP_OPEN(vpp, flags, cr) (*(vpp))->ops->open(vpp, flags, cr)
-#define VOP_CLOSE(v, flags, cr) (v)->ops->close(v, flags, cr)
-#define VOP_READ(v, buf, count, off, flags, rc, cr) (v)->ops->read(v, buf, count, off, flags, rc, cr)
-#define VOP_WRITE(v, buf, count, off, flags, wc, cr) (v)->ops->write(v, buf, count, off, flags, wc, cr)
-#define VOP_LOOKUP(ref, name, out, cr) (ref)->ops->lookup(ref, name, out, cr)
-#define VOP_SYNC(v) (v)->ops->sync(v)
-#define VOP_GETATTR(v, vap, cr) (v)->ops->getattr(v, vap, cr)
-#define VOP_SETATTR(v, vap, flags, cr) (v)->ops->setattr(v, vap, flags, cr)
-#define VOP_LINK(dvp, svp, name, cr) (dvp)->ops->link(dvp, svp, name, cr)
-#define VOP_SYMLINK(dvp, name, target, attr, cr) (dvp)->ops->symlink(dvp, name, target, attr, cr)
-#define VOP_UNLINK(dvp, child, name, cr) (dvp)->ops->unlink(dvp, child, name, cr)
-#define VOP_READLINK(v, out, cr) (v)->ops->readlink(v, out, cr)
-#define VOP_FREELINK(v, str) (v)->ops->freelink(str)
-#define VOP_GETDENTS(v, buf, count, off, rc) (v)->ops->getdents(v, buf, count, off, rc)
-#define VOP_LOCK(v) ((v)->ops->lock ? (v)->ops->lock(v) : (mutex_acquire(&(v)->mtx), 0))
-#define VOP_UNLOCK(v) ((v)->ops->unlock ? (v)->ops->unlock(v) : (mutex_release(&(v)->mtx), 0))
+#define __VOP(op, vp, ...) \
+	({ \
+		struct vnode* const ____vp = (vp); \
+		____vp->ops->op ? ____vp->ops->op(____vp, ##__VA_ARGS__) : -ENOSYS; \
+	})
+
+#define VOP_INIT(vp, t, o, f, m) \
+	do { \
+		(vp)->type = t; \
+		(vp)->ops = o; \
+		(vp)->flags = f; \
+		(vp)->belongs_to = m; \
+		__builtin_memset(&(vp)->un, 0, sizeof((vp)->un)); \
+		atomic_store_explicit(&(vp)->refcnt, 1, ATOMIC_RELAXED); \
+		mutex_init(&(vp)->mtx); \
+	} while (0)
+
+#define VOP_CREATE(dvp, name, vap, out, cr) __VOP(create, dvp, name, vap, out, cr)
+#define VOP_MKDIR(dvp, name, vap, out, cr) __VOP(mkdir, dvp, name, vap, out, cr)
+#define VOP_MKNOD(dvp, name, vap, out, cr) __VOP(mknod, dvp, name, vap, out, cr)
+#define VOP_RMDIR(dvp, vp, name, cr) __VOP(rmdir, dvp, vp, name, cr)
+#define VOP_OPEN(vpp, flags, cr) \
+	({ \
+		struct vnode** const ____vpp = (vpp); \
+		(*____vpp)->ops->open ? (*____vpp)->ops->open(____vpp, flags, cr) : -ENOSYS; \
+	})
+#define VOP_CLOSE(vp, flags, cr) __VOP(close, vp, flags, cr)
+#define VOP_READ(vp, uio, flags, cr) __VOP(read, vp, uio, flags, cr)
+#define VOP_WRITE(vp, uio, flags, cr) __VOP(write, vp, uio, flags, cr)
+#define VOP_LOOKUP(ref, name, out, cr) __VOP(lookup, ref, name, out, cr)
+#define VOP_SYNC(vp) __VOP(sync, vp)
+#define VOP_GETATTR(vp, vap, cr) __VOP(getattr, vp, vap, cr)
+#define VOP_SETATTR(vp, vap, flags, cr) __VOP(setattr, vp, vap, flags, cr)
+#define VOP_LINK(dvp, svp, name, cr) __VOP(link, dvp, svp, name, cr)
+#define VOP_SYMLINK(dvp, name, target, attr, cr) __VOP(symlink, dvp, name, target, attr, cr)
+#define VOP_UNLINK(dvp, child, name, cr) __VOP(unlink, dvp, child, name, cr)
+#define VOP_READLINK(vp, out, cr) __VOP(readlink, vp, out, cr)
+#define VOP_FREELINK(vp, str) (vp)->ops->freelink(str)
+#define VOP_GETDENTS(vp, buf, count, off, rc) __VOP(getdents, vp, buf, count, off, rc)
+#define VOP_LOCK(vp) \
+	({ \
+		struct vnode* const ____vp = (vp); \
+		____vp->ops->lock ? ____vp->ops->lock(____vp) : (mutex_acquire(&(____vp)->mtx), 0); \
+	})
+#define VOP_UNLOCK(vp) \
+	({ \
+		struct vnode* const ____vp = (vp); \
+		____vp->ops->unlock ? ____vp->ops->unlock(____vp) : (mutex_release(&(____vp)->mtx), 0); \
+	})
 #define VOP_HOLD(v) \
 	do { \
 		static_assert(__builtin_types_compatible_p(typeof(v), struct vnode*), "__builtin_types_compatible_p(v, struct vnode*)"); \
@@ -162,16 +196,6 @@ struct vnode {
 		static_assert(__builtin_types_compatible_p(typeof(v), struct vnode*), "__builtin_types_compatible_p(v, struct vnode*)"); \
 		if (atomic_sub_fetch_explicit(&(v)->refcnt, 1, ATOMIC_ACQ_REL) == 0) \
 			(v)->ops->inactive(v); \
-	} while (0)
-#define VOP_INIT(vn, t, o, f, m) \
-	do { \
-		(vn)->type = t; \
-		(vn)->ops = o; \
-		(vn)->flags = f; \
-		(vn)->belongs_to = m; \
-		__builtin_memset(&(vn)->un, 0, sizeof((vn)->un)); \
-		atomic_store_explicit(&(vn)->refcnt, 1, ATOMIC_RELAXED); \
-		mutex_init(&(vn)->mtx); \
 	} while (0)
 
 /**
@@ -223,6 +247,24 @@ int vfs_create(struct vnode* ref, const char* path, const struct vattr* attr, st
 int vfs_mkdir(struct vnode* ref, const char* path, const struct vattr* attr, struct vnode** out);
 
 /**
+ * @brief Create a device/fifo node
+ *
+ * The type of node to create is based on attr->type. The device major/minor numbers are
+ * from attr->rdevmajor and attr->rdevminor.
+ *
+ * @param ref The reference for lookup
+ * @param path Path to the file
+ * @param attr File attributes
+ * @param out Where the created vnode is stored, optional
+ *
+ * @retval 0 Successful
+ * @retval -ENOENT Directory does not exist
+ * @retval -EEXIST File exists
+ * @retval -EINVAL Attr is NULL, or attr->type is not VTYPE_BLKDEV/VTYPE_CHDEV/VTYPE_FIFO
+ */
+int vfs_mknod(struct vnode* ref, const char* path, const struct vattr* attr, struct vnode** out);
+
+/**
  * @brief Remove a directory vnode
  *
  * @param ref Reference for lookup
@@ -237,6 +279,8 @@ int vfs_rmdir(struct vnode* ref, const char* path);
 
 /**
  * @brief Open a vnode
+ *
+ * Combines vfs_lookup() and VOP_OPEN()
  *
  * @param[in] ref Reference for the path
  * @param[in] path Path to the file
@@ -260,7 +304,32 @@ int vfs_close(struct vnode* vnode, int flags);
 /**
  * @brief Read a file
  *
- * @param[in] buf Where to store the file data
+ * @param[in] vnode The vnode to read from
+ * @param[in] uio The uio struct
+ * @param[in] flags Read flags
+ * @param[out] rcount The number of bytes read
+ *
+ * @retval 0 Successful
+ */
+int vfs_readv(struct vnode* vnode, struct uio* uio, int flags, size_t* rcount);
+
+/**
+ * @brief Write to a file
+ *
+ * @param[in] vnode The vnode to write to
+ * @param[in] uio The uio struct
+ * @param[in] flags Write flags
+ * @param[out] wcount The number of bytes written
+ *
+ * @retval 0 Successful
+ */
+int vfs_writev(struct vnode* vnode, struct uio* uio, int flags, size_t* wcount);
+
+/**
+ * @brief Read a file
+ *
+ * @param[in] vnode The vnode to read from
+ * @param[out] buf Where to store the file data
  * @param[in] count The number of bytes to read
  * @param[in] off Offset into the file
  * @param[in] flags Read flags
@@ -273,12 +342,12 @@ int vfs_read(struct vnode* vnode, void* buf, size_t count, off_t off, int flags,
 /**
  * @brief Write to a file
  *
- * @param vnode The vnode to write to
- * @param buf The buffer to write
- * @param count The number of bytes to write
- * @param off Offset into the file
- * @param flags flags
- * @param wcount Pointer to store the write count
+ * @param[in] vnode The vnode to write to
+ * @param[in] buf The buffer to write
+ * @param[in] count The number of bytes to write
+ * @param[in] off Offset into the file
+ * @param[in] flags flags
+ * @param[out] wcount Pointer to store the write count
  *
  * @retval 0 Successful
  */
@@ -306,17 +375,36 @@ int vfs_link(struct vnode* dref, const char* dpath, struct vnode* lref, const ch
  * @param path Path to the file
  *
  * @retval 0 Successful
+ * @retval -ENOENT File does not exist
+ * @retval -EISDIR File path points to a directory (use rmdir instead)
  */
 int vfs_unlink(struct vnode* ref, const char* path);
 
 /**
+ * @brief Get the directory entries for a vnode
+ *
+ * @param[in] dir The directory
+ * @param[out] buf Where to store the directory entries
+ * @param[in] count The number of entries to report
+ * @param[in] off The offset
+ * @param[out] rcount Number of directory entries written
+ *
+ * @retval -ENOTDIR Not a directory
+ * @retval -EINVAL buf is NULL, or rcount is NULL
+ * @retval 0 Successful
+ */
+int vfs_getdents(struct vnode* dir, struct dirent* buf, size_t count, off_t off, size_t* rcount);
+
+/**
  * @brief Resolve a file system path to a vnode
+ *
+ * The vnode returned is referenced and locked.
  *
  * @param[in] ref The reference vnode, expected to be unlocked
  * @param[in] path The path to look up
  * @param[out] lastcomp Pointer to a last component buffer when looking up a parent vnode, buffer must be NAME_MAX + 1 in size or bigger
- * @param flags[in] VFS_LOOKUP_* flags
- * @param out[out] Where the resolved vnode is stored
+ * @param[in] flags VFS_LOOKUP_* flags
+ * @param[out] out Where the resolved vnode is stored
  *
  * @retval -EINVAL path is NULL, or out is NULL, or lastcomp is NULL and VFS_LOOKUP_PARENT is used
  * @retval -ENOENT Not found
