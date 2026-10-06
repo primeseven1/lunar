@@ -103,17 +103,15 @@ void free_stack(void* top);
 
 /**
  * @brief Allocate a kernel stack for a thread
+ *
+ * There is no free_thread_stack() function. The stack is freed when
+ * free_thread() is called.
+ *
  * @param[in] thread The thread the stack is for
  * @param[out] top An optional argument to get the pointer to the stack
  * @return 0 on success -errno on failure
  */
 int alloc_thread_stack(struct thread* thread, void** top);
-
-/**
- * @brief Free a kernel thread stack
- * @param thread The thread to free the stack for
- */
-void free_thread_stack(struct thread* thread);
 
 /**
  * @brief Initialize the topology for a thread

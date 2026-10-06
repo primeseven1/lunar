@@ -28,18 +28,17 @@ void free_stack(void* top) {
 }
 
 int alloc_thread_stack(struct thread* thread, void** top) {
+	if (thread->kernel_stack_top)
+		return -EEXIST;
+
 	void* stack = alloc_stack();
 	if (IS_PTR_ERR(stack))
 		return PTR_ERR(stack);
-
 	thread->kernel_stack_top = stack;
 	if (top)
 		*top = stack;
-	return 0;
-}
 
-void free_thread_stack(struct thread* thread) {
-	free_stack(thread->kernel_stack_top);
+	return 0;
 }
 
 struct thread* alloc_thread(void) {
@@ -77,7 +76,12 @@ struct thread* alloc_thread(void) {
 
 void free_thread(struct thread* thread) {
 	bug(atomic_load(&thread->refcnt) != 0);
+
 	arch_context_destroy(&thread->context);
+	if (thread->kernel_stack_top) {
+		free_stack(thread->kernel_stack_top);
+		thread->kernel_stack_top = NULL;
+	}
 
 	unsigned long irq_flags = local_irq_save();
 	const struct sched_policy_ops* ops = current_cpu()->runqueue.policy->ops;

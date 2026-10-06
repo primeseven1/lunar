@@ -28,7 +28,7 @@ static_assert(sizeof(union kthread_asm_arg) == 16);
 struct kthread {
 	char name[32];
 	union kthread_asm_arg arg;
-	void* stack_bottom, *stack_top;
+	void* stack_top;
 	bool scheduled;
 };
 
@@ -58,16 +58,13 @@ struct thread* kthread_create(int flags, int (*threadfn)(void*), void* arg, cons
 	kt.scheduled = false;
 
 	mutex_acquire(&kthread_table_lock);
-
 	err = hashtable_insert(kthread_table, &thread, sizeof(struct thread*), &kt);
+	mutex_release(&kthread_table_lock);
 	if (err) {
-		free_thread_stack(thread);
 		THREAD_RELEASE(thread); /* Remove the ref that alloc_thread() gives */
 		free_thread(thread);
-		thread = NULL;
+		return NULL;
 	}
-
-	mutex_release(&kthread_table_lock);
 
 	thread_topology_init(thread, flags);
 	return thread;
@@ -137,7 +134,6 @@ void kthread_detach(struct thread* thread) {
 		printk(PRINTK_ERR "kthread: %s() invalid pointer (err %d)\n", __func__, err);
 	} else {
 		bug(kt.scheduled == false);
-		free_thread_stack(kt.stack_bottom);
 		bug(hashtable_remove(kthread_table, &thread, sizeof(struct thread*)) != 0);
 		THREAD_RELEASE(thread);
 	}
