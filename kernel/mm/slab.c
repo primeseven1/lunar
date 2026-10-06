@@ -212,23 +212,9 @@ out:
 	slab_cache_unlock(cache, &irq_flags);
 }
 
-struct slab_cache* slab_cache_create(size_t obj_size, size_t align, 
-		mm_t mm_flags, void (*ctor)(void*), void (*dtor)(void*)) {
-	if (obj_size == 0)
-		return NULL;
+static struct slab_cache* self_cache = NULL;
 
-	if (align == 0)
-		align = 8;
-	else if (align & (align - 1))
-		return NULL;
-
-	struct slab_cache* cache;
-	struct page* cache_page = alloc_pages(MM_ZONE_NORMAL | (mm_flags & MM_ATOMIC), get_order(sizeof(*cache)));
-	if (!cache_page)
-		return NULL;
-
-	cache = page_hhdm_virtual(cache_page);
-	cache->self_page = cache_page;
+static void slab_cache_init(struct slab_cache* cache, size_t obj_size, size_t align, mm_t mm_flags, void (*ctor)(void*), void (*dtor)(void*)) {
 	cache->ctor = ctor;
 	cache->dtor = dtor;
 	list_head_init(&cache->full);
@@ -242,6 +228,28 @@ struct slab_cache* slab_cache_create(size_t obj_size, size_t align,
 		spinlock_init(&cache->spinlock);
 	else
 		mutex_init(&cache->mutex);
+}
+
+struct slab_cache* slab_cache_create(size_t obj_size, size_t align,
+		mm_t mm_flags, void (*ctor)(void*), void (*dtor)(void*)) {
+	if (obj_size == 0)
+		return NULL;
+	if (align == 0)
+		align = 8;
+	else if (align & (align - 1))
+		return NULL;
+
+	if (unlikely(!self_cache)) { /* This runs before the scheduler is up */
+		struct page* self_cache_page = alloc_pages(MM_ZONE_NORMAL, get_order(sizeof(*self_cache)));
+		if (unlikely(!self_cache_page))
+			out_of_memory();
+		self_cache = page_hhdm_virtual(self_cache_page);
+		slab_cache_init(self_cache, sizeof(*self_cache), alignof(typeof(*self_cache)), MM_ZONE_NORMAL, ctor, dtor);
+	}
+
+	struct slab_cache* cache = slab_cache_alloc(self_cache);
+	if (cache)
+		slab_cache_init(cache, obj_size, align, mm_flags, ctor, dtor);
 
 	return cache;
 }
@@ -253,6 +261,9 @@ static inline bool slab_cache_try_lock(struct slab_cache* cache, unsigned long* 
 }
 
 int slab_cache_destroy(struct slab_cache* cache) {
+	if (unlikely(cache == self_cache))
+		return -EBUSY;
+
 	unsigned long irq_flags;
 	if (!slab_cache_try_lock(cache, &irq_flags))
 		return -EWOULDBLOCK;
@@ -270,6 +281,6 @@ int slab_cache_destroy(struct slab_cache* cache) {
 	}
 
 	slab_cache_unlock(cache, &irq_flags);
-	release_page(cache->self_page);
+	slab_cache_free(self_cache, cache);
 	return 0;
 }

@@ -24,7 +24,6 @@ struct slab {
 };
 
 struct slab_cache {
-	struct page* self_page;
 	void (*ctor)(void*);
 	void (*dtor)(void*);
 	struct list_head full, partial, empty;
@@ -51,7 +50,7 @@ struct slab_cache {
  *
  * @return NULL if align isn't a power of 2, or there is no memory
  */
-struct slab_cache* slab_cache_create(size_t obj_size, size_t align, 
+struct slab_cache* slab_cache_create(size_t obj_size, size_t align,
 		mm_t mm_flags, void (*ctor)(void*), void (*dtor)(void*));
 
 /**
