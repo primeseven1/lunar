@@ -11,24 +11,16 @@
 
 #include <arch/kthread.h>
 
-typedef int (*kthread_entry_t)(void*); /* Makes this play nice with the atomic() macro */
-
-union kthread_asm_arg {
-	struct {
-		kthread_entry_t threadfn;
-		void* arg;
-	} nonatomic;
-	struct {
-		atomic(kthread_entry_t) threadfn;
-		atomic(void*) arg;
-	} atomic;
+struct kthread_argument {
+	int (* __atomic threadfn)(void*);
+	void* __atomic arg;
 };
-static_assert(sizeof(union kthread_asm_arg) == 16);
+static_assert(sizeof(struct kthread_argument) == 16);
 
 struct kthread {
 	char name[32];
-	union kthread_asm_arg arg;
-	void* stack_top;
+	int (*threadfn)(void*);
+	void* arg, *stack_top;
 	bool scheduled;
 };
 
@@ -45,16 +37,20 @@ struct thread* kthread_create(int flags, int (*threadfn)(void*), void* arg, cons
 	struct kthread kt;
 	va_list va;
 	va_start(va, fmt);
-	if (vsnprintf(kt.name, sizeof(kt.name), fmt, va) < 0)
+	if (unlikely(vsnprintf(kt.name, sizeof(kt.name), fmt, va) < 0))
 		strlcpy(kt.name, "kthread", sizeof(kt.name));
 	va_end(va);
-	kt.arg = (union kthread_asm_arg){ .nonatomic = { .threadfn = threadfn, .arg = arg } };
+
+	kt.threadfn = threadfn;
+	kt.arg = arg;
+
 	int err = alloc_thread_stack(thread, &kt.stack_top);
 	if (err) {
 		THREAD_RELEASE(thread);
 		free_thread(thread);
 		return NULL;
 	}
+
 	kt.scheduled = false;
 
 	mutex_acquire(&kthread_table_lock);
@@ -88,9 +84,9 @@ int kthread_run(struct thread* thread, int prio) {
 		goto out_unlock;
 
 	/* Prepare the stack */
-	union kthread_asm_arg* thread_args = (union kthread_asm_arg*)kt.stack_top - 1;
-	atomic_store(&thread_args->atomic.threadfn, kt.arg.nonatomic.threadfn);
-	atomic_store(&thread_args->atomic.arg, kt.arg.nonatomic.arg);
+	struct kthread_argument* thread_args = (struct kthread_argument*)kt.stack_top - 1;
+	atomic_store(&thread_args->threadfn, kt.threadfn);
+	atomic_store(&thread_args->arg, kt.arg);
 
 	arch_context_prepare_execution(&thread->context.arch_context, ARCH_CODE_ADDRESS(uintptr_t, arch_kthread_start), (uintptr_t)kt.stack_top - sizeof(*thread_args));
 	err = sched_enqueue(thread);

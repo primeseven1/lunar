@@ -38,7 +38,7 @@ struct timer {
 	int flags;
 	const struct timer_ops* ops;
 	struct init_task** probe_dependencies, **init_dependencies;
-	atomic(unsigned long) cpus_initialized; /* Matters for percpu timers */
+	unsigned long __atomic cpus_initialized; /* Matters for percpu timers */
 	struct list_node link;
 };
 

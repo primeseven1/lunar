@@ -9,9 +9,9 @@ struct sched_policy;
 struct runqueue {
 	u32 sched_id;
 	const struct sched_policy* policy;
-	atomic(struct thread*) current; /* Only changes under the lock AND by the CPU that owns the runqueue */
+	struct thread* __atomic current; /* Only changes under the lock AND by the CPU that owns the runqueue */
 	struct thread* idle; /* For when there are no other threads to run */
-	atomic(unsigned long) thread_count;
+	unsigned long __atomic thread_count;
 	struct list_head zombie_list, detached_list;
 	struct semaphore reaper_sem, __reaper1_sem;
 	void* policy_priv; /* For scheduling algorithm */

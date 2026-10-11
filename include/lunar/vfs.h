@@ -82,7 +82,7 @@ struct mount {
 	struct vnode* root; /* Root of the file system */
 	struct vnode* covered; /* The vnode in the parent file system this is mounted on */
 	struct list_node link; /* For global mount point list */
-	atomic(long) refcnt; /* Number of open file handles/number of mount points */
+	long __atomic refcnt; /* Number of open file handles/number of mount points */
 };
 
 struct vattr {
@@ -133,7 +133,7 @@ struct vnode {
 	union {
 		struct mount* mounted_here; /* VTYPE_DIR */
 	} un;
-	atomic(long) refcnt;
+	long __atomic refcnt;
 	mutex_t mtx;
 };
 
@@ -150,7 +150,7 @@ struct vnode {
 		(vp)->flags = f; \
 		(vp)->belongs_to = m; \
 		__builtin_memset(&(vp)->un, 0, sizeof((vp)->un)); \
-		atomic_store_explicit(&(vp)->refcnt, 1, ATOMIC_RELAXED); \
+		atomic_store_explicit(&(vp)->refcnt, 1, memory_order_relaxed); \
 		mutex_init(&(vp)->mtx); \
 	} while (0)
 
@@ -189,12 +189,12 @@ struct vnode {
 #define VOP_HOLD(v) \
 	do { \
 		static_assert(__builtin_types_compatible_p(typeof(v), struct vnode*), "__builtin_types_compatible_p(v, struct vnode*)"); \
-		atomic_add_fetch_explicit(&(v)->refcnt, 1, ATOMIC_RELAXED); \
+		atomic_add_fetch_explicit(&(v)->refcnt, 1, memory_order_relaxed); \
 	} while (0)
 #define VOP_RELEASE(v) \
 	do { \
 		static_assert(__builtin_types_compatible_p(typeof(v), struct vnode*), "__builtin_types_compatible_p(v, struct vnode*)"); \
-		if (atomic_sub_fetch_explicit(&(v)->refcnt, 1, ATOMIC_ACQ_REL) == 0) \
+		if (atomic_sub_fetch_explicit(&(v)->refcnt, 1, memory_order_acq_rel) == 0) \
 			(v)->ops->inactive(v); \
 	} while (0)
 

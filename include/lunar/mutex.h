@@ -3,7 +3,7 @@
 #include <lunar/semaphore.h>
 
 typedef struct {
-	atomic(struct thread*) owner;
+	struct thread* __atomic owner;
 	struct semaphore sem;
 	spinlock_t spinlock;
 } mutex_t;
@@ -12,7 +12,7 @@ typedef struct {
 #define MUTEX_INITIALIZER(n) { .owner = atomic_init(NULL), .sem = SEMAPHORE_INITIALIZER(n.sem, 1), .spinlock = SPINLOCK_INITIALIZER }
 static inline void mutex_init(mutex_t* lock) {
 	semaphore_init(&lock->sem, 1);
-	atomic_store_explicit(&lock->owner, NULL, ATOMIC_RELAXED);
+	atomic_store_explicit(&lock->owner, NULL, memory_order_relaxed);
 	spinlock_init(&lock->spinlock);
 }
 

@@ -15,7 +15,7 @@
 #include "internal.h"
 
 #if defined(CONFIG_DRIVER_ACPI_ENABLE_TABLES) || defined(CONFIG_DRIVER_ACPI_ENABLE_AML)
-static atomic(bool) poweroff_status = atomic_init(false);
+static bool __atomic poweroff_status = atomic_init(false);
 #endif /* defined(CONFIG_DRIVER_ACPI_ENABLE_TABLES) || defined(CONFIG_DRIVER_ACPI_ENABLE_AML) */
 
 #ifdef CONFIG_DRIVER_ACPI_ENABLE_AML

@@ -20,11 +20,11 @@ static void invalidate_local(uintptr_t address, size_t page_count) {
 		arch_tlb_flush_count(address, page_count);
 }
 
-static atomic(struct isr*) shootdown_isr = atomic_init(NULL);
+static struct isr* __atomic shootdown_isr = atomic_init(NULL);
 
-static atomic(uintptr_t) shootdown_address;
-static atomic(size_t) shootdown_page_count;
-static atomic(u32) shootdown_cpus_remaining;
+static uintptr_t __atomic shootdown_address;
+static size_t __atomic shootdown_page_count;
+static u32 __atomic shootdown_cpus_remaining;
 static MUTEX_DEFINE(shootdown_mtx);
 
 static void shootdown_ipi(struct isr* isr) {

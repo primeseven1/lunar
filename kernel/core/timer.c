@@ -302,7 +302,7 @@ int cancel_timer_event(void* handle) {
 extern struct timer _ld_kernel_timers_start[];
 extern struct timer _ld_kernel_timers_end[];
 
-static atomic(u32) cpus_done = atomic_init(0);
+static u32 __atomic cpus_done = atomic_init(0);
 
 static void timers_ap_init(void) {
 	struct cpu* cpu = current_cpu();

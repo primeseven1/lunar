@@ -21,7 +21,7 @@ struct proc {
 		struct vnode* cwd, *root;
 		mutex_t mtx;
 	} fs;
-	atomic(unsigned long) refcnt;
+	unsigned long __atomic refcnt;
 };
 
 /**

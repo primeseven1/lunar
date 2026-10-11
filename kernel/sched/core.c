@@ -54,7 +54,7 @@ void sched_thread_detach(struct thread* thread) {
 	spinlock_release_irq_restore(&rq->lock, &flags);
 }
 
-static atomic(struct isr*) resched_isr = atomic_init(NULL);
+static struct isr* __atomic resched_isr = atomic_init(NULL);
 
 static void resched_ipi(struct isr* isr) {
 	(void)isr;
@@ -450,10 +450,10 @@ static void idle(void) {
 		arch_cpu_idle();
 }
 
-static atomic(u32) sched_id_counter = atomic_init(0);
+static u32 __atomic sched_id_counter = atomic_init(0);
 
 void sched_assign_id(void) {
-	u32 id = atomic_fetch_add_explicit(&sched_id_counter, 1, ATOMIC_RELAXED);
+	u32 id = atomic_fetch_add_explicit(&sched_id_counter, 1, memory_order_relaxed);
 	bug(id >= arch_get_cpu_count());
 	current_cpu()->runqueue.sched_id = id;
 }

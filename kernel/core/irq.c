@@ -27,10 +27,10 @@ struct irq {
 	int flags; /* IRQ_FLAG_* flags */
 	int status_flags;
 	long disable_count; /* Acts like a preempt_count, zero means the IRQ is enabled */
-	atomic(unsigned long) inflight; /* How many handlers are running. Can only increase when the spinlock is acquired. */
+	unsigned long __atomic inflight; /* How many handlers are running. Can only increase when the spinlock is acquired. */
 	struct list_head handler_list; /* struct irq_shared_handler. IRQ must be disabled and synchronized before modifying */
 	spinlock_t lock; /* Primarily for deciding if the IRQ should run */
-	atomic(unsigned long) refcnt;
+	unsigned long __atomic refcnt;
 	struct list_node link, pending_link;
 };
 
@@ -88,7 +88,7 @@ static inline void __synchronize_irq(struct irq* irq) {
 
 static LIST_HEAD_DEFINE(pending_irqs);
 static SPINLOCK_DEFINE(pending_irqs_lock);
-static atomic(bool) running_pending = atomic_init(false);
+static bool __atomic running_pending = atomic_init(false);
 
 static inline void add_pending_locked(struct irq* irq) {
 	if (!list_node_linked(&irq->pending_link)) {

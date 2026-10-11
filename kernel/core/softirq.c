@@ -4,7 +4,7 @@
 #include <lunar/timekeeper.h>
 #include <lunar/kthread.h>
 
-static atomic(softirqhandler_t) softirq_arr[SOFTIRQ_COUNT] = { 0 };
+static softirqhandler_t __atomic softirq_arr[SOFTIRQ_COUNT] = { 0 };
 
 int softirq_register(enum softirq softirq, softirqhandler_t action) {
 	if (softirq < 0 || softirq >= SOFTIRQ_COUNT)

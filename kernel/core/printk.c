@@ -27,7 +27,7 @@ static struct ringbuffer printk_rb;
 static SPINLOCK_DEFINE(printk_rb_lock);
 static SEMAPHORE_DEFINE(printk_rb_sem, 0);
 
-static atomic(bool) late = atomic_init(false);
+static bool __atomic late = atomic_init(false);
 static SPINLOCK_DEFINE(early_lock);
 
 static void add_message_to_ringbuffer(int level, const char* msg) {
@@ -51,11 +51,11 @@ static void add_message_to_ringbuffer(int level, const char* msg) {
 	spinlock_release_irq_restore(&printk_rb_lock, &irq_flags);
 }
 
-static atomic(int) current_level = atomic_init(CONFIG_PRINTK_LEVEL);
+static int __atomic current_level = atomic_init(CONFIG_PRINTK_LEVEL);
 
 void printk_set_level(int level) {
 	if (level >= PRINTK_MIN_N && level <= PRINTK_MAX_N)
-		atomic_store_explicit(&current_level, level, ATOMIC_RELAXED);
+		atomic_store_explicit(&current_level, level, memory_order_relaxed);
 }
 
 static const char* printk_level_color_string(int level) {
@@ -78,7 +78,7 @@ static void (*printk_hook)(int, int, const char*) = NULL;
 static SPINLOCK_DEFINE(printk_hook_lock);
 
 static void print_message(int level, const char* msg) {
-	int global = atomic_load_explicit(&current_level, ATOMIC_RELAXED);
+	int global = atomic_load_explicit(&current_level, memory_order_relaxed);
 
 	unsigned long irq_flags;
 	spinlock_acquire_irq_save(&printk_hook_lock, &irq_flags);
@@ -86,7 +86,7 @@ static void print_message(int level, const char* msg) {
 		printk_hook(level, global, msg);
 	spinlock_release_irq_restore(&printk_hook_lock, &irq_flags);
 
-	if (level <= atomic_load_explicit(&current_level, ATOMIC_RELAXED))
+	if (level <= atomic_load_explicit(&current_level, memory_order_relaxed))
 		term_write(msg, strlen(msg));
 }
 

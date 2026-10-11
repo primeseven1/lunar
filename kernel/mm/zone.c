@@ -327,7 +327,7 @@ struct mem_area {
 	physaddr_t base; /* Start of the memory area */
 	u64 size; /* The size of the area rounded to a power of two */
 	u64 real_size; /* The actual size of the area, usually the same as size */
-	atomic(unsigned long) free_blocks[MAX_ORDER + 1]; /* Amount of free blocks on every layer */
+	unsigned long __atomic free_blocks[MAX_ORDER + 1]; /* Amount of free blocks on every layer */
 	unsigned long total_blocks; /* Number of blocks the last layer */
 	unsigned int layer_count; /* Usually MAX_ORDER + 1 */
 	struct {
@@ -338,7 +338,7 @@ struct mem_area {
 			mutex_t mutex;
 		};
 	} pages; /* For managing the actual memory in the list */
-	atomic(unsigned int) alloc_refcnt; /* How many threads are allocating from this area */
+	unsigned int __atomic alloc_refcnt; /* How many threads are allocating from this area */
 };
 
 static inline void mem_area_lock(struct mem_area* area, unsigned long* irq_flags) {
@@ -429,7 +429,7 @@ static int _alloc_block(struct mem_area* area, unsigned int layer, unsigned long
 		return -EALREADY;
 
 	__alloc_block(area->pages.free_list, block_count, block);
-	atomic_sub_fetch_explicit(&area->free_blocks[layer], 1, ATOMIC_RELAXED);
+	atomic_sub_fetch_explicit(&area->free_blocks[layer], 1, memory_order_relaxed);
 
 	unsigned long tmp = block;
 	unsigned int tmp2 = layer;
@@ -440,7 +440,7 @@ static int _alloc_block(struct mem_area* area, unsigned int layer, unsigned long
 		block >>= 1;
 		if (__is_block_free(area->pages.free_list, block_count, block)) {
 			__alloc_block(area->pages.free_list, block_count, block);
-			atomic_sub_fetch_explicit(&area->free_blocks[layer], 1, ATOMIC_RELAXED);
+			atomic_sub_fetch_explicit(&area->free_blocks[layer], 1, memory_order_relaxed);
 		}
 	}
 
@@ -456,7 +456,7 @@ static int _alloc_block(struct mem_area* area, unsigned int layer, unsigned long
 			bug(!__is_block_free(area->pages.free_list, block_count, block + i));
 			__alloc_block(area->pages.free_list, block_count, block + i);
 		}
-		atomic_sub_fetch_explicit(&area->free_blocks[layer], count, ATOMIC_RELAXED);
+		atomic_sub_fetch_explicit(&area->free_blocks[layer], count, memory_order_relaxed);
 		count <<= 1;
 	}
 
@@ -480,7 +480,7 @@ static int _free_block(struct mem_area* area, unsigned int layer, unsigned long 
 	while (1) {
 		/* First free the current block */
 		__free_block(area->pages.free_list, block_count, block);
-		atomic_add_fetch_explicit(&area->free_blocks[layer], 1, ATOMIC_RELAXED);
+		atomic_add_fetch_explicit(&area->free_blocks[layer], 1, memory_order_relaxed);
 
 		/* Layer 0 has no buddy */
 		if (layer == 0)
@@ -512,7 +512,7 @@ static int _free_block(struct mem_area* area, unsigned int layer, unsigned long 
 			bug(__is_block_free(area->pages.free_list, block_count, block + i));
 			__free_block(area->pages.free_list, block_count, block + i);
 		}
-		atomic_add_fetch_explicit(&area->free_blocks[layer], count, ATOMIC_RELAXED);
+		atomic_add_fetch_explicit(&area->free_blocks[layer], count, memory_order_relaxed);
 		count <<= 1;
 	}
 
@@ -552,7 +552,7 @@ static struct mem_area* select_mem_area(struct zone* zone, unsigned int order,
 				continue;
 
 			const unsigned int l = a->layer_count - order - 1;
-			if (!atomic_load_explicit(&a->free_blocks[l], ATOMIC_RELAXED))
+			if (!atomic_load_explicit(&a->free_blocks[l], memory_order_relaxed))
 				continue;
 
 			const unsigned int crefs = atomic_load(&a->alloc_refcnt);
@@ -574,7 +574,7 @@ static struct mem_area* select_mem_area(struct zone* zone, unsigned int order,
 
 		atomic_add_fetch(&best->alloc_refcnt, 1);
 		mem_area_lock(best, irq_flags);
-		if (atomic_load_explicit(&best->free_blocks[best_layer], ATOMIC_RELAXED)) {
+		if (atomic_load_explicit(&best->free_blocks[best_layer], memory_order_relaxed)) {
 			*layer = best_layer;
 			*block = find_first_free(best->pages.free_list, best_layer);
 			bug(*block == ULONG_MAX); /* This means the accounting logic is fucked up if this triggers */
@@ -807,7 +807,7 @@ static inline struct zone* fallback_zone(struct zone* zone) {
 	}
 }
 
-static atomic(u64) pages_in_use = atomic_init(0);
+static u64 __atomic pages_in_use = atomic_init(0);
 static u64 mem_total = 0;
 
 void mm_get_free_pages(size_t* total_page_count, size_t* free_page_count) {
@@ -910,9 +910,9 @@ static void dma_zone_init(physaddr_t last_usable) {
 		area->real_size = rest < max_area_size ? rest : max_area_size;
 		area->layer_count = get_layer_count(max_area_size);
 		area->total_blocks = 1u << (area->layer_count - 1);
-		atomic_store_explicit(&area->alloc_refcnt, 0, ATOMIC_RELAXED);
+		atomic_store_explicit(&area->alloc_refcnt, 0, memory_order_relaxed);
 		for (unsigned int layer = 0; layer < area->layer_count; layer++)
-			atomic_store_explicit(&area->free_blocks[layer], 1ul << layer, ATOMIC_RELAXED);
+			atomic_store_explicit(&area->free_blocks[layer], 1ul << layer, memory_order_relaxed);
 
 		const unsigned long atomic_count = 1;
 		area->pages.atomic = dma_zone.area_count < atomic_count;
@@ -958,7 +958,7 @@ static int init_area(struct mem_area* area, physaddr_t base, size_t real_size, b
 	area->layer_count = layer_count;
 	area->total_blocks = 1 << (layer_count - 1);
 	for (unsigned long layer = 0; layer < area->layer_count; layer++)
-		atomic_store_explicit(&area->free_blocks[layer], 1ul << layer, ATOMIC_RELAXED);
+		atomic_store_explicit(&area->free_blocks[layer], 1ul << layer, memory_order_relaxed);
 	area->pages.free_list = hhdm_virtual(free_list);
 	area->pages.atomic = atomic;
 	if (atomic)
@@ -966,7 +966,7 @@ static int init_area(struct mem_area* area, physaddr_t base, size_t real_size, b
 	else
 		mutex_init(&area->pages.mutex);
 	memset(area->pages.free_list, 0, free_list_size);
-	atomic_store_explicit(&area->alloc_refcnt, 0, ATOMIC_RELAXED);
+	atomic_store_explicit(&area->alloc_refcnt, 0, memory_order_relaxed);
 
 	if (rounded_size != real_size)
 		alloc_rounded_area(area);

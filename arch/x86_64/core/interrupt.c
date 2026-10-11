@@ -37,7 +37,7 @@ static _Noreturn void generic_exception(struct isr* isr, struct arch_context* ct
 }
 
 extern const uintptr_t isr_table[ARCH_X86_64_IDT_ENTRY_COUNT];
-static atomic(struct isr*) isr_handlers[ARCH_X86_64_IDT_ENTRY_COUNT] = { 0 };
+static struct isr* __atomic isr_handlers[ARCH_X86_64_IDT_ENTRY_COUNT] = { 0 };
 static SPINLOCK_DEFINE(isr_handlers_lock);
 
 static struct isr exceptions[EXCEPTION_COUNT] = {
@@ -73,8 +73,8 @@ static void load_idt(void) {
 
 void arch_x86_64_idt_init(void) {
 	/* Only runs on the BSP before any AP's are brought up */
-	static atomic(bool) init = atomic_init(false);
-	if (atomic_exchange_explicit(&init, true, ATOMIC_RELAXED)) {
+	static bool __atomic init = atomic_init(false);
+	if (atomic_exchange_explicit(&init, true, memory_order_relaxed)) {
 		load_idt();
 		return;
 	}
@@ -87,14 +87,14 @@ void arch_x86_64_idt_init(void) {
 			exception->arch_specific.flags = 0;
 			exception->arch_specific.ehandler = generic_exception;
 		}
-		atomic_store_explicit(&isr_handlers[i], &exceptions[i], ATOMIC_RELAXED);
+		atomic_store_explicit(&isr_handlers[i], &exceptions[i], memory_order_relaxed);
 	}
 
 	/* Now set up all the IDT entries */
 	int ist = 0;
 	for (size_t i = 0; i < ARRAY_SIZE(idt); i++) {
 		struct idt_entry* entry = &idt[i];
-		const struct isr* isr = atomic_load_explicit(&isr_handlers[i], ATOMIC_RELAXED);
+		const struct isr* isr = atomic_load_explicit(&isr_handlers[i], memory_order_relaxed);
 		*entry = (struct idt_entry){
 			.handler_low = isr_table[i] & U16_MAX, .cs = ARCH_X86_64_SEGMENT_KERNEL_CODE,
 			.ist = (isr && (isr->arch_specific.flags & ARCH_ISR_FLAG_PARANOID_GSBASE)) ? ++ist : 0, .flags = 0x8e, .handler_mid = (isr_table[i] >> 16) & U16_MAX,
@@ -126,7 +126,7 @@ __diag_push();
 __diag_ignore("-Wmissing-prototypes");
 
 __asmlinkage void arch_x86_64_do_interrupt(struct arch_context* ctx) {
-	struct isr* isr = atomic_load_explicit(&isr_handlers[ctx->vector], ATOMIC_ACQUIRE);
+	struct isr* isr = atomic_load_explicit(&isr_handlers[ctx->vector], memory_order_acquire);
 	if (unlikely(!isr))
 		panic("Unregistered ISR %lu", ctx->vector);
 
@@ -185,10 +185,10 @@ int arch_register_isr(struct isr* isr) {
 	/* Check for a free spot while simultaneously looking for a duplicate */
 	int id = -1;
 	for (size_t i = EXCEPTION_COUNT; i < ARRAY_SIZE(isr_handlers); i++) {
-		if (atomic_load_explicit(&isr_handlers[i], ATOMIC_RELAXED) == isr) {
+		if (atomic_load_explicit(&isr_handlers[i], memory_order_relaxed) == isr) {
 			err = -EEXIST;
 			goto out;
-		} else if (id == -1 && atomic_load_explicit(&isr_handlers[i], ATOMIC_RELAXED) == NULL) {
+		} else if (id == -1 && atomic_load_explicit(&isr_handlers[i], memory_order_relaxed) == NULL) {
 			id = i;
 		}
 	}
@@ -197,7 +197,7 @@ int arch_register_isr(struct isr* isr) {
 	if (id != -1) {
 		isr->arch_specific.id = id;
 		isr->arch_specific.flags = ARCH_ISR_FLAG_NEED_EOI;
-		atomic_store_explicit(&isr_handlers[id], isr, ATOMIC_RELEASE);
+		atomic_store_explicit(&isr_handlers[id], isr, memory_order_release);
 	} else {
 		err = -ENOSPC;
 	}
@@ -220,7 +220,7 @@ int arch_x86_64_register_isr_vector(struct isr* isr, int vector, isrhandler_t ha
 		__init_isr(isr, handler, private, flags);
 		isr->arch_specific.id = vector;
 		isr->arch_specific.flags = need_eoi ? ARCH_ISR_FLAG_NEED_EOI : 0;
-		atomic_store_explicit(&isr_handlers[vector], isr, ATOMIC_RELEASE);
+		atomic_store_explicit(&isr_handlers[vector], isr, memory_order_release);
 	} else {
 		err = -EEXIST;
 	}

@@ -3,12 +3,12 @@
 #include <lunar/types.h>
 #include <lunar/atomic.h>
 
-typedef atomic(bool) spinlock_t;
+typedef bool __atomic spinlock_t;
 #define SPINLOCK_INITIALIZER atomic_init(false)
 #define SPINLOCK_DEFINE(n) spinlock_t n = SPINLOCK_INITIALIZER
 
 static inline void spinlock_init(spinlock_t* lock) {
-	atomic_store_explicit(lock, false, ATOMIC_RELAXED);
+	atomic_store_explicit(lock, false, memory_order_relaxed);
 }
 
 /**

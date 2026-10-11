@@ -4,8 +4,6 @@
 #define arch_atomic_load(obj, order) __atomic_load_n(obj, order)
 #define arch_atomic_store(obj, v, order) __atomic_store_n(obj, v, order)
 #define arch_atomic_exchange(obj, v, order) __atomic_exchange_n(obj, v, order)
-#define arch_atomic_flag_test_and_set(obj, order) __atomic_test_and_set(obj, order)
-#define arch_atomic_flag_clear(obj, order) __atomic_clear(obj, order)
 #define arch_atomic_fetch_add(obj, n, order) __atomic_fetch_add(obj, n, order)
 #define arch_atomic_add_fetch(obj, n, order) __atomic_add_fetch(obj, n, order)
 #define arch_atomic_fetch_sub(obj, n, order) __atomic_fetch_sub(obj, n, order)

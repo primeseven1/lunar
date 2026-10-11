@@ -36,21 +36,21 @@ void smp_cpus_read_release(struct smp_cpus* cpus) {
 	rwlock_read_release(&smp_cpus_lock);
 }
 
-static atomic(u32) init_cpus_left;
-static atomic(u32) stop_cpus_left;
+static u32 __atomic init_cpus_left;
+static u32 __atomic stop_cpus_left;
 
 void smp_init_bsp_wait_for_others(void) {
-	while (atomic_load_explicit(&init_cpus_left, ATOMIC_ACQUIRE) > 1)
+	while (atomic_load_explicit(&init_cpus_left, memory_order_acquire) > 1)
 		arch_cpu_relax();
 }
 
 void smp_init_wait_for_all(void) {
-	while (atomic_load_explicit(&init_cpus_left, ATOMIC_ACQUIRE))
+	while (atomic_load_explicit(&init_cpus_left, memory_order_acquire))
 		arch_cpu_relax();
 }
 
 void smp_init_complete(void) {
-	atomic_sub_fetch_explicit(&init_cpus_left, 1, ATOMIC_ACQ_REL);
+	atomic_sub_fetch_explicit(&init_cpus_left, 1, memory_order_acq_rel);
 }
 
 void smp_send_stop(void) {
@@ -60,14 +60,14 @@ void smp_send_stop(void) {
 	smp_cpus_read_acquire(&cpus);
 
 	if (stop_isr && cpus.cpus) {
-		atomic_store_explicit(&stop_cpus_left, cpus.count - 1, ATOMIC_RELEASE);
+		atomic_store_explicit(&stop_cpus_left, cpus.count - 1, memory_order_release);
 		for (u32 i = 0; i < cpus.count; i++) {
 			if (cpus.cpus[i] && cpus.cpus[i] != current_cpu())
 				irqctl_send_ipi(cpus.cpus[i], stop_isr, 0);
 		}
 
 		int waited_for = 0;
-		while (atomic_load_explicit(&stop_cpus_left, ATOMIC_ACQUIRE)) {
+		while (atomic_load_explicit(&stop_cpus_left, memory_order_acquire)) {
 			mdelay(1);
 			if (++waited_for > 1000)
 				break;
@@ -81,7 +81,7 @@ void smp_send_stop(void) {
 
 static void stop_ipi(struct isr* isr) {
 	(void)isr;
-	atomic_fetch_sub_explicit(&stop_cpus_left, 1, ATOMIC_RELEASE);
+	atomic_fetch_sub_explicit(&stop_cpus_left, 1, memory_order_release);
 	while (1)
 		arch_cpu_idle();
 }
@@ -105,7 +105,7 @@ static void smp_init(void) {
 	smp_cpus = cpus;
 	stop_isr = isr;
 	rwlock_write_release(&smp_cpus_lock);
-	atomic_store_explicit(&init_cpus_left, cpu_count, ATOMIC_RELEASE);
+	atomic_store_explicit(&init_cpus_left, cpu_count, memory_order_release);
 	smp_register_cpu(); /* Register the BSP */
 
 	arch_start_cpus();

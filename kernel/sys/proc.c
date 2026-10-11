@@ -6,7 +6,7 @@
 
 static struct slab_cache* process_cache;
 static struct hashtable* process_table;
-static atomic(pid_t) pid_counter = atomic_init(1);
+static pid_t __atomic pid_counter = atomic_init(1);
 static struct proc kernel_proc = {
 	.pid = 0,
 	.parent = NULL, .sibling = NULL, .child = NULL,

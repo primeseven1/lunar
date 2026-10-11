@@ -4,18 +4,18 @@
 #include <arch/processor.h>
 
 void spinlock_acquire(spinlock_t* lock) {
-	while (atomic_flag_test_and_set_explicit(lock, ATOMIC_ACQUIRE)) {
-		while (atomic_load_explicit(lock, ATOMIC_RELAXED))
+	while (atomic_exchange_explicit(lock, true, memory_order_acquire)) {
+		while (atomic_load_explicit(lock, memory_order_relaxed))
 			arch_cpu_relax();
 	}
 }
 
 void spinlock_release(spinlock_t* lock) {
-	atomic_flag_clear_explicit(lock, ATOMIC_RELEASE);
+	atomic_store_explicit(lock, false, memory_order_release);
 }
 
 bool spinlock_try_acquire(spinlock_t* lock) {
-	return !atomic_flag_test_and_set_explicit(lock, ATOMIC_ACQUIRE);
+	return !atomic_exchange_explicit(lock, true, memory_order_acquire);
 }
 
 void spinlock_acquire_irq_save(spinlock_t* lock, unsigned long* flags) {

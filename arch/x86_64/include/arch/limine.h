@@ -4,7 +4,6 @@
 #include <lunar/atomic.h>
 
 struct arch_limine_mp_info;
-typedef void (*limine_goto_address_t)(struct arch_limine_mp_info*);
 
 enum arch_limine_mp_flags {
 	ARCH_X86_64_LIMINE_MP_REQUEST_X2APIC = (1 << 0),
@@ -15,7 +14,7 @@ struct arch_limine_mp_info {
 	u32 processor_id;
 	u32 lapic_id;
 	u64 __reserved;
-	atomic(limine_goto_address_t) goto_address;
+	void (* __atomic goto_address)(struct arch_limine_mp_info*);
 	u64 extra_argument;
 };
 

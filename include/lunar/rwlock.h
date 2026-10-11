@@ -4,7 +4,7 @@
 #include <lunar/atomic.h>
 #include <arch/irq_flags.h>
 
-typedef atomic(long) rwlock_t;
+typedef long __atomic rwlock_t;
 
 #define RWLOCK_WRITER_HELD LONG_MIN
 #define RWLOCK_WRITER_PENDING (1l << 0)
@@ -14,7 +14,7 @@ typedef atomic(long) rwlock_t;
 #define RWLOCK_DEFINE(n) rwlock_t n = RWLOCK_INITIALIZER
 
 static inline void rwlock_init(rwlock_t* lock) {
-	atomic_store_explicit(lock, 0, ATOMIC_RELAXED);
+	atomic_store_explicit(lock, 0, memory_order_relaxed);
 }
 
 void rwlock_read_acquire(rwlock_t* lock);

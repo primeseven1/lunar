@@ -9,7 +9,7 @@
 #include <lunar/string.h>
 #include <lunar/trace.h>
 
-static atomic(unsigned long) id = atomic_init(1);
+static unsigned long __atomic id = atomic_init(1);
 
 struct tmpfs_node {
 	struct vnode vnode;
@@ -27,7 +27,7 @@ struct tmpfs_node {
 struct tmpfs_mount {
 	struct mount mount;
 	unsigned long id;
-	atomic(ino_t) next_ino;
+	ino_t __atomic next_ino;
 };
 
 static int check_args(const struct vnode* dvp, const char* name) {

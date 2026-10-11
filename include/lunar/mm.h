@@ -13,11 +13,11 @@ struct vma;
 struct page {
 	int flags;
 	struct {
-		atomic(struct page*) head;
-		atomic(unsigned int) order;
+		struct page* __atomic head;
+		unsigned int __atomic order;
 	} buddy;
 	struct list_node pagetable_tlb_batch_link;
-	atomic(long) refcnt;
+	long __atomic refcnt;
 };
 
 struct vmm_range {

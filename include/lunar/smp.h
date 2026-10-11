@@ -56,7 +56,7 @@ void smp_init_complete(void);
 void smp_send_stop(void);
 
 struct cpumask {
-	atomic(u8) mask[(SMP_MAX_CPUS + 7) >> 3];
+	u8 __atomic mask[(SMP_MAX_CPUS + 7) >> 3];
 };
 
 static inline void cpumask_memset(struct cpumask* mask, int val) {

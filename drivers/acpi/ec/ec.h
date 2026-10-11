@@ -21,7 +21,7 @@
 struct ec_device {
 	uacpi_namespace_node* node;
 	u16 gpe_index;
-	atomic(bool) handling_events;
+	bool __atomic handling_events;
 	struct acpi_gas ctrl, data;
 	bool global_lock;
 	u32 global_lock_seq;

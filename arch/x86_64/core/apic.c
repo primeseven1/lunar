@@ -86,7 +86,7 @@ struct ioapic_desc {
 static struct ioapic_desc* ioapics;
 static unsigned long ioapic_count;
 static SPINLOCK_DEFINE(ioapic_lock);
-static atomic(bool) use_x2apic = atomic_init(false);
+static bool __atomic use_x2apic = atomic_init(false);
 
 static struct acpi_madt* madt = NULL;
 
@@ -463,12 +463,12 @@ static void ioapic_mask_all(void) {
 }
 
 static void spurious(struct isr* isr) {
-	static atomic(unsigned long) count = atomic_init(0);
+	static unsigned long __atomic count = atomic_init(0);
 	u32 x = lapic_read(LAPIC_REG_ISR_BASE + ((ARCH_X86_64_IDT_SPURIOUS_VECTOR & ~0x1f) >> 1));
 	if (x & (1 << (ARCH_X86_64_IDT_SPURIOUS_VECTOR & 0x1f))) {
 		apic_eoi(isr);
 	} else {
-		long _count = atomic_add_fetch_explicit(&count, 1, ATOMIC_RELAXED);
+		long _count = atomic_add_fetch_explicit(&count, 1, memory_order_relaxed);
 		if (_count & (_count - 1))
 			printk(PRINTK_WARN "apic: Spurious IRQ (count %lu)\n", _count);
 	}

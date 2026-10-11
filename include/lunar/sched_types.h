@@ -37,26 +37,26 @@ struct context {
 };
 
 struct topology {
-	atomic(struct cpu*) cpu;
+	struct cpu* __atomic cpu;
 	struct cpumask cpumask;
-	atomic(bool) migratable;
+	bool __atomic migratable;
 };
 
 struct thread {
 	void* kernel_stack_top; /* The stack to switch to on userspace -> kernel, and for kthreads */
-	atomic(struct proc*) proc; /* Process this thread is associated with */
+	struct proc* __atomic proc; /* Process this thread is associated with */
 	struct mm* mm_struct; /* Current memory context. May be different from proc->mm_struct */
 	struct context context; /* CPU registers */
 	struct topology topology; /* What CPU's this thread can run on */
 	long in_usercopy; /* Kernel space accessing user space */
 	long preempt_count; /* If zero, the thread can be preempted */
-	atomic(int) prio, state, state_flags, wakeup_errno; /* Thread priority and state */
-	atomic(bool) should_exit;
-	atomic(unsigned long long) sleep_gen; /* Prevents stale wakeups */
+	int __atomic prio, state, state_flags, wakeup_errno; /* Thread priority and state */
+	bool __atomic should_exit;
+	unsigned long long __atomic sleep_gen; /* Prevents stale wakeups */
 	struct list_node proc_link, block_link;
 	struct timespec detach_time; /* The time the reaper detached the this thread */
 	time_t reap_warn_deadline; /* For when the thread takes too long to get freed */
-	atomic(unsigned long) refcnt;
+	unsigned long __atomic refcnt;
 };
 static_assert(offsetof(struct thread, kernel_stack_top) == 0);
 
