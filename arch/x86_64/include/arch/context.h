@@ -55,14 +55,3 @@ struct arch_context_extended {
 		void* xsave_region;
 	} un;
 };
-
-/**
- * @brief Switch to a new thread, but in an interrupt context
- *
- * The interrupt context is written with the general purpose registers of the new thread after saving them.
- *
- * @param current The current thread
- * @param next The thread to switch to
- * @param intctx The current interrupt context
- */
-void arch_x86_64_context_switch_in_interrupt(struct thread* current, struct thread* next, struct arch_context* intctx);

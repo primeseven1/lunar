@@ -144,31 +144,27 @@ int sched_change_prio(struct thread* thread, int prio) {
 	return err;
 }
 
-static bool __context_switch(struct runqueue* rq, struct thread* to) {
+static void context_switch(struct thread* to) {
+	struct runqueue* rq = &current_cpu()->runqueue;
 	struct thread* current = atomic_load(&rq->current);
 	if (current == to)
-		return false;
+		return;
 
+	int expected_state = THREAD_RUNNING; /* Expected state of the current thread */
 	spinlock_acquire(&rq->lock);
 
-	int expected = THREAD_RUNNING;
-	atomic_compare_exchange_strong(&current->state, &expected, THREAD_READY);
-	expected = THREAD_READY;
-	bug(atomic_compare_exchange_strong(&to->state, &expected, THREAD_RUNNING) == false);
+	/* Doing a cmpxchg will make sure the thread doesn't become ready if sleeping */
+	atomic_compare_exchange_strong(&current->state, &expected_state, THREAD_READY);
+
+	/* Now prepare to execute the next thread */
+	expected_state = THREAD_READY;
+	bug(atomic_compare_exchange_strong(&to->state, &expected_state, THREAD_RUNNING) == false);
 	atomic_store(&rq->current, to);
 	if (current->mm_struct != to->mm_struct)
 		mm_switch_context(to->mm_struct);
 
 	spinlock_release(&rq->lock);
-	return true;
-}
-
-static void context_switch(struct thread* to) {
-	struct runqueue* rq = &current_cpu()->runqueue;
-	struct thread* current = atomic_load(&rq->current);
-	bool switch_thread = __context_switch(rq, to);
-	if (switch_thread)
-		arch_context_switch(current, to);
+	arch_context_switch(current, to);
 }
 
 static struct thread* __schedule(void) {
@@ -189,13 +185,14 @@ static struct thread* __schedule(void) {
 	return next;
 }
 
-struct thread* atomic_schedule(void) {
+void schedule_preempt_irq(void) {
+	bug(current_thread()->preempt_count != 0);
 	struct thread* next = __schedule();
-	return __context_switch(&current_cpu()->runqueue, next) ? next : NULL;
+	context_switch(next);
 }
 
 int schedule(void) {
-	bug(local_irq_disabled(local_irq_read()) || in_interrupt());
+	bug(in_atomic());
 	local_irq_disable();
 	struct thread* next = __schedule();
 	context_switch(next);

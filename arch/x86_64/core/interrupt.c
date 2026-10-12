@@ -164,12 +164,8 @@ __asmlinkage void arch_x86_64_do_interrupt(struct arch_context* ctx) {
 	if (!exception)
 		softirq_execute();
 
-	struct thread* current = current_thread();
-	if (current_cpu()->need_resched && current->preempt_count == 0) {
-		struct thread* next = atomic_schedule();
-		if (next)
-			arch_x86_64_context_switch_in_interrupt(current, next, ctx);
-	}
+	if (current_cpu()->need_resched && current_thread()->preempt_count == 0)
+		schedule_preempt_irq();
 	if (ctx->cs & ARCH_X86_64_SEGMENT_CPL3)
 		sched_userspace_check(ctx);
 }

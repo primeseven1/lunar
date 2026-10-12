@@ -141,14 +141,12 @@ int sched_prepare_sleep(time_t us, int flags);
 _Noreturn void sched_thread_exit(void);
 
 /**
- * @brief Update scheduler state as if switching to a new thread, but do not actually switch to a new thread
+ * @brief Switch to another thread
  *
- * This function is primarily used at the end of interrupt handlers. current_thread()->preempt_count should be manually
- * checked before calling this function, otherwise you may hit a bug().
- *
- * @return The pointer to the next thread to run
+ * Should only ever be called at the end of an IRQ handler when preemption is
+ * enabled.
  */
-struct thread* atomic_schedule(void);
+void schedule_preempt_irq(void);
 
 /**
  * @brief Switch to another thread, if available

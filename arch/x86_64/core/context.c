@@ -17,10 +17,11 @@
 #define XCR0_MASK (XCR0_AVX512 | XCR0_AVX | XCR0_SSE | XCR0_X87)
 
 static enum {
-	FXSAVE = 1,
+	NONE,
+	FXSAVE,
 	XSAVE,
 	XSAVEOPT
-} xsave_method = 0;
+} xsave_method = NONE;
 static u32 xsave_size = 0;
 static struct slab_cache* xsave_cache = NULL;
 
@@ -68,17 +69,8 @@ void arch_context_switch(struct thread* current, struct thread* next) {
 
 	if (next->context.arch_context.cs & ARCH_X86_64_SEGMENT_CPL3)
 		sched_userspace_check(&next->context.arch_context);
-	context_switch_gp_regs(&current->context.arch_context, &next->context.arch_context);
-}
 
-void arch_x86_64_context_switch_in_interrupt(struct thread* current, struct thread* next, struct arch_context* intctx) {
-	save_extended_context(&current->context.arch_extended_context);
-	restore_extended_context(&next->context.arch_extended_context);
-	struct arch_cpu* const acpu = arch_current_cpu();
-	acpu->tss.rsp[0] = next->kernel_stack_top;
-	acpu->__current_thread = next;
-	current->context.arch_context = *intctx;
-	*intctx = next->context.arch_context;
+	context_switch_gp_regs(&current->context.arch_context, &next->context.arch_context);
 }
 
 int arch_context_init(struct context* context) {
