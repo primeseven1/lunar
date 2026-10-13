@@ -155,11 +155,12 @@ static void context_switch(struct thread* to) {
 
 	/* Doing a cmpxchg will make sure the thread doesn't become ready if sleeping */
 	atomic_compare_exchange_strong(&current->state, &expected_state, THREAD_READY);
-
-	/* Now prepare to execute the next thread */
 	expected_state = THREAD_READY;
+
+	/* Prepare the next thread for execution */
 	bug(atomic_compare_exchange_strong(&to->state, &expected_state, THREAD_RUNNING) == false);
 	atomic_store(&rq->current, to);
+	atomic_store(&to->topology.on_cpu, true);
 	if (current->mm_struct != to->mm_struct)
 		mm_switch_context(to->mm_struct);
 
@@ -231,7 +232,7 @@ static int __sched_wakeup_locked(struct thread* thread, int wakeup_errno) {
 
 	/* When this happens, this function needs to wait for the CPU to reschedule, to avoid nasty race conditions */
 	if (thread == rq_current) {
-		if (target_cpu != current_cpu())
+		if (likely(target_cpu != current_cpu()))
 			return -EAGAIN;
 		/*
 		 * Indicates we are in an interrupt context, when this happens just set to running and return,
@@ -246,14 +247,20 @@ static int __sched_wakeup_locked(struct thread* thread, int wakeup_errno) {
 		return 0;
 	}
 
+	/*
+	 * No need to wait for the on_cpu flag here, since handling the thread state
+	 * is done once the CPU's runqueue changes the current thread pointer
+	 */
 	if (!atomic_compare_exchange_strong(&thread->state, &expected, THREAD_READY))
 		return 0;
 
 	atomic_store(&thread->wakeup_errno, wakeup_errno);
 	atomic_store(&thread->state_flags, 0);
+
 	bug(rq->policy->ops->enqueue(rq, thread) != 0);
 	if (atomic_load(&thread->prio) > atomic_load(&rq_current->prio))
 		send_resched(target_cpu);
+
 	return 0;
 }
 
@@ -464,9 +471,10 @@ static void sched_bootstrap_processor(void) {
 	semaphore_init(&rq->reaper_sem, 0);
 	semaphore_init(&rq->__reaper1_sem, 0);
 
-	/* First create the current thread, and we don't need the ref alloc_thread() gives */
+	/* First create the current thread, and then release the thread so the reaper can free it */
 	struct thread* thread = create_bootstrap_thread(NULL, THREAD_RUNNING, SCHED_PRIO_DEFAULT);
 	atomic_store(&rq->current, thread);
+	atomic_store(&thread->topology.on_cpu, true);
 	THREAD_RELEASE(thread);
 
 	/* Now create the idle thread, this thread should never be destroyed, so keep the ref */

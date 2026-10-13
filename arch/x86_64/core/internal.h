@@ -17,5 +17,6 @@ __asmlinkage void ap_start(struct arch_limine_mp_info* cpu_info);
  *
  * @param current The current thread context pointer
  * @param next The context to switch to
+ * @param on_cpu The on CPU flag for the current thread
  */
-__asmlinkage void context_switch_gp_regs(struct arch_context* current, struct arch_context* next);
+__asmlinkage void context_switch_gp_regs(struct arch_context* current, struct arch_context* next, bool __atomic* on_cpu);

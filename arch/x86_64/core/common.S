@@ -19,7 +19,7 @@ ASM_FUNCTION_START(arch_kthread_start, ASM_LINKAGE_GLOBAL):
 	ud2
 ASM_FUNCTION_END(arch_kthread_start)
 
-/* __asmlinkage void context_switch_gp_regs(struct arch_context* current, struct arch_context* next) */
+/* __asmlinkage void context_switch_gp_regs(struct arch_context* current, struct arch_context* next, bool __atomic* on_cpu) */
 ASM_FUNCTION_START(context_switch_gp_regs, ASM_LINKAGE_GLOBAL):
 	/* When switching back to this thread, it will be in kernel mode regardless */
 	movq $ARCH_X86_64_SEGMENT_KERNEL_CODE, ARCH_X86_64_CTX_CS_OFFSET(%rdi)
@@ -47,8 +47,13 @@ ASM_FUNCTION_START(context_switch_gp_regs, ASM_LINKAGE_GLOBAL):
 	leaq 2f(%rip), %rax
 	movq %rax, ARCH_X86_64_CTX_RIP_OFFSET(%rdi)
 	pushfq
-	popq %rdx
-	movq %rdx, ARCH_X86_64_CTX_RFLAGS_OFFSET(%rdi)
+	popq %rax
+	movq %rax, ARCH_X86_64_CTX_RFLAGS_OFFSET(%rdi)
+
+	/* After getting off of the current thread's stack, set the on_cpu flag to zero to declare it safe for other CPU's to run */
+	leaq ARCH_X86_64_CTX_RIP_OFFSET(%rsi), %rsp /* Load interrupt frame into rsp */
+	xorq %rax, %rax
+	xchgb %al, (%rdx) /* seq_cst memory barrier */
 
 	/* Restore the next thread state */
 	movq ARCH_X86_64_CTX_DS_OFFSET(%rsi), %rax
@@ -69,7 +74,6 @@ ASM_FUNCTION_START(context_switch_gp_regs, ASM_LINKAGE_GLOBAL):
 	movq ARCH_X86_64_CTX_R13_OFFSET(%rsi), %r13
 	movq ARCH_X86_64_CTX_R14_OFFSET(%rsi), %r14
 	movq ARCH_X86_64_CTX_R15_OFFSET(%rsi), %r15
-	leaq ARCH_X86_64_CTX_RIP_OFFSET(%rsi), %rsp /* Load interrupt frame into rsp */
 	movq ARCH_X86_64_CTX_RSI_OFFSET(%rsi), %rsi
 
 	/* If returning to CPL3, swapgs */

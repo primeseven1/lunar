@@ -70,7 +70,7 @@ void arch_context_switch(struct thread* current, struct thread* next) {
 	if (next->context.arch_context.cs & ARCH_X86_64_SEGMENT_CPL3)
 		sched_userspace_check(&next->context.arch_context);
 
-	context_switch_gp_regs(&current->context.arch_context, &next->context.arch_context);
+	context_switch_gp_regs(&current->context.arch_context, &next->context.arch_context, &current->topology.on_cpu);
 }
 
 int arch_context_init(struct context* context) {

@@ -38,16 +38,16 @@ struct context {
 
 struct topology {
 	struct cpu* __atomic cpu;
+	bool __atomic migratable, on_cpu;
 	struct cpumask cpumask;
-	bool __atomic migratable;
 };
 
 struct thread {
 	void* kernel_stack_top; /* The stack to switch to on userspace -> kernel, and for kthreads */
+	struct topology topology; /* What CPU's this thread can run on */
 	struct proc* __atomic proc; /* Process this thread is associated with */
 	struct mm* mm_struct; /* Current memory context. May be different from proc->mm_struct */
 	struct context context; /* CPU registers */
-	struct topology topology; /* What CPU's this thread can run on */
 	long in_usercopy; /* Kernel space accessing user space */
 	long preempt_count; /* If zero, the thread can be preempted */
 	int __atomic prio, state, state_flags, wakeup_errno; /* Thread priority and state */

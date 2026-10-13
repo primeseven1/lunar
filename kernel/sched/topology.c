@@ -43,6 +43,7 @@ void thread_topology_init(struct thread* thread, int topology_flags) {
 
 	atomic_store(&topology->cpu, NULL);
 	atomic_store(&topology->migratable, !(topology_flags & TOPOLOGY_NO_MIGRATE));
+	atomic_store(&topology->on_cpu, false);
 
 	topology_flags &= (TOPOLOGY_BSP | TOPOLOGY_CURRENT_CPU);
 	if (topology_flags) {
