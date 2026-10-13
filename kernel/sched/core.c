@@ -4,7 +4,6 @@
 #include <lunar/vmm.h>
 #include <lunar/timer.h>
 #include <lunar/irq.h>
-#include <lunar/printk.h>
 #include <arch/processor.h>
 
 static inline int clamp_prio(int prio) {
@@ -68,18 +67,17 @@ static void resched_timer_event(void* event_handle, void* arg) {
 }
 
 static void send_resched(struct cpu* cpu) {
-	int err;
-
-	/* The ISR being NULL means that there is only one CPU, so instead set a timer event to trigger right away */
+	/*
+	 * The ISR being NULL means that there is only one CPU, so instead set a timer event to trigger right away.
+	 * If irqctl_send_ipi() or arm_timer_event() fails, then there is nothing we can do. Can't print an error because
+	 * printk() may try to acquire scheduler locks.
+	 */
 	if (atomic_load(&resched_isr)) {
-		err = irqctl_send_ipi(cpu, atomic_load(&resched_isr), 0);
+		irqctl_send_ipi(cpu, atomic_load(&resched_isr), 0);
 	} else {
 		const struct timer_event_handler handler = { .fn = resched_timer_event, .arg = NULL };
-		err = arm_timer_event(0, &handler, TIMER_FLAG_EVENT_ALLOC_AUTOFREE | TIMER_FLAG_HARDIRQ, NULL);
+		arm_timer_event(0, &handler, TIMER_FLAG_EVENT_ALLOC_AUTOFREE | TIMER_FLAG_HARDIRQ, NULL);
 	}
-
-	if (unlikely(err))
-		printk(PRINTK_CRIT "sched: Failed to send resched IPI: %i\n", err);
 }
 
 int sched_enqueue(struct thread* thread) {
