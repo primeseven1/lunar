@@ -139,6 +139,8 @@ int elf_load(struct vnode* vnode, struct elf64_auxv_list* auxv_list) {
 	int err = read_exact(vnode, &ehdr, sizeof(ehdr), 0);
 	if (err)
 		return err;
+	if (!elf64_header_ok(&ehdr))
+		return -ENOEXEC;
 
 	size_t phtable_size;
 	if (__builtin_mul_overflow(ehdr.e_phentsize, ehdr.e_phnum, &phtable_size))
@@ -161,7 +163,7 @@ int elf_load(struct vnode* vnode, struct elf64_auxv_list* auxv_list) {
 
 	for (int i = 0; i < ehdr.e_phnum; i++) {
 		struct elf64_phdr* phdr = &phdr_table[i];
-		switch (phdr[i].p_type) {
+		switch (phdr->p_type) {
 		case ELF_PT_LOAD:
 			err = load_phdr(vnode, phdr);
 			if (err)
