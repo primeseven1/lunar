@@ -429,8 +429,9 @@ int vfs_lookup(struct vnode* ref, const char* path, char* lastcomp, int flags, s
 
 /**
  * @brief Mount the root file system
+ * @param fs_name Name of the file system
  */
-void vfs_mount_root(void);
+int vfs_mount_root(const char* fs_name);
 
 static inline unsigned char vfs_posix_type(enum vtype type) {
 	switch (type) {

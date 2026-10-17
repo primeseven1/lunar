@@ -5,7 +5,7 @@
 #include <lunar/string.h>
 #include <lunar/limine.h>
 #include <arch/posix.h>
-#include "initrd.h"
+#include "internal.h"
 
 #define USTAR_BLOCK_SIZE 512
 
@@ -182,6 +182,8 @@ static void handle_entry(struct ustar_entry* entry, const void* data) {
 		break;
 	case USTAR_DIR:
 		err = vfs_mkdir(NULL, entry->name, &attr, NULL);
+		if (err == -EEXIST)
+			err = 0; /* This can happen when attempting to create /dev */
 		break;
 	default:
 		err = -ENOSYS;

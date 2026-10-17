@@ -16,7 +16,7 @@
 #include <acpi/driver.h>
 #include <acpi/sleep.h>
 
-#include "initrd.h"
+#include "internal.h"
 
 static void wait_on_bsp_dependency(const char* curr_name, struct init_task* dependency) {
 	bool logged = false;
@@ -162,8 +162,7 @@ _Noreturn void kernel_main(void) {
 	module_load_builtins();
 	acpi_drivers_load();
 
-	vfs_mount_root();
-	initrd_init();
+	mount_root_initrd();
 
 	/* Will get removed eventually */
 	keyboard_reader_thread_init();

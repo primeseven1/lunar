@@ -559,10 +559,10 @@ int vfs_lookup(struct vnode* ref, const char* path, char* lastcomp, int flags, s
 	return err;
 }
 
-void vfs_mount_root(void) {
-	int err = vfs_mount("tmpfs", NULL, "/", NULL);
+int vfs_mount_root(const char* fs_type) {
+	int err = vfs_mount(fs_type, NULL, "/", NULL);
 	if (err)
-		panic("Failed to mount root file system");
+		return err;
 
 	struct vnode* root = &vfs_root;
 	VOP_HOLD(root); /* follow_mount() expects the vnode with a ref */
@@ -577,6 +577,7 @@ void vfs_mount_root(void) {
 	mutex_release(&proc->fs.mtx);
 
 	VOP_UNLOCK(root);
+	return 0;
 }
 
 static void vfs_init(void) {

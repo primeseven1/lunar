@@ -8,6 +8,9 @@ static struct hashtable* chrdev_tbl;
 static MUTEX_DEFINE(chrdev_mtx);
 
 int chrdev_register(struct chrdev* chrdev) {
+	if (!chrdev || chrdev->major < 0 || chrdev->minor < 0 || !chrdev->ops)
+		return -EINVAL;
+
 	int key[] = { chrdev->major, chrdev->minor };
 	mutex_acquire(&chrdev_mtx);
 
@@ -27,6 +30,9 @@ int chrdev_register(struct chrdev* chrdev) {
 }
 
 int chrdev_unregister(struct chrdev* chrdev) {
+	if (!chrdev || chrdev->major < 0 || chrdev->minor < 0)
+		return -EINVAL;
+
 	int key[] = { chrdev->major, chrdev->minor };
 	mutex_acquire(&chrdev_mtx);
 
@@ -47,7 +53,7 @@ int chrdev_unregister(struct chrdev* chrdev) {
 }
 
 int chrdev_get(int major, int minor, struct chrdev** out) {
-	if (!out)
+	if (major < 0 || minor < 0 || !out)
 		return -EINVAL;
 
 	int key[] = { major, minor };
