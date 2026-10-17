@@ -208,6 +208,17 @@ struct vnode {
 int vfs_register(const struct filesystem_type* fs_type);
 
 /**
+ * @brief Get a file system type by name
+ *
+ * @param[in] name The name of the file system
+ * @param[out] out The returned file system type
+ *
+ * @retval 0 Successful
+ * @retval -ENODEV File system type is not registered
+ */
+int vfs_get_filesystem_type(const char* name, const struct filesystem_type** out);
+
+/**
  * @brief Mount a file system
  *
  * @param fs_name File system name

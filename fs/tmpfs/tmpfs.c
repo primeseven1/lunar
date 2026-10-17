@@ -8,6 +8,7 @@
 #include <lunar/timekeeper.h>
 #include <lunar/string.h>
 #include <lunar/trace.h>
+#include <lunar/device.h>
 
 static unsigned long __atomic id = atomic_init(1);
 
@@ -229,14 +230,23 @@ static int tmpfs_rmdir(struct vnode* dvp, struct vnode* vnode, const char* name,
 }
 
 static int tmpfs_open(struct vnode** vnode, int flags, const struct cred* cred) {
-	(void)flags;
-	(void)cred;
-
 	struct vnode* v = *vnode;
-
-	/* for now */
-	if (v->type == VTYPE_SOCKET || v->type == VTYPE_CHDEV || v->type == VTYPE_BLKDEV || v->type == VTYPE_FIFO)
+	if (v->type == VTYPE_SOCKET || v->type == VTYPE_FIFO)
 		return -ENXIO;
+
+	if (v->type == VTYPE_CHDEV || v->type == VTYPE_BLKDEV) {
+		struct vnode* devnode;
+		int err = devfs_get_node(v, &devnode, cred);
+		if (err)
+			return err;
+		err = VOP_OPEN(&devnode, flags, cred);
+		if (err) {
+			VOP_RELEASE(devnode);
+			return err;
+		}
+		*vnode = devnode;
+		return 0;
+	}
 
 	return 0;
 }

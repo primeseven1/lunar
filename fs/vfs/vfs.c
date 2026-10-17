@@ -32,6 +32,18 @@ int vfs_register(const struct filesystem_type* fs_type) {
 	return hashtable_insert(fs_table, fs_type->name, strlen(fs_type->name), &fs_type);
 }
 
+int vfs_get_filesystem_type(const char* name, const struct filesystem_type** out) {
+	if (!name || !out)
+		return -EINVAL;
+
+	const struct filesystem_type* tmp = get_filesystem_type_from_name(name);
+	if (!tmp)
+		return -ENODEV;
+
+	*out = tmp;
+	return 0;
+}
+
 int vfs_mount(const char* fs_name, struct vnode* ref, const char* mp, struct vnode* backing) {
 	if (!fs_name)
 		return -ENOSYS;
