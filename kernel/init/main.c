@@ -178,6 +178,8 @@ _Noreturn void kernel_main(void) {
 			out_of_memory();
 		panic("Failed to start init: %d", err);
 	}
+	bug(vfs_close(vnode, 0) != 0);
+	VOP_RELEASE(vnode);
 
 	sched_thread_exit();
 }
