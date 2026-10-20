@@ -3,14 +3,12 @@
 #include <lunar/hashtable.h>
 #include <lunar/panic.h>
 #include <lunar/mm.h>
+#include <lunar/printk.h>
 
 static struct hashtable* chrdev_tbl;
 static MUTEX_DEFINE(chrdev_mtx);
 
-int chrdev_register(struct chrdev* chrdev) {
-	if (!chrdev || chrdev->major < 0 || chrdev->minor < 0 || !chrdev->ops)
-		return -EINVAL;
-
+static int chrdev_table_add(struct chrdev* chrdev) {
 	int key[] = { chrdev->major, chrdev->minor };
 	mutex_acquire(&chrdev_mtx);
 
@@ -29,10 +27,7 @@ int chrdev_register(struct chrdev* chrdev) {
 	return err;
 }
 
-int chrdev_unregister(struct chrdev* chrdev) {
-	if (!chrdev || chrdev->major < 0 || chrdev->minor < 0)
-		return -EINVAL;
-
+static int chrdev_table_remove(struct chrdev* chrdev) {
 	int key[] = { chrdev->major, chrdev->minor };
 	mutex_acquire(&chrdev_mtx);
 
@@ -46,10 +41,40 @@ int chrdev_unregister(struct chrdev* chrdev) {
 	}
 
 	mutex_release(&chrdev_mtx);
-
-	if (err == 0)
-		chrdev_release(chrdev);
 	return err;
+}
+
+int chrdev_register(struct chrdev* chrdev, const char* path, mode_t mode) {
+	if (!chrdev || chrdev->major < 0 || chrdev->minor < 0 || !chrdev->ops)
+		return -EINVAL;
+
+	int err = chrdev_table_add(chrdev);
+	if (err == 0 && path) {
+		struct devfs_device_info info = { .type = VTYPE_CHDEV, .un.chrdev = chrdev };
+		err = devfs_register(&info, path, mode);
+		if (err) {
+			bug(chrdev_table_remove(chrdev) != 0);
+			chrdev_release(chrdev);
+		}
+	}
+
+	return err;
+}
+
+int chrdev_unregister(struct chrdev* chrdev) {
+	if (!chrdev || chrdev->major < 0 || chrdev->minor < 0)
+		return -EINVAL;
+
+	int err = chrdev_table_remove(chrdev);
+	if (err)
+		return err;
+
+	struct devfs_device_info info = { .type = VTYPE_CHDEV, .un.chrdev = chrdev };
+	err = devfs_unregister(&info);
+	bug(err != 0 && err != -ENOENT);
+
+	chrdev_release(chrdev);
+	return 0;
 }
 
 int chrdev_get(int major, int minor, struct chrdev** out) {

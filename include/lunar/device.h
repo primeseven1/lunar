@@ -22,6 +22,13 @@ struct chrdev {
 	struct list_node link;
 };
 
+struct devfs_device_info {
+	enum vtype type;
+	union {
+		struct chrdev* chrdev;
+	} un;
+};
+
 static inline void chrdev_hold(struct chrdev* chrdev) {
 	atomic_fetch_add(&chrdev->refcnt, 1);
 }
@@ -35,11 +42,14 @@ static inline void chrdev_release(struct chrdev* chrdev) {
  * @brief Register a character device
  *
  * @param chrdev The character device
+ * @param path The devfs path, or NULL to not create a devfs path
+ * @param mode The file mode
  *
  * @retval 0 Successful
+ * @retval -EINVAL Invalid character device
  * @retval -EEXIST Device with the same major/minor exists already
  */
-int chrdev_register(struct chrdev* chrdev);
+int chrdev_register(struct chrdev* chrdev, const char* path, mode_t mode);
 
 /**
  * @brief Unregister a character device
@@ -74,3 +84,24 @@ int chrdev_get(int major, int minor, struct chrdev** out);
  * @retval -ENXIO Device does not exist
  */
 int devfs_get_node(struct vnode* physical, struct vnode** out, const struct cred* cred);
+
+/**
+ * @brief Register a device with devfs
+ *
+ * @param info The device info
+ * @param path Path to the device relative to the mounted devfs
+ * @param mode The mode
+ *
+ * @retval -EINVAL Path is empty or there is something wrong with the device info
+ * @retval -EISDIR Path ends in a /
+ * @retval -EEXIST Device with the same path already exists
+ * @retval 0 Successful
+ */
+int devfs_register(const struct devfs_device_info* info, const char* path, mode_t mode);
+
+/**
+ * @brief Unregister a device from devfs
+ * @param info The device info
+ * @retval -ENOENT Device not registered
+ */
+int devfs_unregister(const struct devfs_device_info* info);
