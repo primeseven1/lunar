@@ -75,7 +75,6 @@ struct filesystem_type {
 	int (*sync)(struct mount*);
 	int (*statfs)(struct mount*, struct fsattr* out);
 };
-#define __filesystem_type __attribute__((section(".fstypes"), aligned(8)))
 
 struct mount {
 	const struct filesystem_type* fs_type;

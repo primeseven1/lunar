@@ -611,7 +611,7 @@ static int tmpfs_mnt_statfs(struct mount* mount, struct fsattr* attr) {
 	return 0;
 }
 
-static const struct filesystem_type __filesystem_type tmpfs_type = {
+static const struct filesystem_type tmpfs_type = {
 	.name = "tmpfs",
 	.mount = tmpfs_mnt_mount,
 	.unmount = tmpfs_mnt_unmount,

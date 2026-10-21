@@ -483,7 +483,7 @@ static int devfs_mnt_statfs(struct mount* mount, struct fsattr* attr) {
 	return tmpfs_type->statfs(mount, attr);
 }
 
-static const struct filesystem_type __filesystem_type devfs_type = {
+static const struct filesystem_type devfs_type = {
 	.name = "devfs",
 	.mount = devfs_mnt_mount,
 	.unmount = devfs_mnt_unmount,
