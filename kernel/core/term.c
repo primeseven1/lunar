@@ -57,9 +57,13 @@ void term_write(const char* str, size_t count) {
 
 static void term_init(void) {
 	const char* driver = cmdline_get("term_driver");
-	int err = module_load(driver);
-	if (err)
-		printk(PRINTK_ERR "core: Failed to load terminal driver %s, err: %i\n", driver, err);
+	if (driver) {
+		int err = module_load(driver);
+		if (err)
+			printk(PRINTK_ERR "core: Failed to load terminal driver %s, err: %i\n", driver, err);
+	} else {
+		printk(PRINTK_ERR "core: No terminal driver specified, try setting the term_driver command line option\n");
+	}
 }
 
 INIT_TASK_DECLARE(heap_init_task, cmdline_init_task);
