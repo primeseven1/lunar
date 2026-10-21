@@ -226,9 +226,12 @@ static int __sched_wakeup_locked(struct thread* thread, int wakeup_errno) {
 	if (wakeup_errno == -EINTR && !(atomic_load(&thread->state_flags) & THREAD_STATE_FLAG_INTERRUPTIBLE))
 		return 0;
 
-	int expected = THREAD_SLEEPING;
+	/* Checking this prevents sched_wakeup() from spinning when there is only one thread in the queue */
+	if (atomic_load(&thread->state) != THREAD_SLEEPING)
+		return 0;
 
 	/* When this happens, this function needs to wait for the CPU to reschedule, to avoid nasty race conditions */
+	int expected = THREAD_SLEEPING;
 	if (thread == rq_current) {
 		if (likely(target_cpu != current_cpu()))
 			return -EAGAIN;
