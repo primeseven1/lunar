@@ -32,7 +32,7 @@ static void do_preempt(void* event_handle, void* arg) {
 	spinlock_acquire(&rq->lock);
 
 	if (current != rq->idle) {
-		bool resched = rq->policy->ops->on_tick(rq, current);
+		bool resched = rq->policy->ops->tick(rq, current);
 		if (!cpu->need_resched)
 			cpu->need_resched = resched;
 	} else {

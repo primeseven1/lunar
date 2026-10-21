@@ -24,12 +24,12 @@ struct sched_policy_ops {
 	void (*free)(struct thread*); /* Free a thread structure */
 	int (*attach)(struct runqueue*, struct thread*, int); /* Attach a thread to a runqueue */
 	void (*detach)(struct runqueue*, struct thread*); /* Detach a thread from a runqueue */
-	int (*enqueue)(struct runqueue*, struct thread*); /* Add a new thread to the queue. May be called from an atomic context */
-	int (*dequeue)(struct runqueue*, struct thread*); /* Remove a thread from the queue. May be called from an interrupt context */
-	struct thread* (*pick_next)(struct runqueue*); /* Add the current thread to the queue, and return a new one. Called in an atomic context */
-	int (*change_prio)(struct runqueue*, struct thread*, int); /* Change the priority of a thread, returns -errno on failure */
-	bool (*on_tick)(struct runqueue*, struct thread*); /* Happens on a timer interrupt, returns true if should reschedule */
-	void (*on_yield)(struct runqueue*, struct thread*); /* Called when yielding (but not for sleeping/blocking) */
+	int (*enqueue)(struct runqueue*, struct thread*); /* Add a new thread to the queue. Might be called from a hardirq context. */
+	int (*dequeue)(struct runqueue*, struct thread*); /* Remove a thread from the queue. Might be called from a hardirq context. */
+	struct thread* (*pick_next)(struct runqueue*); /* Pick a thread in the runqueue. Might be called from a hardirq context. */
+	int (*change_prio)(struct runqueue*, struct thread*, int); /* Change the priority of a thread, returns -errno on failure. */
+	bool (*tick)(struct runqueue*, struct thread*); /* Happens on a timer IRQ, returns true if should reschedule. Called in a hardirq context. */
+	void (*yield)(struct runqueue*, struct thread*); /* Put the current thread back on the queue. Might be called from a hardirq context. Not called when running the idle thread. */
 };
 
 struct sched_policy {

@@ -149,6 +149,8 @@ static void __schedule(void) {
 
 	spinlock_acquire(&rq->lock);
 
+	if (current != rq->idle)
+		rq->policy->ops->yield(rq, current);
 	struct thread* next = rq->policy->ops->pick_next(rq);
 	if (!next)
 		next = rq->idle;
@@ -157,8 +159,6 @@ static void __schedule(void) {
 		spinlock_release(&rq->lock);
 		return;
 	}
-	if (current != rq->idle && rq->policy->ops->on_yield)
-		rq->policy->ops->on_yield(rq, current);
 
 	int expected_state = THREAD_RUNNING;
 	atomic_compare_exchange_strong(&current->state, &expected_state, THREAD_READY);

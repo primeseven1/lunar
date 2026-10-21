@@ -145,31 +145,14 @@ static struct rr_thread* pop_head_and_maybe_clear(struct rr_runqueue* rrq, int p
 static struct thread* pbrr_pick_next(struct runqueue* rq) {
 	struct rr_runqueue* const rr_rq = rq->policy_priv;
 
-	struct thread* const current = atomic_load(&rq->current);
-	struct rr_thread* const current_rr = container_of(current, struct rr_thread, thread);
-	const int state = atomic_load(&current->state);
-	const bool runnable = (state == THREAD_RUNNING || state == THREAD_READY);
-
-	/* Place current thread at the end of the list and mark the priority as active */
-	if (current != rq->idle && runnable && !list_node_linked(&current_rr->link)) {
-		int p = current_rr->prio;
-		list_add_tail(&rr_rq->queues[p], &current_rr->link);
-		rr_rq->active_bitmap |= 1ul << p;
-	}
-
-	/* Make sure budgets are reset */
-	if (unlikely(rr_rq->prio_budget[0] == 0))
-		reset_budgets(rr_rq);
-
 	int p = highest_ready_prio_budget(rr_rq);
 	if (p < 0) {
-		reset_budgets(rr_rq); /* All active had empty budgets, so reset them */
+		reset_budgets(rr_rq);
 		p = highest_ready_prio_budget(rr_rq);
-		if (p < 0) /* No threads to schedule */ 
+		if (p < 0)
 			return NULL;
 	}
 
-	/* Pop a thread from the priority queue */
 	struct rr_thread* const next_rr_thread = pop_head_and_maybe_clear(rr_rq, p);
 	bug(next_rr_thread == NULL); /* Well, I guess the bitmap lied to us!! */
 	if (rr_rq->prio_budget[p] > 0)
@@ -192,15 +175,14 @@ static int pbrr_change_prio(struct runqueue* rq, struct thread* thread, int posi
 		if (list_empty(&rr_rq->queues[rr_thread->prio]))
 			rr_rq->active_bitmap &= ~(1ul << rr_thread->prio);
 		list_add_tail(&rr_rq->queues[prio], &rr_thread->link);
-		if (!list_empty(&rr_rq->queues[prio]))
-			rr_rq->active_bitmap |= (1ul << prio);
+		rr_rq->active_bitmap |= (1ul << prio);
 	}
 	rr_thread->prio = prio;
 
 	return 0;
 }
 
-static bool pbrr_on_tick(struct runqueue* rq, struct thread* current) {
+static bool pbrr_tick(struct runqueue* rq, struct thread* current) {
 	(void)rq;
 	struct rr_thread* rr_current = container_of(current, struct rr_thread, thread);
 	if (rr_current->slice_left == 0)
@@ -210,10 +192,13 @@ static bool pbrr_on_tick(struct runqueue* rq, struct thread* current) {
 	return false;
 }
 
-static void pbrr_on_yield(struct runqueue* rq, struct thread* current) {
+static void pbrr_yield(struct runqueue* rq, struct thread* current) {
 	(void)rq;
-	struct rr_thread* rr_current = container_of(current, struct rr_thread, thread);
-	rr_current->slice_left = DEFAULT_SLICE_TICKS;
+	const int state = atomic_load(&current->state);
+	if (state != THREAD_RUNNING && state != THREAD_READY)
+		return;
+
+	bug(pbrr_enqueue(rq, current) != 0);
 }
 
 static const struct sched_policy_ops pbrr_ops = {
@@ -226,8 +211,8 @@ static const struct sched_policy_ops pbrr_ops = {
 	.dequeue = pbrr_dequeue,
 	.pick_next = pbrr_pick_next,
 	.change_prio = pbrr_change_prio,
-	.on_tick = pbrr_on_tick,
-	.on_yield = pbrr_on_yield
+	.tick = pbrr_tick,
+	.yield = pbrr_yield
 };
 
 static struct sched_policy __sched_policy pbrr = {
@@ -260,8 +245,8 @@ static const struct sched_policy_ops rr_ops = {
 	.dequeue = pbrr_dequeue,
 	.pick_next = pbrr_pick_next,
 	.change_prio = rr_change_prio,
-	.on_tick = pbrr_on_tick,
-	.on_yield = pbrr_on_yield
+	.tick = pbrr_tick,
+	.yield = pbrr_yield
 };
 
 static struct sched_policy __sched_policy rr = {
