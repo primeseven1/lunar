@@ -142,59 +142,48 @@ int sched_change_prio(struct thread* thread, int prio) {
 	return err;
 }
 
-static void context_switch(struct thread* to) {
-	struct runqueue* rq = &current_cpu()->runqueue;
-	struct thread* current = atomic_load(&rq->current);
-	if (current == to)
-		return;
-
-	int expected_state = THREAD_RUNNING; /* Expected state of the current thread */
-	spinlock_acquire(&rq->lock);
-
-	/* Doing a cmpxchg will make sure the thread doesn't become ready if sleeping */
-	atomic_compare_exchange_strong(&current->state, &expected_state, THREAD_READY);
-	expected_state = THREAD_READY;
-
-	/* Prepare the next thread for execution */
-	bug(atomic_compare_exchange_strong(&to->state, &expected_state, THREAD_RUNNING) == false);
-	atomic_store(&rq->current, to);
-	atomic_store(&to->topology.on_cpu, true);
-	if (current->mm_struct != to->mm_struct)
-		mm_switch_context(to->mm_struct);
-
-	spinlock_release(&rq->lock);
-	arch_context_switch(current, to);
-}
-
-static struct thread* __schedule(void) {
+static void __schedule(void) {
 	struct cpu* cpu = current_cpu();
 	struct runqueue* rq = &cpu->runqueue;
 	struct thread* current = atomic_load(&rq->current);
-	bug(current->preempt_count != 0);
 
 	spinlock_acquire(&rq->lock);
+
 	struct thread* next = rq->policy->ops->pick_next(rq);
 	if (!next)
 		next = rq->idle;
-	if (next != current && current != rq->idle && rq->policy->ops->on_yield)
-		rq->policy->ops->on_yield(rq, current);
-	spinlock_release(&rq->lock);
-
 	cpu->need_resched = false;
-	return next;
+	if (next == current) {
+		spinlock_release(&rq->lock);
+		return;
+	}
+	if (current != rq->idle && rq->policy->ops->on_yield)
+		rq->policy->ops->on_yield(rq, current);
+
+	int expected_state = THREAD_RUNNING;
+	atomic_compare_exchange_strong(&current->state, &expected_state, THREAD_READY);
+
+	/* Prepare the next thread for execution */
+	expected_state = THREAD_READY;
+	bug(atomic_compare_exchange_strong(&next->state, &expected_state, THREAD_RUNNING) == false);
+	atomic_store(&rq->current, next);
+	atomic_store(&next->topology.on_cpu, true);
+	if (current->mm_struct != next->mm_struct)
+		mm_switch_context(next->mm_struct);
+
+	spinlock_release(&rq->lock);
+	arch_context_switch(current, next);
 }
 
 void schedule_preempt_irq(void) {
 	bug(current_thread()->preempt_count != 0);
-	struct thread* next = __schedule();
-	context_switch(next);
+	__schedule();
 }
 
 int schedule(void) {
 	bug(in_atomic());
 	local_irq_disable();
-	struct thread* next = __schedule();
-	context_switch(next);
+	__schedule();
 	int ret = atomic_load(&current_thread()->wakeup_errno);
 	local_irq_enable();
 	return ret;
@@ -214,46 +203,27 @@ __asmlinkage void sched_userspace_check(struct arch_context* ctx) {
 	}
 }
 
-static int __sched_wakeup_locked(struct thread* thread, int wakeup_errno) {
+static void __sched_wakeup_locked(struct thread* thread, int wakeup_errno) {
 	struct cpu* target_cpu = atomic_load(&thread->topology.cpu);
 	struct runqueue* rq = &target_cpu->runqueue;
 	struct thread* rq_current = atomic_load(&rq->current);
 
-	/*
-	 * Here is may seem weird to return 0 here, but in this case there's nothing the caller should really do.
-	 * So just let the thread wake up normally.
-	 */
+	/* Not interruptible, just let the thread wake up normally */
 	if (wakeup_errno == -EINTR && !(atomic_load(&thread->state_flags) & THREAD_STATE_FLAG_INTERRUPTIBLE))
-		return 0;
+		return;
 
-	/* Checking this prevents sched_wakeup() from spinning when there is only one thread in the queue */
-	if (atomic_load(&thread->state) != THREAD_SLEEPING)
-		return 0;
-
-	/* When this happens, this function needs to wait for the CPU to reschedule, to avoid nasty race conditions */
 	int expected = THREAD_SLEEPING;
 	if (thread == rq_current) {
-		if (likely(target_cpu != current_cpu()))
-			return -EAGAIN;
-		/*
-		 * Indicates we are in an interrupt context, when this happens just set to running and return,
-		 * since IRQ's should be off when handing the state of the current thread. This also prevents a deadlock
-		 * where if you're trying to wake up the current thread on the current cpu, it waits infinitely for the
-		 * current CPU to reschedule.
-		 */
+		/* The thread is in between sched_prepare_sleep() and the context switch */
 		if (atomic_compare_exchange_strong(&thread->state, &expected, THREAD_RUNNING)) {
 			atomic_store(&thread->wakeup_errno, wakeup_errno);
 			atomic_store(&thread->state_flags, 0);
 		}
-		return 0;
+		return;
 	}
 
-	/*
-	 * No need to wait for the on_cpu flag here, since handling the thread state
-	 * is done once the CPU's runqueue changes the current thread pointer
-	 */
 	if (!atomic_compare_exchange_strong(&thread->state, &expected, THREAD_READY))
-		return 0;
+		return;
 
 	atomic_store(&thread->wakeup_errno, wakeup_errno);
 	atomic_store(&thread->state_flags, 0);
@@ -261,32 +231,14 @@ static int __sched_wakeup_locked(struct thread* thread, int wakeup_errno) {
 	bug(rq->policy->ops->enqueue(rq, thread) != 0);
 	if (atomic_load(&thread->prio) > atomic_load(&rq_current->prio))
 		send_resched(target_cpu);
-
-	return 0;
-}
-
-static int try_wakeup(struct thread* thread, int wakeup_errno, bool resched) {
-	struct cpu* target_cpu = atomic_load(&thread->topology.cpu);
-	struct runqueue* rq = &target_cpu->runqueue;
-
-	unsigned long irq_flags;
-	spinlock_acquire_irq_save(&rq->lock, &irq_flags);
-
-	int err = __sched_wakeup_locked(thread, wakeup_errno);
-	if (err == -EAGAIN && resched)
-		send_resched(target_cpu);
-
-	spinlock_release_irq_restore(&rq->lock, &irq_flags);
-	return err;
 }
 
 void sched_wakeup(struct thread* thread, int wakeup_errno) {
-	int err = try_wakeup(thread, wakeup_errno, true);
-	if (err == -EAGAIN) {
-		while ((err = try_wakeup(thread, wakeup_errno, false)) == -EAGAIN)
-			arch_cpu_relax();
-	}
-	bug(err != 0);
+	struct runqueue* rq = &atomic_load(&thread->topology.cpu)->runqueue;
+	unsigned long irq_flags;
+	spinlock_acquire_irq_save(&rq->lock, &irq_flags);
+	__sched_wakeup_locked(thread, wakeup_errno);
+	spinlock_release_irq_restore(&rq->lock, &irq_flags);
 }
 
 struct sched_timer_arg {
@@ -296,45 +248,25 @@ struct sched_timer_arg {
 
 static struct slab_cache* atomic_sta_cache;
 
-static int __sched_timer_wakeup(struct sched_timer_arg* targ, bool resched) {
+static void sched_timer_handler(void* event_handle, void* arg) {
+	struct sched_timer_arg* targ = arg;
 	struct thread* thread = targ->thread;
-	struct cpu* target_cpu = atomic_load(&thread->topology.cpu);
-	struct runqueue* rq = &target_cpu->runqueue;
-	int err = 0;
+	struct runqueue* rq = &atomic_load(&thread->topology.cpu)->runqueue;
 
 	unsigned long irq_flags;
 	spinlock_acquire_irq_save(&rq->lock, &irq_flags);
 
+	/* Only wake if this timer is for the current sleep */
 	if (atomic_load(&thread->sleep_gen) == targ->gen) {
 		int wakeup_errno = 0;
 		if (atomic_load(&thread->state_flags) & THREAD_STATE_FLAG_TIMEOUT)
 			wakeup_errno = -ETIME;
-		err = __sched_wakeup_locked(thread, wakeup_errno);
-		if (err == -EAGAIN && resched)
-			send_resched(target_cpu);
+		__sched_wakeup_locked(thread, wakeup_errno);
 	}
 
 	spinlock_release_irq_restore(&rq->lock, &irq_flags);
-	return err;
-}
 
-static void sched_timer_handler(void* event_handle, void* arg) {
-	struct sched_timer_arg* targ = arg;
-
-	int err = __sched_timer_wakeup(targ, true);
-	if (err == -EAGAIN) {
-		/* Try to just re-arm the event to try again shortly, to avoid spinning */
-		const struct timer_event_handler handler = { .fn = sched_timer_handler, .arg = targ };
-		if (likely(arm_timer_event_handle(event_handle, 0, &handler, 0) == 0))
-			return;
-
-		/* Fall back to spinning */
-		while ((err = __sched_timer_wakeup(targ, false)) == -EAGAIN)
-			arch_cpu_relax();
-	}
-	bug(err != 0);
-
-	THREAD_RELEASE(targ->thread);
+	THREAD_RELEASE(thread);
 	slab_cache_free(atomic_sta_cache, targ);
 	free_timer_event_handle(event_handle);
 }
@@ -365,10 +297,15 @@ int sched_prepare_sleep(time_t us, int flags) {
 	int err = 0;
 	unsigned long irq_flags = local_irq_save();
 
+	struct runqueue* rq = &current_cpu()->runqueue;
+	spinlock_acquire(&rq->lock);
+
 	unsigned long long gen = atomic_add_fetch(&thread->sleep_gen, 1);
 	atomic_store(&thread->state_flags, flags);
 	atomic_store(&thread->wakeup_errno, 0);
 	atomic_store(&thread->state, THREAD_SLEEPING);
+
+	spinlock_release(&rq->lock);
 
 	if (handle) {
 		THREAD_HOLD(thread); /* Thread might be reaped before the timer event fires, so hold a reference */
