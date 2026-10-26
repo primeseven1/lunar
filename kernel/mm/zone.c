@@ -638,6 +638,7 @@ retry:
 		block = find_first_free(area->pages.free_list, layer);
 		if (block == ULONG_MAX) {
 			mem_area_unlock(area, &irq_flags);
+			atomic_sub_fetch(&area->alloc_refcnt, 1);
 			area = select_mem_area(zone, order, &layer, &block, atomic, &irq_flags);
 			if (!area)
 				goto out;
