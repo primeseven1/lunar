@@ -244,7 +244,7 @@ struct slab_cache* slab_cache_create(size_t obj_size, size_t align,
 		if (unlikely(!self_cache_page))
 			out_of_memory();
 		self_cache = page_hhdm_virtual(self_cache_page);
-		slab_cache_init(self_cache, sizeof(*self_cache), alignof(typeof(*self_cache)), MM_ZONE_NORMAL, ctor, dtor);
+		slab_cache_init(self_cache, sizeof(*self_cache), alignof(typeof(*self_cache)), MM_ZONE_NORMAL, NULL, NULL);
 	}
 
 	struct slab_cache* cache = slab_cache_alloc(self_cache);
