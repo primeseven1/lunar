@@ -99,29 +99,29 @@ struct vattr {
 	size_t blocksused;
 };
 
-/* create/mkdir/mknod return an unlocked vnode */
 struct vnode_ops {
-	int (*create)(struct vnode* dvp, const char*, const struct vattr*, struct vnode** out, const struct cred*);
-	int (*mkdir)(struct vnode* dvp, const char*, const struct vattr*, struct vnode** out, const struct cred*);
-	int (*mknod)(struct vnode* dvp, const char*, const struct vattr*, struct vnode** out, const struct cred*);
-	int (*rmdir)(struct vnode* dvp, struct vnode*, const char* name, const struct cred*);
-	int (*open)(struct vnode**, int, const struct cred*);
-	int (*close)(struct vnode*, int, const struct cred*);
-	int (*read)(struct vnode*, struct uio* uio, int ioflags, const struct cred*);
-	int (*write)(struct vnode*, struct uio* uio, int ioflags, const struct cred*);
-	int (*lookup)(struct vnode* ref, const char*, struct vnode** out, const struct cred*);
+	int (*create)(struct vnode* dvp, const char*, const struct vattr*, struct vnode** out, const struct cred*); /* create a regular file, out might be null */
+	int (*mkdir)(struct vnode* dvp, const char*, const struct vattr*, struct vnode** out, const struct cred*); /* create a directory, out might be null */
+	int (*mknod)(struct vnode* dvp, const char*, const struct vattr*, struct vnode** out, const struct cred*); /* make a device node, out might be null */
+	int (*rmdir)(struct vnode* dvp, struct vnode*, const char* name, const struct cred*); /* remove a directory */
+	int (*open)(struct vnode**, int, const struct cred*); /* open a vnode, can be replaced, callers are expected to handle the replacement */
+	int (*close)(struct vnode*, int, const struct cred*); /* close a vnode */
+	int (*read)(struct vnode*, struct uio* uio, int ioflags, const struct cred*); /* read a file */
+	int (*write)(struct vnode*, struct uio* uio, int ioflags, const struct cred*); /* write to a file */
+	int (*lookup)(struct vnode* ref, const char*, struct vnode** out, const struct cred*); /* look up a single entry in a directory, expected to return the vnode unlocked but referenced */
 	int (*sync)(struct vnode*); /* Sync a vnode to disk */
-	int (*getattr)(struct vnode*, struct vattr* out, const struct cred*);
-	int (*setattr)(struct vnode*, const struct vattr*, int aflags, const struct cred*);
-	int (*link)(struct vnode* dvp, struct vnode* svp, const char* name, const struct cred*);
-	int (*symlink)(struct vnode* dvp, const char* name, const char* target, const struct vattr*, const struct cred*);
-	int (*unlink)(struct vnode* dvp, struct vnode* child, const char* name, const struct cred*);
-	int (*readlink)(struct vnode*, char** out, const struct cred*);
-	void (*freelink)(char* str);
-	int (*getdents)(struct vnode* dir, struct dirent* buf, size_t count, off_t off, size_t* out_rcount);
-	int (*lock)(struct vnode*);
-	int (*unlock)(struct vnode*);
-	void (*inactive)(struct vnode*);
+	int (*getattr)(struct vnode*, struct vattr* out, const struct cred*); /* Get a vnode's attributes */
+	int (*setattr)(struct vnode*, const struct vattr*, int aflags, const struct cred*); /* Set a vnode's attributes */
+	int (*link)(struct vnode* dvp, struct vnode* svp, const char* name, const struct cred*); /* Create a hardlink */
+	int (*symlink)(struct vnode* dvp, const char* name, const char* target, const struct vattr*, const struct cred*); /* Create a symbolic link */
+	int (*unlink)(struct vnode* dvp, struct vnode* child, const char* name, const struct cred*); /* Remove a file */
+	int (*readlink)(struct vnode*, char** out, const struct cred*); /* Read a symbolic link */
+	void (*freelink)(char* str); /* Free a symbolic link string */
+	int (*getdents)(struct vnode* dir, struct dirent* buf, size_t count, off_t off, size_t* out_rcount); /* Get directory entries */
+	int (*ioctl)(struct vnode*, unsigned long, void __user*, const struct cred*); /* For device vnodes, regular filesystems don't need this, even for nodes created with mknod() */
+	int (*lock)(struct vnode*); /* if NULL, vnode->mtx is acquired by default */
+	int (*unlock)(struct vnode*); /* if NULL, vnode->mtx is released by default */
+	void (*inactive)(struct vnode*); /* Called when a vnode's refcount goes to zero */
 };
 
 struct vnode {
@@ -175,6 +175,11 @@ struct vnode {
 #define VOP_READLINK(vp, out, cr) __VOP(readlink, vp, out, cr)
 #define VOP_FREELINK(vp, str) (vp)->ops->freelink(str)
 #define VOP_GETDENTS(vp, buf, count, off, rc) __VOP(getdents, vp, buf, count, off, rc)
+#define VOP_IOCTL(vp, req, arg, cr) \
+	({ \
+		struct vnode* const ____vp = (vp); \
+		____vp->ops->ioctl ? ____vp->ops->ioctl(____vp, req, arg, cr) : -ENOTTY; \
+	})
 #define VOP_LOCK(vp) \
 	({ \
 		struct vnode* const ____vp = (vp); \
@@ -404,6 +409,18 @@ int vfs_unlink(struct vnode* ref, const char* path);
  * @retval 0 Successful
  */
 int vfs_getdents(struct vnode* dir, struct dirent* buf, size_t count, off_t off, size_t* rcount);
+
+/**
+ * @brief Send a device-specific request to a vnode
+ *
+ * @param vnode The vnode
+ * @param req The request number
+ * @param arg The argument
+ *
+ * @retval -ENOTTY The vnode doesn't support the request
+ * @return Whatever the driver returns, -errno on failure
+ */
+int vfs_ioctl(struct vnode* vnode, unsigned long req, void __user* arg);
 
 /**
  * @brief Resolve a file system path to a vnode

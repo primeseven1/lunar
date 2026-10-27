@@ -386,6 +386,12 @@ int vfs_getdents(struct vnode* dir, struct dirent* buf, size_t count, off_t off,
 	return err;
 }
 
+int vfs_ioctl(struct vnode* vnode, unsigned long req, void __user* arg) {
+	if (!vnode)
+		return -EINVAL;
+	return VOP_IOCTL(vnode, req, arg, current_cred());
+}
+
 static void follow_mount(struct vnode** vnode) {
 	bug((*vnode)->type != VTYPE_DIR);
 	while (1) {

@@ -118,6 +118,13 @@ static int devfs_getdents(struct vnode* dir, struct dirent* buf, size_t count, o
 	return -ENOTDIR;
 }
 
+static int devfs_ioctl(struct vnode* vnode, unsigned long req, void __user* arg, const struct cred* cred) {
+	struct chrdev* chrdev = live_chrdev(vnode);
+	if (!chrdev)
+		return -ENXIO;
+	return chrdev->ops->ioctl ? chrdev->ops->ioctl(chrdev, req, arg, cred) : -ENOTTY;
+}
+
 /* Let devices do their own locking */
 
 static int devfs_lock(struct vnode* vnode) {
@@ -155,6 +162,7 @@ static const struct vnode_ops devfs_node_ops = {
 	.unlink = devfs_remove,
 	.freelink = devfs_freelink,
 	.getdents = devfs_getdents,
+	.ioctl = devfs_ioctl,
 	.lock = devfs_lock,
 	.unlock = devfs_unlock,
 	.inactive = devfs_inactive

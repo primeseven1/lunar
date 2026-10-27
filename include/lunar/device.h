@@ -9,7 +9,7 @@ struct chrdev_ops {
 	int (*close)(struct chrdev*, int flags, const struct cred*);
 	int (*read)(struct chrdev*, struct uio*, int ioflags, const struct cred*);
 	int (*write)(struct chrdev*, struct uio*, int ioflags, const struct cred*);
-	int (*ioctl)(struct chrdev*, unsigned long req, void* arg, const struct cred*);
+	int (*ioctl)(struct chrdev*, unsigned long req, void __user* arg, const struct cred*);
 	void (*inactive)(struct chrdev*);
 };
 

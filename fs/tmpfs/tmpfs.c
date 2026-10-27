@@ -546,6 +546,7 @@ static const struct vnode_ops tmpfs_node_ops = {
 	.readlink = tmpfs_readlink,
 	.freelink = tmpfs_freelink,
 	.getdents = tmpfs_getdents,
+	.ioctl = NULL,
 	.lock = NULL,
 	.unlock = NULL,
 	.inactive = tmpfs_inactive
