@@ -83,7 +83,7 @@ void fd_clone(struct fd* table);
  * @brief Duplicate an open file descriptor
  *
  * @param old_fd The old file descriptor
- * @param new_fd The file descriptor to assocate old_fd with. Ignored if <= 0.
+ * @param new_fd The file descriptor to assocate old_fd with. Ignored if < 0.
  * @param flags The flags for the new file descriptor
  * @param out_fd Where the new file descriptor will be stored
  *

@@ -52,10 +52,12 @@ struct file* fd_get(int fd) {
 	struct proc* proc = current_proc();
 	mutex_acquire(&proc->fd_mtx);
 	struct file* file = proc->fd_table[fd].file;
-	FILE_HOLD(file);
+	if (file)
+		FILE_HOLD(file);
 	mutex_release(&proc->fd_mtx);
 
-	mutex_acquire(&file->mtx);
+	if (file)
+		mutex_acquire(&file->mtx);
 	return file;
 }
 
@@ -143,6 +145,7 @@ int fd_dup(int old_fd, int new_fd, int flags, int* out_fd) {
 		return -EBADF;
 
 	struct proc* proc = current_proc();
+	struct file* old = NULL;
 	int err = 0;
 
 	mutex_acquire(&proc->fd_mtx);
@@ -154,9 +157,12 @@ int fd_dup(int old_fd, int new_fd, int flags, int* out_fd) {
 	}
 
 	if (new_fd >= 0) {
-		if (proc->fd_table[new_fd].file)
-			FILE_RELEASE(proc->fd_table[new_fd].file);
+		if (new_fd == old_fd) {
+			*out_fd = new_fd;
+			goto out;
+		}
 
+		old = proc->fd_table[new_fd].file;
 		proc->fd_table[new_fd] = (struct fd){ .file = file, .flags = flags };
 		*out_fd = new_fd;
 	} else {
@@ -168,8 +174,12 @@ int fd_dup(int old_fd, int new_fd, int flags, int* out_fd) {
 		proc->fd_table[fd] = (struct fd){ .file = file, .flags = flags };
 		*out_fd = fd;
 	}
+
+	FILE_HOLD(file);
 out:
 	mutex_release(&proc->fd_mtx);
+	if (old)
+		FILE_RELEASE(old);
 	return err;
 }
 
