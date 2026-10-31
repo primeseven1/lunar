@@ -14,6 +14,13 @@ static void destroy_file(struct file* file) {
 	slab_cache_free(file_cache, file);
 }
 
+#define FILE_HOLD(f) atomic_add_fetch(&(f)->refcnt, 1)
+#define FILE_RELEASE(f) \
+	do { \
+		if (atomic_sub_fetch(&(f)->refcnt, 1) == 0) \
+			destroy_file(f); \
+	} while (0)
+
 struct fd* fd_create_table(void) {
 	return kcalloc(FD_TABLE_ENTRY_COUNT, sizeof(struct fd), MM_ZONE_NORMAL);
 }
@@ -21,17 +28,10 @@ struct fd* fd_create_table(void) {
 void fd_destroy_table(struct fd* table) {
 	for (int i = 0; i < FD_TABLE_ENTRY_COUNT; i++) {
 		if (table[i].file)
-			destroy_file(table[i].file);
+			FILE_RELEASE(table[i].file);
 	}
 	kfree(table);
 }
-
-#define FILE_HOLD(f) atomic_add_fetch(&(f)->refcnt, 1)
-#define FILE_RELEASE(f) \
-	do { \
-		if (atomic_sub_fetch(&(f)->refcnt, 1) == 0) \
-			destroy_file(f); \
-	} while (0)
 
 static struct file* alloc_file(void) {
 	struct file* ret = slab_cache_alloc(file_cache);
