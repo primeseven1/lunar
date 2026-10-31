@@ -9,17 +9,18 @@ static struct hashtable* process_table;
 static pid_t __atomic pid_counter = atomic_init(1);
 static struct proc kernel_proc = {
 	.pid = 0,
-	.parent = NULL, .sibling = NULL, .child = NULL,
 	.cred = { .uid = 0, .euid = 0, .suid = 0, .gid = 0, .egid = 0, .sgid = 0 },
+	.parent = NULL, .sibling = NULL, .child = NULL,
 	.mm_struct = NULL,
 	.thread_list = LIST_HEAD_INITIALIZER(kernel_proc.thread_list),
 	.thread_count = 0,
 	.no_more_threads = false,
 	.thread_list_lock = SPINLOCK_INITIALIZER,
-	.fs = {
-		.cwd = NULL, .root = NULL,
-		.mtx = MUTEX_INITIALIZER(kernel_proc.fs.mtx)
-	},
+	.cwd = NULL, .root = NULL,
+	.cwd_root_mtx = MUTEX_INITIALIZER(kernel_proc.cwd_root_mtx),
+	.fd_table = NULL,
+	.fd_mtx = MUTEX_INITIALIZER(kernel_proc.fd_mtx),
+	.exit_code = 0,
 	.refcnt = atomic_init(1)
 };
 
@@ -39,23 +40,28 @@ struct proc* proc_create(void) {
 	struct proc* proc = slab_cache_alloc(process_cache);
 	if (!proc)
 		return NULL;
+
 	proc->mm_struct = mm_create();
 	if (!proc->mm_struct) {
 		slab_cache_free(process_cache, proc);
 		return NULL;
 	}
+
 	proc->pid = atomic_fetch_add(&pid_counter, 1);
+	proc->cred = *current_cred();
 	proc->parent = NULL;
 	proc->sibling = NULL;
 	proc->child = NULL;
-	proc->cred = *current_cred();
 	list_head_init(&proc->thread_list);
 	proc->thread_count = 0;
 	proc->no_more_threads = false;
 	spinlock_init(&proc->thread_list_lock);
-	proc->fs.cwd = NULL;
-	proc->fs.root = NULL;
-	mutex_init(&proc->fs.mtx);
+	proc->cwd = NULL;
+	proc->root = NULL;
+	mutex_init(&proc->cwd_root_mtx);
+	proc->fd_table = NULL;
+	mutex_init(&proc->fd_mtx);
+	proc->exit_code = 0;
 	atomic_store(&proc->refcnt, 1);
 
 	int err = hashtable_insert(process_table, &proc->pid, sizeof(proc->pid), &proc);

@@ -428,18 +428,18 @@ int vfs_lookup(struct vnode* ref, const char* path, char* lastcomp, int flags, s
 	const bool trailing_slash = has_trailing_slash(path);
 
 	struct proc* proc = current_proc();
-	mutex_acquire(&proc->fs.mtx);
+	mutex_acquire(&proc->cwd_root_mtx);
 
 	if (*path == '/') {
-		ref = proc->fs.root;
+		ref = proc->root;
 		while (*path == '/')
 			path++;
 	} else if (!ref) {
-		ref = proc->fs.cwd;
+		ref = proc->cwd;
 	}
 
 	VOP_HOLD(ref);
-	mutex_release(&proc->fs.mtx);
+	mutex_release(&proc->cwd_root_mtx);
 	VOP_LOCK(ref);
 
 	char* _path = kstrdup(path, MM_ZONE_NORMAL);
@@ -476,9 +476,9 @@ int vfs_lookup(struct vnode* ref, const char* path, char* lastcomp, int flags, s
 			continue;
 		bool is_dotdot = (strcmp(comp, "..") == 0);
 		if (is_dotdot) {
-			mutex_acquire(&proc->fs.mtx);
-			struct vnode* chroot = proc->fs.root;
-			mutex_release(&proc->fs.mtx);
+			mutex_acquire(&proc->cwd_root_mtx);
+			struct vnode* chroot = proc->root;
+			mutex_release(&proc->cwd_root_mtx);
 			if (ref == chroot)
 				continue;
 
@@ -577,10 +577,10 @@ int vfs_mount_root(const char* fs_type) {
 	VOP_HOLD(root);
 
 	struct proc* proc = current_proc();
-	mutex_acquire(&proc->fs.mtx);
-	proc->fs.root = root;
-	proc->fs.cwd = root;
-	mutex_release(&proc->fs.mtx);
+	mutex_acquire(&proc->cwd_root_mtx);
+	proc->root = root;
+	proc->cwd = root;
+	mutex_release(&proc->cwd_root_mtx);
 
 	VOP_UNLOCK(root);
 	return 0;
@@ -590,11 +590,12 @@ static void vfs_init(void) {
 	fs_table = hashtable_create(16, sizeof(struct filesystem_type*));
 	if (!fs_table)
 		out_of_memory();
+
 	struct proc* proc = current_proc();
-	proc->fs.root = &vfs_root;
-	proc->fs.cwd = &vfs_root;
-	VOP_HOLD(proc->fs.root);
-	VOP_HOLD(proc->fs.cwd);
+	proc->root = &vfs_root;
+	proc->cwd = &vfs_root;
+	VOP_HOLD(proc->root);
+	VOP_HOLD(proc->cwd);
 }
 
 INIT_TASK_DECLARE(heap_init_task, sched_init_task);

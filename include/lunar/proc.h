@@ -5,22 +5,23 @@
 #include <lunar/vfs.h>
 #include <lunar/mutex.h>
 #include <lunar/sched.h>
+#include <lunar/fd.h>
 #include <arch/posix.h>
 
 struct proc {
 	pid_t pid;
-	struct proc* parent, *sibling, *child;
 	struct cred cred;
+	struct proc* parent, *sibling, *child;
 	struct mm* mm_struct;
 	struct list_head thread_list;
 	unsigned int thread_count;
 	bool no_more_threads;
 	spinlock_t thread_list_lock;
+	struct vnode* cwd, *root;
+	mutex_t cwd_root_mtx;
+	struct fd* fd_table;
+	mutex_t fd_mtx;
 	int exit_code;
-	struct {
-		struct vnode* cwd, *root;
-		mutex_t mtx;
-	} fs;
 	unsigned long __atomic refcnt;
 };
 
